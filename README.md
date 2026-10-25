@@ -42,8 +42,8 @@ You can still pre-seed a password with `java -jar server.jar --hash-password` an
 | You type | What happens |
 |---|---|
 | `velocity plist` | sends `plist` to Velocity (any `<id> <command>` works) |
-| elocity.start / .stop / .restart | controls one child (same for any server id) |
-| elocity.mute / .unmute | mutes or unmutes that child's log lines on the main console; the web panel still shows them |
+| `velocity.start` / .stop / .restart | controls one child (same for any server id) |
+| `velocity.mute` / .unmute | mutes or unmutes that child's log lines on the main console; the web panel still shows them |
 | `status` | shows every child's state, pid and uptime |
 | `stop` | stops ALL children gracefully, then exits the root |
 | `help` | lists these |
