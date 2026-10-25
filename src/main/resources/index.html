@@ -327,6 +327,97 @@
         .network-row { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 16px; margin-top: 8px; }
         .net-label { font-size: 13px; font-weight: 600; color: var(--text-main); }
         .net-stats { display: flex; gap: 12px; font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
+
+        /* ===== Change Version (Phase 3) ===== */
+        .nav-label { padding: 16px 16px 6px; font-size: 10px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; color: var(--text-dark); user-select: none; }
+        .server-type-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .mini-btn { padding: 3px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; letter-spacing: .2px; cursor: pointer; background: var(--bg-hover); color: var(--text-muted); border: 1px solid var(--border); white-space: nowrap; }
+        .mini-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+        .version-page { flex: 1; overflow-y: auto; padding: 4px 2px 20px; display: flex; flex-direction: column; gap: 16px; }
+        .version-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+        .version-head h2 { font-size: 20px; font-weight: 700; }
+        .version-head-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .version-current-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; font-size: 13px; color: var(--text-muted); }
+        .version-current-line strong { font-family: var(--font-mono); font-size: 14px; color: var(--text-main); }
+        .version-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+        .update-pill { background: hsla(150,70%,50%,.12); color: var(--success); border: 1px solid hsla(150,70%,50%,.35); border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
+        .update-pill:hover { background: hsla(150,70%,50%,.2); }
+        .update-pill:disabled { opacity: .6; cursor: default; }
+
+        .version-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .version-search { flex: 1; min-width: 180px; padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text-main); font-size: 13px; outline: none; }
+        .version-search:focus { border-color: var(--accent); }
+        .version-cats { display: flex; gap: 6px; }
+        .cat-chip { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+        .cat-chip:hover { color: var(--text-main); border-color: var(--border-light); }
+        .cat-chip.active { color: var(--accent); border-color: var(--accent); background: hsla(215,80%,60%,.12); }
+
+        .software-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+        .software-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; min-width: 0; transition: border-color .15s; }
+        .software-card:hover, .software-card:focus-visible { border-color: var(--accent); outline: none; }
+        .software-card.current { border-color: hsla(150,70%,50%,.45); }
+        .software-card.disabled { cursor: not-allowed; opacity: .6; }
+        .software-card.disabled:hover { border-color: var(--border); }
+        .software-card-head { display: flex; gap: 10px; align-items: center; min-width: 0; }
+        .software-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; color: hsl(215,20%,8%); flex-shrink: 0; }
+        .software-title { min-width: 0; }
+        .software-name { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .software-cat { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); }
+        .software-desc { font-size: 12px; line-height: 1.45; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; min-height: 34px; }
+        .software-reason { font-size: 11px; line-height: 1.4; color: hsl(38,92%,70%); }
+        .software-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .sw-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding: 3px 7px; border-radius: 4px; background: var(--bg-hover); color: var(--text-muted); }
+        .sw-badge.ok { background: hsla(150,70%,50%,.12); color: var(--success); }
+        .sw-badge.installer { background: hsla(215,80%,60%,.14); color: var(--accent); }
+        .sw-badge.manual { background: hsla(38,92%,55%,.14); color: hsl(38,92%,70%); }
+        .sw-badge.current { background: hsla(150,70%,50%,.14); color: var(--success); }
+        .sw-badge.unsupported { background: hsla(350,70%,60%,.12); color: var(--danger); }
+
+        .version-section { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .version-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .version-section-head h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); }
+        .version-note { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+        .version-warn { padding: 10px 12px; border: 1px solid hsla(38,92%,55%,.35); background: hsla(38,92%,55%,.08); color: hsl(38,92%,70%); border-radius: 8px; font-size: 12px; line-height: 1.5; }
+        .version-err { padding: 10px 12px; border: 1px solid hsla(350,70%,60%,.35); background: hsla(350,70%,60%,.08); color: hsl(350,70%,72%); border-radius: 8px; font-size: 12px; line-height: 1.5; }
+        .version-info { padding: 10px 12px; border: 1px solid hsla(215,80%,60%,.35); background: hsla(215,80%,60%,.08); color: var(--accent); border-radius: 8px; font-size: 12px; line-height: 1.5; }
+        .version-progress { display: none; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid hsla(215,80%,60%,.35); background: hsla(215,80%,60%,.08); color: var(--accent); border-radius: 8px; font-size: 12px; font-weight: 600; }
+        .version-progress.show { display: flex; }
+        .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid hsla(215,80%,60%,.3); border-top-color: var(--accent); animation: spin .8s linear infinite; flex-shrink: 0; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .version-empty { grid-column: 1/-1; padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px; border: 1px dashed var(--border); border-radius: 10px; }
+
+        .java-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .java-select { flex: 1; min-width: 220px; padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text-main); font-size: 13px; outline: none; }
+        .java-select:focus { border-color: var(--accent); }
+        .java-custom { flex: 2; min-width: 200px; padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text-main); font-family: var(--font-mono); font-size: 12px; outline: none; }
+        .java-custom:focus { border-color: var(--accent); }
+        .java-managed { display: flex; flex-direction: column; gap: 6px; }
+        .java-managed-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; }
+        .java-managed-path { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .java-managed-ver { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+        .java-del { padding: 4px 9px; font-size: 11px; border-color: hsla(350,70%,60%,.4); color: var(--danger); }
+
+        #version-picker-modal .version-picker-content { height: auto; max-width: 560px; max-height: 88vh; overflow: hidden; }
+        .picker-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+        .picker-title { font-size: 15px; font-weight: 700; }
+        .picker-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.45; }
+        .picker-search-wrap { padding: 12px 20px 0; }
+        .picker-search { width: 100%; padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text-main); font-size: 13px; outline: none; }
+        .picker-search:focus { border-color: var(--accent); }
+        .picker-warn { padding: 10px 20px 0; display: flex; flex-direction: column; gap: 6px; max-height: 15vh; overflow-y: auto; }
+        .picker-list { flex: 1; min-height: 120px; max-height: 38vh; overflow-y: auto; padding: 12px 20px; display: flex; flex-direction: column; gap: 6px; }
+        .picker-item { width: 100%; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text-main); font: inherit; cursor: pointer; }
+        .picker-item:hover { border-color: var(--accent); }
+        .picker-item.selected { border-color: var(--accent); background: hsla(215,80%,60%,.12); }
+        .picker-item.is-current { box-shadow: inset 3px 0 0 var(--success); }
+        .picker-item-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .picker-label { font-family: var(--font-mono); font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .picker-sub { font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .picker-tag { flex-shrink: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--success); background: hsla(150,70%,50%,.12); border-radius: 4px; padding: 3px 7px; }
+        .picker-foot { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .picker-stage { font-size: 12px; color: var(--accent); margin-right: auto; min-width: 0; }
+        .picker-count { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-right: auto; }
     </style>
 </head>
 <body class="mc-font">
@@ -577,7 +668,11 @@
                     <div class="nav-item" id="tab-btn-users" onclick="switchTab('users')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg> Users
                     </div>
-                    
+
+                    <div class="nav-label">SERVER SETTINGS</div>
+                    <div class="nav-item" id="tab-btn-version" onclick="switchTab('version')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg> Change Version
+                    </div>
                     <div style="margin-top: auto; padding: 16px;"></div>
                 </div>
                 
@@ -663,6 +758,66 @@
                             </div>
                         </div>
                     </div>
+
+                    <div id="tab-version" class="tab-container">
+                        <div class="version-page">
+                            <div class="version-head">
+                                <div>
+                                    <h2>Change Version</h2>
+                                    <div class="version-current-line">
+                                        <span id="version-current-badge">-</span>
+                                        <span>You're currently running</span>
+                                        <strong id="version-current-version">…</strong>
+                                        <span class="version-sub" id="version-current-mc"></span>
+                                    </div>
+                                </div>
+                                <div class="version-head-right">
+                                    <button type="button" class="update-pill" id="version-update-pill" style="display:none;" onclick="openUpdatePicker()">Update available</button>
+                                    <button type="button" class="btn btn-outline" onclick="loadVersionTab(true)">Refresh</button>
+                                </div>
+                            </div>
+
+                            <div id="version-notice" class="version-warn" style="display:none;"></div>
+                            <div id="version-support-warn" class="version-warn" style="display:none;"></div>
+
+                            <div class="version-toolbar">
+                                <input type="text" id="version-search" class="version-search" placeholder="Search software..." oninput="versionQuery=this.value;filterSoftware()" autocomplete="off" spellcheck="false">
+                                <div class="version-cats">
+                                    <button type="button" class="cat-chip active" id="version-cat-all" data-cat="all" onclick="setVersionCategory('all')">All</button>
+                                    <button type="button" class="cat-chip" id="version-cat-java" data-cat="java" onclick="setVersionCategory('java')">Java</button>
+                                    <button type="button" class="cat-chip" id="version-cat-proxies" data-cat="proxy" onclick="setVersionCategory('proxy')">Proxies</button>
+                                </div>
+                            </div>
+
+                            <div id="version-progress" class="version-progress"><span class="spinner"></span><span id="version-progress-text"></span></div>
+
+                            <div id="software-grid" class="software-grid"></div>
+
+                            <div class="version-section">
+                                <div class="version-section-head">
+                                    <h3>Java Runtime</h3>
+                                    <span class="version-note" id="java-recommended"></span>
+                                </div>
+                                <div class="version-note" id="java-current">Loading Java runtime…</div>
+                                <div id="java-warning" class="version-warn" style="display:none;"></div>
+                                <div class="java-row">
+                                    <select id="java-runtime-select" class="java-select" aria-label="Java runtime"></select>
+                                    <button type="button" class="btn" id="java-apply-btn" onclick="applyJavaPath(document.getElementById('java-runtime-select').value)">Apply</button>
+                                </div>
+                                <div class="java-row">
+                                    <input type="text" id="java-custom-path" class="java-custom" placeholder="Custom Java path, e.g. /usr/lib/jvm/java-21/bin/java" autocomplete="off" spellcheck="false">
+                                    <button type="button" class="btn btn-outline" id="java-custom-apply" onclick="applyJavaPath(document.getElementById('java-custom-path').value)">Use path</button>
+                                </div>
+                                <div class="java-row">
+                                    <button type="button" class="btn btn-outline" id="java-download-21" style="display:none;" onclick="downloadJava(21)">Download Java 21</button>
+                                    <button type="button" class="btn btn-outline" id="java-download-25" style="display:none;" onclick="downloadJava(25)">Download Java 25</button>
+                                    <button type="button" class="btn btn-outline" onclick="loadJavaRuntimes(true)">Rediscover</button>
+                                </div>
+                                <div class="version-note" id="java-status" style="display:none;"></div>
+                                <div class="java-managed" id="java-managed-list"></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="sidebar-right">
@@ -673,7 +828,10 @@
                             </div>
                             <div>
                                 <div class="server-name" id="console-server-name">Loading...</div>
-                                <div class="server-type" id="console-server-type">-</div>
+                                <div class="server-type-row">
+                                    <div class="server-type" id="console-server-type">-</div>
+                                    <button type="button" class="mini-btn" id="console-change-version-btn" onclick="goChangeVersion()" title="Change the server software or version">Change Version</button>
+                                </div>
                             </div>
                         </div>
                         
@@ -860,6 +1018,30 @@
         </div>
     </div>
 
+    <!-- CHANGE VERSION PICKER (Phase 3) -->
+    <div class="fm-modal" id="version-picker-modal">
+        <div class="fm-modal-content version-picker-content">
+            <div class="picker-head">
+                <div>
+                    <div class="picker-title" id="version-picker-title">Change Version</div>
+                    <div class="picker-subtitle" id="version-picker-subtitle"></div>
+                </div>
+                <button class="btn btn-outline" onclick="closeVersionPicker()">X</button>
+            </div>
+            <div class="picker-search-wrap">
+                <input type="text" id="version-picker-search" class="picker-search" placeholder="Search versions..." oninput="filterVersionPicker()" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="picker-warn" id="version-picker-warn" style="display:none;"></div>
+            <div class="picker-list" id="version-picker-list"></div>
+            <div class="picker-foot">
+                <span class="picker-stage" id="version-picker-stage"></span>
+                <span class="picker-count" id="version-picker-count"></span>
+                <button type="button" class="btn btn-outline" onclick="closeVersionPicker()">Cancel</button>
+                <button type="button" class="btn" id="version-picker-confirm" onclick="confirmVersionChange()" disabled>Confirm Change</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let currentServer = null, currentPath = ".", currentFile = null, isAdmin = false;
         let sse = null, currentServersList = [], currentPublicIp = "127.0.0.1";
@@ -885,6 +1067,18 @@
         let allUsers = [];
         let cpuMaxPct = 300;
         let deleteTarget = null, deleteCountdown = null;
+
+        // ===== Change Version state (Phase 3) =====
+        let versionInfo = null, versionCatalog = [], versionTarget = null;
+        let versionBusy = false, versionCategory = 'all', versionQuery = '';
+        let javaRuntimes = null, javaDownloading = 0, javaBusy = false;
+        let versionCatalogAt = 0, versionInfoAt = 0, versionStageTimer = null;
+        let versionCatalogError = false;
+        let versionPicker = { software: null, versions: [], current: '', currentMc: '', supported: true, reason: '', selected: null, check: null, checkKey: '' };
+        let versionCheckCache = {};
+        let updateCache = { key: '', at: 0, data: null };
+        const UPDATE_CACHE_MS = 5 * 60 * 1000;
+        const VERSION_INFO_TTL_MS = 15 * 1000;
 
         function showToast(msg, type='info') {
             const t = document.createElement('div'); t.className = 'toast ' + type; t.innerText = msg;
@@ -1144,6 +1338,7 @@
             if (t === 'users') loadServerUsers();
             if (t === 'plugins') loadAddons('plugin');
             if (t === 'mods') loadAddons('mod');
+            if (t === 'version') loadVersionTab();
             if (t === 'console') { const input = document.getElementById('console-input'); if (input) input.focus(); }
         }
 
@@ -1382,7 +1577,8 @@
         }
 
         function openServer(id, port, type) {
-            currentServer = { id, port, type: type || '' };
+            currentServer = { id, port, type: type || '', role: '', canChange: null, jar: '' };
+            resetVersionState();
             configCurrentFile = '';
             configFiles = [];
             configEntries = [];
@@ -1407,9 +1603,8 @@
             document.getElementById('sidebar-ip').innerText = currentPublicIp + ":" + port;
             document.getElementById('console-output').innerHTML = '';
             switchView('console'); switchTab('console');
-            if (sse) sse.close();
-            sse = new EventSource('/api/console/' + id);
-            sse.onmessage = (e) => pushConsoleLine(e.data);
+            reconnectConsole();
+            refreshVersionInfo();
             const input = document.getElementById('console-input');
             if (input) input.focus();
         }
@@ -2405,11 +2600,984 @@
             }
         }
 
+        // ===== Change Version (Phase 3) =====
+
+        function resetVersionState() {
+            versionInfo = null;
+            versionInfoAt = 0;
+            versionTarget = null;
+            versionBusy = false;
+            versionCatalog = [];
+            versionCatalogAt = 0;
+            versionCatalogError = false;
+            javaRuntimes = null;
+            javaDownloading = 0;
+            javaBusy = false;
+            updateCache = { key: '', at: 0, data: null };
+            versionPicker = { software: null, versions: [], current: '', currentMc: '', supported: true, reason: '', selected: null, check: null, checkKey: '' };
+            versionCheckCache = {};
+            if (versionStageTimer) { clearInterval(versionStageTimer); versionStageTimer = null; }
+            closeVersionPicker();
+            setVersionNotice('');
+            setVersionProgress(false, '');
+            setPickerWarnings('');
+            setJavaStatus('', '');
+            const grid = document.getElementById('software-grid');
+            if (grid) grid.innerHTML = '';
+            const curBadge = document.getElementById('version-current-badge');
+            if (curBadge) curBadge.innerHTML = typeBadge(currentServer && currentServer.type);
+            const curVer = document.getElementById('version-current-version');
+            if (curVer) curVer.textContent = '…';
+            const curMc = document.getElementById('version-current-mc');
+            if (curMc) curMc.textContent = '';
+            const recEl = document.getElementById('java-recommended');
+            if (recEl) recEl.textContent = '';
+            const javaCurrent = document.getElementById('java-current');
+            if (javaCurrent) javaCurrent.textContent = 'Loading Java runtime…';
+            const sel = document.getElementById('java-runtime-select');
+            if (sel) sel.innerHTML = '';
+            const managed = document.getElementById('java-managed-list');
+            if (managed) managed.innerHTML = '';
+            const pill = document.getElementById('version-update-pill');
+            if (pill) { pill.style.display = 'none'; pill.textContent = 'Update available'; pill.removeAttribute('title'); }
+            const warn = document.getElementById('version-support-warn');
+            if (warn) warn.style.display = 'none';
+            const notice = document.getElementById('version-notice');
+            if (notice) notice.style.display = 'none';
+            const jw = document.getElementById('java-warning');
+            if (jw) jw.style.display = 'none';
+            const path = document.getElementById('java-custom-path');
+            if (path) path.value = '';
+            const applyBtn = document.getElementById('console-change-version-btn');
+            if (applyBtn) applyBtn.style.display = '';
+        }
+
+        function goChangeVersion() {
+            if (!currentServer) return showToast('Open a server first', 'error');
+            if (currentServer.canChange === false) return showToast('You do not have permission to change this server', 'error');
+            switchTab('version');
+        }
+
+        async function loadVersionTab(force) {
+            if (!currentServer) {
+                const grid = document.getElementById('software-grid');
+                if (grid) grid.innerHTML = '<div class="version-empty">Open a server first.</div>';
+                return;
+            }
+            const sid = currentServer.id;
+            setVersionNotice('');
+            renderVersionHeader();
+            renderSoftwareGrid();
+            renderJavaRuntimes();
+            const jobs = [refreshVersionInfo(force === true)];
+            if (force === true || !versionCatalog.length || (Date.now() - versionCatalogAt) > UPDATE_CACHE_MS) jobs.push(loadSoftwareCatalog());
+            if (force === true || !javaRuntimes) jobs.push(loadJavaRuntimes(force === true));
+            await Promise.allSettled(jobs);
+            if (!currentServer || currentServer.id !== sid) return;
+            renderVersionHeader();
+            renderSoftwareGrid();
+            renderJavaRuntimes();
+            loadUpdateBadge(force === true);
+        }
+
+        async function loadSoftwareCatalog() {
+            if (!currentServer) return;
+            const sid = currentServer.id;
+            try {
+                const res = await fetch('/api/software');
+                if (!currentServer || currentServer.id !== sid) return;
+                if (!res.ok) {
+                    const detail = await readApiError(res);
+                    versionCatalogError = true;
+                    notifyVersionError(apiError(detail.status, detail));
+                    renderSoftwareGrid();
+                    return;
+                }
+                const data = await res.json();
+                versionCatalog = Array.isArray(data) ? data : (data && Array.isArray(data.software) ? data.software : []);
+                versionCatalogAt = Date.now();
+                versionCatalogError = false;
+            } catch (e) {
+                if (!currentServer || currentServer.id !== sid) return;
+                versionCatalogError = true;
+                notifyVersionError('Could not load the software list: ' + e.message);
+            }
+            if (currentServer && currentServer.id === sid) renderSoftwareGrid();
+        }
+
+        async function refreshVersionInfo(force) {
+            if (!currentServer) return null;
+            const sid = currentServer.id;
+            if (!force && versionInfo && versionInfoAt && (Date.now() - versionInfoAt) < VERSION_INFO_TTL_MS) {
+                return versionInfo;
+            }
+            try {
+                const res = await fetch('/api/version/info?server=' + encodeURIComponent(sid));
+                if (!currentServer || currentServer.id !== sid) return null;
+                if (res.status === 403) {
+                    currentServer.canChange = false;
+                    versionInfo = null;
+                    versionInfoAt = Date.now();
+                    setVersionNotice('You do not have access to version changes for this server.', 'error');
+                    updateVersionControls();
+                    return null;
+                }
+                if (!res.ok) {
+                    const detail = await readApiError(res);
+                    notifyVersionError(apiError(detail.status, detail));
+                    return null;
+                }
+                const data = await res.json();
+                if (!currentServer || currentServer.id !== sid) return null;
+                versionInfo = data || null;
+                versionInfoAt = Date.now();
+                if (versionInfo) {
+                    if (versionInfo.type) currentServer.type = String(versionInfo.type);
+                    currentServer.role = versionInfo.role || '';
+                    currentServer.canChange = versionInfo.canChange !== false;
+                    if (versionInfo.jar) currentServer.jar = String(versionInfo.jar);
+                }
+                const badge = document.getElementById('console-server-type');
+                if (badge) badge.innerHTML = typeBadge(currentServer.type);
+                renderVersionHeader();
+                updateVersionControls();
+                return versionInfo;
+            } catch (e) {
+                if (!currentServer || currentServer.id !== sid) return null;
+                notifyVersionError('Could not load version information: ' + e.message);
+                return null;
+            }
+        }
+
+        function updateVersionControls() {
+            const btn = document.getElementById('console-change-version-btn');
+            if (btn) btn.style.display = (currentServer && currentServer.canChange === false) ? 'none' : '';
+            if (versionCatalog.length) renderSoftwareGrid();
+            if (javaRuntimes || versionInfo) renderJavaRuntimes();
+            updatePickerConfirm();
+        }
+
+        function renderVersionHeader() {
+            const info = versionInfo;
+            const badge = document.getElementById('version-current-badge');
+            if (badge) badge.innerHTML = typeBadge(info && info.type ? info.type : (currentServer && currentServer.type));
+            const ver = document.getElementById('version-current-version');
+            if (ver) ver.textContent = info ? String(info.softwareVersion || 'unknown') : '…';
+            const mc = document.getElementById('version-current-mc');
+            if (mc) {
+                mc.textContent = info
+                    ? ('MC ' + String(info.mcVersion || 'unknown') + (info.jar ? ' · ' + String(info.jar) : ''))
+                    : '';
+            }
+            const warn = document.getElementById('version-support-warn');
+            if (warn) {
+                if (info && info.supported === false) {
+                    warn.style.display = 'block';
+                    warn.textContent = 'Version changes are not supported for this software: ' + (info.reason || 'unknown reason') + '.';
+                } else if (currentServer && currentServer.canChange === false) {
+                    warn.style.display = 'block';
+                    warn.textContent = 'You have read-only access to this server, so changing the version or Java runtime is disabled.';
+                } else {
+                    warn.style.display = 'none';
+                    warn.textContent = '';
+                }
+            }
+        }
+
+        function softwareHue(id) {
+            const s = String(id || '');
+            let h = 0;
+            for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+            return h;
+        }
+
+        function renderSoftwareGrid() {
+            const grid = document.getElementById('software-grid');
+            if (!grid) return;
+            if (!currentServer) {
+                grid.innerHTML = '<div class="version-empty">Open a server first.</div>';
+                return;
+            }
+            if (!versionCatalog.length) {
+                grid.innerHTML = versionCatalogError
+                    ? '<div class="version-empty">Could not load the software list. Use Refresh to retry.</div>'
+                    : '<div class="version-empty">Loading the software list…</div>';
+                return;
+            }
+            const q = String(versionQuery || '').trim().toLowerCase();
+            const cat = versionCategory;
+            const currentType = String((versionInfo && versionInfo.type) || currentServer.type || '').toLowerCase();
+            const canChange = currentServer.canChange !== false && !versionBusy;
+            const items = versionCatalog.filter(s => {
+                const scat = String((s && s.category) || '').toLowerCase();
+                if (cat === 'java' && scat !== 'java') return false;
+                if (cat === 'proxy' && scat !== 'proxy' && scat !== 'proxies') return false;
+                if (!q) return true;
+                return (String((s && s.name) || '') + ' ' + String((s && s.id) || '') + ' ' + String((s && s.description) || '')).toLowerCase().indexOf(q) !== -1;
+            });
+            if (!items.length) {
+                grid.innerHTML = '<div class="version-empty">No software matches this search.</div>';
+                return;
+            }
+            grid.innerHTML = items.map(s => {
+                const id = String((s && s.id) || '');
+                const name = String((s && s.name) || id);
+                const description = String((s && s.description) || '');
+                const category = String((s && s.category) || '');
+                const strategy = String((s && s.strategy) || '').toUpperCase();
+                const supported = !s || s.supported !== false;
+                const isCurrent = id.toLowerCase() === currentType && currentType !== '';
+                let badgeText, badgeClass;
+                if (isCurrent) { badgeText = 'Current'; badgeClass = 'current'; }
+                else if (!supported) { badgeText = 'Not supported'; badgeClass = 'unsupported'; }
+                else if (strategy === 'INSTALLER') { badgeText = 'Installer'; badgeClass = 'installer'; }
+                else if (strategy === 'MANUAL') { badgeText = 'Manual'; badgeClass = 'manual'; }
+                else { badgeText = 'Supported'; badgeClass = 'ok'; }
+                const disabled = !supported || !canChange;
+                const reason = !supported
+                    ? String((s && s.reason) || 'Not supported on this panel yet.')
+                    : (!canChange ? 'You do not have permission to change this server.' : '');
+                const hue = softwareHue(id);
+                const initial = escapeHtml(name.charAt(0).toUpperCase() || '?');
+                const click = disabled ? '' : ` onclick="openVersionPicker(this.dataset.software)"`;
+                return `<div class="software-card${isCurrent ? ' current' : ''}${disabled ? ' disabled' : ''}" data-software="${escapeHtml(id)}"${click} tabindex="${disabled ? '-1' : '0'}" role="button" aria-disabled="${disabled ? 'true' : 'false'}">
+                    <div class="software-card-head">
+                        <div class="software-icon" style="background: hsl(${hue}, 62%, 62%);">${initial}</div>
+                        <div class="software-title">
+                            <div class="software-name">${escapeHtml(name)}</div>
+                            <div class="software-cat">${escapeHtml(category || 'Software')}</div>
+                        </div>
+                    </div>
+                    <div class="software-desc">${escapeHtml(description)}</div>
+                    ${reason ? `<div class="software-reason">${escapeHtml(reason)}</div>` : ''}
+                    <div class="software-foot">
+                        <span class="sw-badge ${badgeClass}">${escapeHtml(badgeText)}</span>
+                        <span class="version-sub">${supported && canChange ? 'Select version' : ''}</span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function filterSoftware() {
+            const input = document.getElementById('version-search');
+            if (input) versionQuery = input.value;
+            renderSoftwareGrid();
+        }
+
+        function setVersionCategory(cat) {
+            versionCategory = cat === 'java' ? 'java' : (cat === 'proxy' ? 'proxy' : 'all');
+            document.querySelectorAll('.cat-chip').forEach(chip => {
+                chip.classList.toggle('active', chip.dataset.cat === versionCategory);
+            });
+            renderSoftwareGrid();
+        }
+
+        function setVersionNotice(msg, kind) {
+            const el = document.getElementById('version-notice');
+            if (!el) return;
+            if (!msg) {
+                el.textContent = '';
+                el.style.display = 'none';
+                el.className = 'version-warn';
+                return;
+            }
+            el.className = kind === 'error' ? 'version-err' : (kind === 'info' ? 'version-info' : 'version-warn');
+            el.textContent = String(msg);
+            el.style.display = 'block';
+        }
+
+        function setVersionProgress(active, text) {
+            const box = document.getElementById('version-progress');
+            const txt = document.getElementById('version-progress-text');
+            if (txt) txt.textContent = active ? String(text || 'Working…') : '';
+            if (box) box.classList.toggle('show', !!active);
+        }
+
+        function notifyVersionError(msg) {
+            setVersionNotice(msg, 'error');
+            const tab = document.getElementById('tab-version');
+            if (tab && tab.classList.contains('active')) showToast(msg, 'error');
+        }
+
+        async function loadUpdateBadge(force) {
+            if (!currentServer) return;
+            const sid = currentServer.id;
+            if (!force && updateCache.key === sid && (Date.now() - updateCache.at) < UPDATE_CACHE_MS) {
+                renderUpdatePill(updateCache.data);
+                return;
+            }
+            try {
+                const res = await fetch('/api/update/check?server=' + encodeURIComponent(sid));
+                if (!currentServer || currentServer.id !== sid) return;
+                if (!res.ok) {
+                    renderUpdatePill(null);
+                    return;
+                }
+                const data = await res.json();
+                updateCache = { key: sid, at: Date.now(), data: (data && data.checked && data.updateAvailable) ? data : null };
+                renderUpdatePill(updateCache.data);
+            } catch (e) {
+                renderUpdatePill(null);
+            }
+        }
+
+        function renderUpdatePill(data) {
+            const pill = document.getElementById('version-update-pill');
+            if (!pill) return;
+            if (!data || !data.updateAvailable || !data.latest) {
+                pill.style.display = 'none';
+                pill.textContent = 'Update available';
+                pill.removeAttribute('title');
+                return;
+            }
+            pill.style.display = '';
+            pill.textContent = 'Update available: ' + String(data.latest);
+            pill.title = 'Current: ' + String(data.current || 'unknown') + ' → ' + String(data.latest);
+        }
+
+        function openUpdatePicker() {
+            if (!currentServer) return;
+            const sw = (updateCache.data && updateCache.data.software) || currentServer.type || '';
+            if (!sw) return showToast('No update information available', 'info');
+            openVersionPicker(sw);
+        }
+
+        async function openVersionPicker(id) {
+            if (!currentServer) return showToast('Open a server first', 'error');
+            if (currentServer.canChange === false) return showToast('You do not have permission to change this server', 'error');
+            if (versionBusy) return showToast('A version change is already in progress', 'info');
+            const softwareId = String(id || '');
+            if (!softwareId) return;
+            const sw = versionCatalog.find(s => String((s && s.id) || '') === softwareId) || null;
+            if (sw && sw.supported === false) return showToast(String(sw.reason || 'This software is not supported'), 'error');
+            const sid = currentServer.id;
+            versionTarget = {
+                id: softwareId,
+                name: String((sw && sw.name) || softwareId),
+                strategy: String((sw && sw.strategy) || ''),
+                supported: !sw || sw.supported !== false,
+                reason: String((sw && sw.reason) || '')
+            };
+            versionPicker = {
+                software: softwareId, versions: [], current: '', currentMc: '',
+                supported: versionTarget.supported, reason: versionTarget.reason,
+                selected: null, check: null, checkKey: ''
+            };
+            const title = document.getElementById('version-picker-title');
+            if (title) title.textContent = 'Change to ' + versionTarget.name;
+            const subtitle = document.getElementById('version-picker-subtitle');
+            if (subtitle) {
+                subtitle.textContent = versionTarget.supported
+                    ? 'Choose a version. If the server is running it is stopped first, the old jar is backed up, and it is started again.'
+                    : (versionTarget.reason || 'This software is not supported.');
+            }
+            const search = document.getElementById('version-picker-search');
+            if (search) search.value = '';
+            const list = document.getElementById('version-picker-list');
+            if (list) list.innerHTML = '<div class="version-empty">Loading versions…</div>';
+            const count = document.getElementById('version-picker-count');
+            if (count) count.textContent = '';
+            setPickerWarnings('');
+            setPickerStage('Loading versions…');
+            updatePickerConfirm();
+            const modal = document.getElementById('version-picker-modal');
+            if (modal) modal.classList.add('active');
+            try {
+                const res = await fetch('/api/version/available?server=' + encodeURIComponent(sid) + '&software=' + encodeURIComponent(softwareId));
+                if (!currentServer || currentServer.id !== sid || !versionTarget || versionTarget.id !== softwareId) return;
+                if (!res.ok) {
+                    const detail = await readApiError(res);
+                    const msg = apiError(detail.status, detail);
+                    if (list) list.innerHTML = '<div class="version-empty">Could not load versions for this software.</div>';
+                    setPickerWarnings(msg);
+                    setPickerStage('Failed');
+                    showToast(msg, 'error');
+                    return;
+                }
+                const data = await res.json();
+                if (!currentServer || currentServer.id !== sid || !versionTarget || versionTarget.id !== softwareId) return;
+                const versions = Array.isArray(data.versions) ? data.versions.filter(v => v && v.id) : [];
+                versionPicker.versions = versions;
+                versionPicker.current = String(data.current || '');
+                versionPicker.currentMc = String(data.currentMc || '');
+                versionPicker.supported = data.supported !== false;
+                versionPicker.reason = String(data.reason || '');
+                versionPicker.selected = null;
+                if (versions.length) {
+                    const exactCurrent = String(data.current || '');
+                    const firstOther = versions.find(v => String(v.id) !== exactCurrent);
+                    versionPicker.selected = String((firstOther || versions[0]).id);
+                }
+                renderVersionPicker();
+                updatePickerWarnings();
+                updatePickerConfirm();
+                setPickerStage('');
+                if (!versions.length) {
+                    setPickerWarnings('No versions are available for this software right now. Try again later.');
+                    return;
+                }
+                runVersionCheck();
+            } catch (e) {
+                if (!currentServer || currentServer.id !== sid) return;
+                if (list) list.innerHTML = '<div class="version-empty">Could not load versions for this software.</div>';
+                setPickerWarnings('Could not load versions: ' + e.message);
+                setPickerStage('Failed');
+            }
+        }
+
+        function filterVersionPicker() {
+            renderVersionPicker();
+        }
+
+        function renderVersionPicker() {
+            const host = document.getElementById('version-picker-list');
+            if (!host) return;
+            const p = versionPicker;
+            const searchEl = document.getElementById('version-picker-search');
+            const q = String(searchEl ? searchEl.value : '').trim().toLowerCase();
+            const all = Array.isArray(p.versions) ? p.versions : [];
+            const list = all.filter(v => {
+                if (!q) return true;
+                return (String(v.id || '') + ' ' + String(v.label || '') + ' ' + String(v.subtitle || '')).toLowerCase().indexOf(q) !== -1;
+            });
+            const count = document.getElementById('version-picker-count');
+            if (!list.length) {
+                host.innerHTML = '<div class="version-empty">' + (all.length ? 'No versions match this search.' : 'No versions available.') + '</div>';
+                if (count) count.textContent = '';
+                return;
+            }
+            host.innerHTML = list.map(v => {
+                const vid = String(v.id || '');
+                const current = isCurrentVersionLabel(vid);
+                const selected = p.selected === vid;
+                const label = String(v.label || vid);
+                const sub = String(v.subtitle || '');
+                return `<button type="button" class="picker-item${selected ? ' selected' : ''}${current ? ' is-current' : ''}" data-version="${escapeHtml(vid)}" onclick="selectVersion(this.dataset.version)">
+                    <span class="picker-item-main">
+                        <span class="picker-label">${escapeHtml(label)}</span>
+                        ${sub ? `<span class="picker-sub">${escapeHtml(sub)}</span>` : ''}
+                    </span>
+                    ${current ? '<span class="picker-tag">Current</span>' : ''}
+                </button>`;
+            }).join('');
+            if (count) count.textContent = list.length + (list.length === 1 ? ' version' : ' versions');
+        }
+
+        function isCurrentVersionLabel(v) {
+            const s = String(v || '');
+            if (!s) return false;
+            const cur = String(versionPicker.current || '');
+            const mc = String(versionPicker.currentMc || '');
+            if (cur && s === cur) return true;
+            if (mc && mc !== 'unknown' && (s === mc || s.indexOf(mc + '-') === 0)) return true;
+            return false;
+        }
+
+        function selectVersion(id) {
+            if (versionBusy) return;
+            versionPicker.selected = String(id || '');
+            renderVersionPicker();
+            updatePickerWarnings();
+            updatePickerConfirm();
+            runVersionCheck();
+        }
+
+        function versionParts(v) {
+            const s = String(v || '');
+            const mc = s.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+            if (mc) return [Number(mc[1]), Number(mc[2]), Number(mc[3] || 0)];
+            const nums = s.match(/\d+/g);
+            return nums ? nums.slice(0, 3).map(Number) : [];
+        }
+
+        function compareParts(a, b) {
+            const n = Math.max(a.length, b.length);
+            for (let i = 0; i < n; i++) {
+                const x = a[i] || 0, y = b[i] || 0;
+                if (x !== y) return x < y ? -1 : 1;
+            }
+            return 0;
+        }
+
+        function isVersionDowngrade(id) {
+            const base = (versionPicker.currentMc && versionPicker.currentMc !== 'unknown') ? versionPicker.currentMc : versionPicker.current;
+            const a = versionParts(base);
+            const b = versionParts(id);
+            if (!a.length || !b.length) return false;
+            return compareParts(b, a) < 0;
+        }
+
+        async function runVersionCheck() {
+            const p = versionPicker;
+            if (!currentServer || !versionTarget || !p.selected) return;
+            const key = versionTarget.id + '|' + p.selected;
+            if (versionCheckCache[key]) {
+                p.check = versionCheckCache[key];
+                p.checkKey = key;
+                updatePickerWarnings();
+                updatePickerConfirm();
+                return;
+            }
+            p.checkKey = key;
+            p.check = { loading: true, compatible: [], incompatible: [], unknown: [] };
+            updatePickerWarnings();
+            try {
+                const res = await fetch('/api/version/check', {
+                    method: 'POST',
+                    body: JSON.stringify({ server: currentServer.id, software: versionTarget.id, version: p.selected })
+                });
+                if (versionPicker !== p || p.checkKey !== key) return;
+                if (!res.ok) {
+                    p.check = { error: true };
+                    updatePickerWarnings();
+                    return;
+                }
+                const data = await res.json();
+                if (versionPicker !== p || p.checkKey !== key) return;
+                p.check = {
+                    compatible: Array.isArray(data.compatible) ? data.compatible : [],
+                    incompatible: Array.isArray(data.incompatible) ? data.incompatible : [],
+                    unknown: Array.isArray(data.unknown) ? data.unknown : []
+                };
+                versionCheckCache[key] = p.check;
+            } catch (e) {
+                if (p.checkKey !== key) return;
+                p.check = { error: true };
+            }
+            if (versionPicker === p) updatePickerWarnings();
+        }
+
+        function updatePickerWarnings() {
+            const p = versionPicker;
+            const msgs = [];
+            if (!p.supported) msgs.push('This software is not supported: ' + (p.reason || 'unknown reason') + '. Pick another software.');
+            if (versionInfo && versionInfo.running) msgs.push('The server is running. It will be stopped, the old jar will be backed up, and it will be started again automatically.');
+            if (p.selected && isVersionDowngrade(p.selected)) msgs.push('Downgrading can corrupt worlds. Only the old jar is backed up automatically — make a full backup first.');
+            const check = p.check;
+            if (check && check.loading) msgs.push('Checking installed add-ons for compatibility…');
+            if (check && check.error) msgs.push('Compatibility check failed (offline or the Modrinth API is unavailable). You can still continue.');
+            if (check && !check.loading && !check.error) {
+                const bad = Array.isArray(check.incompatible) ? check.incompatible : [];
+                bad.slice(0, 5).forEach(item => {
+                    if (item && typeof item === 'object') {
+                        const title = String(item.title || item.file || 'add-on');
+                        const file = String(item.file || '');
+                        const reason = String(item.reason || '');
+                        msgs.push('Not compatible: ' + title + (file && file !== title ? ' (' + file + ')' : '') + (reason ? ' — ' + reason : ''));
+                    } else if (item) {
+                        msgs.push('Not compatible: ' + String(item));
+                    }
+                });
+                if (bad.length > 5) msgs.push((bad.length - 5) + ' more add-ons are not compatible with this version.');
+                const unknown = Array.isArray(check.unknown) ? check.unknown.length : 0;
+                if (unknown) msgs.push(unknown + (unknown === 1 ? ' add-on could' : ' add-ons could') + ' not be verified for this version.');
+            }
+            setPickerWarnings(msgs);
+        }
+
+        function setPickerWarnings(messages) {
+            const host = document.getElementById('version-picker-warn');
+            if (!host) return;
+            const list = (Array.isArray(messages) ? messages : (messages ? [messages] : []))
+                .filter(Boolean)
+                .map(m => String(m));
+            if (!list.length) {
+                host.innerHTML = '';
+                host.style.display = 'none';
+                return;
+            }
+            host.style.display = '';
+            host.innerHTML = list.map(m => `<div class="version-warn">${escapeHtml(m)}</div>`).join('');
+        }
+
+        function setPickerStage(text) {
+            const el = document.getElementById('version-picker-stage');
+            if (el) el.textContent = text ? String(text) : '';
+        }
+
+        function updatePickerConfirm() {
+            const btn = document.getElementById('version-picker-confirm');
+            if (!btn) return;
+            const p = versionPicker;
+            const ok = !!p.selected && p.supported !== false && !!currentServer
+                && currentServer.canChange !== false && !versionBusy;
+            btn.disabled = !ok;
+            btn.textContent = versionBusy ? 'Working…' : 'Confirm Change';
+        }
+
+        async function confirmVersionChange() {
+            if (versionBusy) return showToast('A version change is already in progress', 'error');
+            if (!currentServer || !versionTarget || !versionPicker.selected) return;
+            if (currentServer.canChange === false) return showToast('You do not have permission to change this server', 'error');
+            const sid = currentServer.id;
+            const softwareId = versionTarget.id;
+            const softwareName = versionTarget.name;
+            const version = versionPicker.selected;
+            if (version === versionPicker.current) return showToast('That version is already installed', 'info');
+            versionBusy = true;
+            updatePickerConfirm();
+            const stages = ['Stopping server…', 'Downloading jar…', 'Installing…', 'Saving configuration…', 'Starting server…'];
+            let stageIndex = 0;
+            const applyStage = () => {
+                const text = stages[Math.min(stageIndex, stages.length - 1)];
+                setPickerStage(text);
+                setVersionProgress(true, text + ' The old jar is backed up first.');
+            };
+            applyStage();
+            if (versionStageTimer) clearInterval(versionStageTimer);
+            versionStageTimer = setInterval(() => { stageIndex++; applyStage(); }, 6000);
+            try {
+                const res = await fetch('/api/version/change', {
+                    method: 'POST',
+                    body: JSON.stringify({ server: sid, software: softwareId, version: version, backup: true, force: false })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data.ok === false) {
+                    const msg = apiError(res.status, data);
+                    setPickerStage('Failed');
+                    setPickerWarnings(msg);
+                    showToast(msg, 'error');
+                    return;
+                }
+                const jar = data.jar ? String(data.jar) : '';
+                showToast('Changed to ' + softwareName + ' ' + version + (jar ? ' (' + jar + ')' : ''), 'success');
+                closeVersionPicker();
+                setVersionNotice('Changed to ' + softwareName + ' ' + version + (jar ? ' · ' + jar : '') + '. The previous jar was backed up.', 'info');
+                versionInfo = null;
+                versionInfoAt = 0;
+                versionCatalogAt = 0;
+                updateCache = { key: '', at: 0, data: null };
+                if (currentServer && currentServer.id === sid) {
+                    await refreshVersionInfo(true);
+                    renderVersionHeader();
+                    renderSoftwareGrid();
+                    renderJavaRuntimes();
+                    loadUpdateBadge(true);
+                    refresh();
+                    reconnectConsole();
+                    loadJavaRuntimes(true);
+                }
+            } catch (e) {
+                const msg = 'Version change failed: ' + e.message + '. Check the console and the server folder.';
+                setPickerStage('Failed');
+                setPickerWarnings(msg);
+                showToast(msg, 'error');
+            } finally {
+                if (versionStageTimer) { clearInterval(versionStageTimer); versionStageTimer = null; }
+                versionBusy = false;
+                setVersionProgress(false, '');
+                updatePickerConfirm();
+                setPickerStage('');
+            }
+        }
+
+        function closeVersionPicker() {
+            const modal = document.getElementById('version-picker-modal');
+            if (modal) modal.classList.remove('active');
+            setPickerStage('');
+        }
+
+        function reconnectConsole() {
+            if (!currentServer) return;
+            if (sse) {
+                sse.onmessage = null;
+                sse.onerror = null;
+                try { sse.close(); } catch (e) { /* already closed */ }
+                sse = null;
+            }
+            sse = new EventSource('/api/console/' + encodeURIComponent(currentServer.id));
+            sse.onmessage = (e) => pushConsoleLine(e.data);
+        }
+
+        async function readApiError(res) {
+            let data = null;
+            try {
+                const text = await res.text();
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    data = { error: text };
+                }
+            } catch (e) {
+                data = {};
+            }
+            return {
+                status: res.status,
+                stage: data && data.stage ? String(data.stage) : '',
+                error: data && data.error ? String(data.error) : ''
+            };
+        }
+
+        function apiError(status, detail) {
+            const stage = detail && detail.stage ? String(detail.stage) : '';
+            const err = detail && detail.error ? String(detail.error) : '';
+            let msg;
+            if (status === 403) msg = 'You do not have permission for this action.';
+            else if (status === 409) msg = 'A version change is already in progress for this server. Wait for it to finish.';
+            else if (status === 502) msg = 'The upstream metadata or download service is unavailable. Try again later.';
+            else if (status === 404) msg = 'The server or software was not found.';
+            else if (status === 501) msg = 'This action is not available on this server.';
+            else msg = err || ('Request failed (HTTP ' + status + ')');
+            if (err && (status === 403 || status === 409 || status === 502)) msg += ' ' + err;
+            if (stage) msg += ' (stage: ' + stage + ')';
+            return msg;
+        }
+
+        function javaMajor(version) {
+            const s = String(version || '');
+            let m = s.match(/(\d+)\.(\d+)/);
+            if (m) return m[1] === '1' ? Number(m[2]) : Number(m[1]);
+            m = s.match(/(\d+)/);
+            return m ? Number(m[1]) : 0;
+        }
+
+        function setJavaStatus(msg, kind) {
+            const el = document.getElementById('java-status');
+            if (!el) return;
+            el.className = kind === 'error' ? 'version-err' : (kind === 'warn' ? 'version-warn' : 'version-info');
+            el.textContent = msg ? String(msg) : '';
+            el.style.display = msg ? 'block' : 'none';
+        }
+
+        async function loadJavaRuntimes(force) {
+            if (!currentServer) return;
+            const sid = currentServer.id;
+            if (!force && javaRuntimes) {
+                renderJavaRuntimes();
+                return;
+            }
+            const sel = document.getElementById('java-runtime-select');
+            if (sel && !sel.options.length) sel.innerHTML = '<option value="">Loading runtimes…</option>';
+            try {
+                const res = await fetch('/api/java/runtimes?server=' + encodeURIComponent(sid));
+                if (!currentServer || currentServer.id !== sid) return;
+                if (!res.ok) {
+                    const detail = await readApiError(res);
+                    javaRuntimes = null;
+                    renderJavaRuntimes();
+                    setJavaStatus(apiError(detail.status, detail), 'error');
+                    return;
+                }
+                const data = await res.json();
+                if (!currentServer || currentServer.id !== sid) return;
+                javaRuntimes = data || null;
+                renderJavaRuntimes();
+                if (!javaBusy && !javaDownloading) setJavaStatus('', '');
+            } catch (e) {
+                if (!currentServer || currentServer.id !== sid) return;
+                javaRuntimes = null;
+                renderJavaRuntimes();
+                setJavaStatus('Could not load Java runtimes: ' + e.message, 'error');
+            }
+        }
+
+        function renderJavaRuntimes() {
+            const data = javaRuntimes;
+            const info = versionInfo;
+            const sel = document.getElementById('java-runtime-select');
+            const applyBtn = document.getElementById('java-apply-btn');
+            const customInput = document.getElementById('java-custom-path');
+            const customApply = document.getElementById('java-custom-apply');
+            const dl21 = document.getElementById('java-download-21');
+            const dl25 = document.getElementById('java-download-25');
+            const note = document.getElementById('java-current');
+            const warn = document.getElementById('java-warning');
+            const recEl = document.getElementById('java-recommended');
+            const managedHost = document.getElementById('java-managed-list');
+            const canEdit = !!currentServer && currentServer.canChange !== false;
+            const busy = javaBusy || javaDownloading > 0;
+            if (dl21) dl21.style.display = isAdmin ? '' : 'none';
+            if (dl25) dl25.style.display = isAdmin ? '' : 'none';
+            [applyBtn, customApply, dl21, dl25].forEach(btn => {
+                if (btn) btn.disabled = !canEdit || busy || (btn === dl25 && !isAdmin);
+            });
+            if (customInput) customInput.disabled = !canEdit || busy;
+            if (sel) sel.disabled = !canEdit || busy;
+            const currentPath = info && info.javaPath ? String(info.javaPath) : '';
+            if (sel) {
+                sel.innerHTML = '';
+                const def = data && data.default ? data.default : null;
+                const defOpt = document.createElement('option');
+                defOpt.value = '';
+                defOpt.textContent = 'Panel default' + (def && def.version ? ' (Java ' + def.version + ')' : '') + (def && def.path ? ' — ' + def.path : '');
+                sel.appendChild(defOpt);
+                const addGroup = (label, list, prefix) => {
+                    (Array.isArray(list) ? list : []).forEach(rt => {
+                        if (!rt) return;
+                        const path = String(rt.path || '');
+                        if (!path) return;
+                        const opt = document.createElement('option');
+                        opt.value = path;
+                        opt.textContent = prefix + ' · Java ' + String(rt.version || '?') + ' — ' + path;
+                        opt.title = String(rt.source || label);
+                        sel.appendChild(opt);
+                    });
+                };
+                addGroup('detected', data && data.detected, 'Detected');
+                addGroup('managed', data && data.managed, 'Managed');
+                if (currentPath && !Array.from(sel.options).some(o => o.value === currentPath)) {
+                    const opt = document.createElement('option');
+                    opt.value = currentPath;
+                    opt.textContent = 'Custom · ' + currentPath;
+                    sel.appendChild(opt);
+                }
+                sel.value = currentPath;
+                if (sel.value !== currentPath) sel.value = '';
+            }
+            if (note) {
+                if (info) {
+                    const using = currentPath || 'Panel default';
+                    const ver = info.javaVersion ? 'Java ' + String(info.javaVersion) : 'Java version unknown';
+                    note.textContent = 'Current runtime: ' + using + ' · ' + ver
+                        + (info.javaRestartRequired ? ' · restart the server to apply the change' : '');
+                } else if (data) {
+                    const def = data.default || null;
+                    note.textContent = 'Panel default: ' + String((def && def.path) || 'not detected') + (def && def.version ? ' · Java ' + def.version : '') + '.';
+                } else {
+                    note.textContent = 'Java runtime information is unavailable.';
+                }
+            }
+            const rec = data && data.recommendedMajor ? Number(data.recommendedMajor) : 0;
+            if (recEl) {
+                recEl.textContent = rec ? ('Recommended: Java ' + rec + (info && info.mcVersion ? ' for MC ' + String(info.mcVersion) : '')) : '';
+            }
+            if (warn) {
+                const curMajor = javaMajor(info && info.javaVersion);
+                let msg = '';
+                if (rec && curMajor && curMajor < rec) {
+                    msg = 'Minecraft ' + String((info && info.mcVersion) || 'this version') + ' needs Java ' + rec + '+ but this runtime is Java ' + curMajor + '. The server may fail to start.';
+                } else if (rec && !curMajor && info && info.javaPath) {
+                    msg = 'Could not detect the Java version for this path. Minecraft ' + String((info && info.mcVersion) || 'this version') + ' needs Java ' + rec + '+.';
+                }
+                warn.style.display = msg ? 'block' : 'none';
+                warn.textContent = msg;
+            }
+            if (managedHost) {
+                const managed = data && Array.isArray(data.managed) ? data.managed : [];
+                if (!managed.length) {
+                    managedHost.innerHTML = '<div class="version-note">No Java runtimes have been downloaded by this panel yet.</div>';
+                } else {
+                    managedHost.innerHTML = managed.map(rt => {
+                        const path = String((rt && rt.path) || '');
+                        const version = String((rt && rt.version) || '?');
+                        const javaId = String((rt && rt.id) || '');
+                        return `<div class="java-managed-row">
+                            <span class="java-managed-path" title="${escapeHtml(path)}">${escapeHtml(path)}</span>
+                            <span class="java-managed-ver">Java ${escapeHtml(version)}</span>
+                            ${isAdmin ? `<button type="button" class="btn btn-outline java-del" data-java-id="${escapeHtml(javaId)}" onclick="deleteJava(this.dataset.javaId)">Delete</button>` : ''}
+                        </div>`;
+                    }).join('');
+                }
+            }
+        }
+
+        async function applyJavaPath(path) {
+            if (!currentServer) return showToast('Open a server first', 'error');
+            if (currentServer.canChange === false) return showToast('You do not have permission to change this server', 'error');
+            if (javaBusy || javaDownloading) return showToast('Another Java action is still running', 'info');
+            const value = String(path == null ? '' : path).trim();
+            if (value.indexOf('..') !== -1) return showToast('The Java path cannot contain ".."', 'error');
+            if (value && value.indexOf('/') !== 0 && !/^[A-Za-z]:[\\/]/.test(value) && value.toLowerCase() !== 'java') {
+                return showToast('Use an absolute path, or "java" from the panel PATH', 'error');
+            }
+            const sid = currentServer.id;
+            javaBusy = true;
+            renderJavaRuntimes();
+            setJavaStatus('Saving Java runtime' + (value ? ': ' + value : ' (panel default)') + '…', 'info');
+            try {
+                const res = await fetch('/api/servers/' + encodeURIComponent(sid) + '/java', {
+                    method: 'POST',
+                    body: JSON.stringify({ path: value })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data.ok === false) {
+                    const msg = apiError(res.status, data);
+                    setJavaStatus(msg, 'error');
+                    showToast(msg, 'error');
+                    return;
+                }
+                javaRuntimes = null;
+                await refreshVersionInfo(true);
+                await loadJavaRuntimes(true);
+                const shown = data.version ? 'Java ' + String(data.version) : 'the selected runtime';
+                setJavaStatus('Saved. This server uses ' + shown + (data.restartRequired ? ' — restart the server to apply it.' : '.'), data.restartRequired ? 'warn' : 'info');
+                showToast('Java runtime saved' + (data.restartRequired ? ' — restart to apply' : ''), 'success');
+            } catch (e) {
+                setJavaStatus('Could not save the Java runtime: ' + e.message, 'error');
+                showToast('Could not save the Java runtime', 'error');
+            } finally {
+                javaBusy = false;
+                renderJavaRuntimes();
+            }
+        }
+
+        async function downloadJava(major) {
+            if (!isAdmin) return showToast('Only admins can download Java runtimes', 'error');
+            if (!currentServer) return showToast('Open a server first', 'error');
+            if (javaDownloading) return showToast('A Java download is already running', 'info');
+            const num = Number(major);
+            if (!num) return;
+            javaDownloading = num;
+            renderJavaRuntimes();
+            setJavaStatus('Downloading Java ' + num + '… This can take a few minutes.', 'info');
+            try {
+                const res = await fetch('/api/java/download', {
+                    method: 'POST',
+                    body: JSON.stringify({ major: num })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data.ok === false) {
+                    const msg = apiError(res.status, data);
+                    setJavaStatus(msg, 'error');
+                    showToast(msg, 'error');
+                    return;
+                }
+                javaRuntimes = null;
+                await loadJavaRuntimes(true);
+                const version = data.version ? String(data.version) : ('Java ' + num);
+                setJavaStatus('Downloaded ' + version + '. Select it above to use it for this server.', 'info');
+                showToast('Downloaded ' + version, 'success');
+            } catch (e) {
+                setJavaStatus('Java download failed: ' + e.message, 'error');
+                showToast('Java download failed', 'error');
+            } finally {
+                javaDownloading = 0;
+                renderJavaRuntimes();
+            }
+        }
+
+        function deleteJava(id) {
+            if (!isAdmin) return showToast('Only admins can delete Java runtimes', 'error');
+            const javaId = String(id || '');
+            if (!javaId) return;
+            confirmModal({
+                title: 'Delete Java runtime?',
+                body: 'The runtime folder is removed from the panel. Servers using it will fail to start until you pick another Java.',
+                confirmText: 'Delete',
+                danger: true,
+                onConfirm: async () => {
+                    try {
+                        const res = await fetch('/api/java/' + encodeURIComponent(javaId), { method: 'DELETE' });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok || data.ok === false) {
+                            showToast(apiError(res.status, data), 'error');
+                            return;
+                        }
+                        showToast('Java runtime deleted', 'success');
+                        javaRuntimes = null;
+                        await loadJavaRuntimes(true);
+                        await refreshVersionInfo(true);
+                    } catch (e) {
+                        showToast('Could not delete the Java runtime: ' + e.message, 'error');
+                    }
+                }
+            });
+        }
+
         async function doLogout() {
             try { await fetch('/api/logout', { method: 'POST' }); } catch (err) {}
             location.reload();
         }
     </script>
 </body>
-</html>
 </html>

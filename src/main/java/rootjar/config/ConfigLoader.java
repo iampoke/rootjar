@@ -76,7 +76,8 @@ public final class ConfigLoader {
                 num(m, "start_order", index + 1, w), num(m, "stop_order", index + 1, w),
                 bool(m, "restart_on_crash", true, w), backoff, strList(m, "extra_flags", List.of(), w),
                 bool(m, "console_enabled", true, w), bool(m, "use_aikar_flags", true, w),
-                bool(m, "silent", false, w) // NEW
+                bool(m, "silent", false, w), // NEW
+                str(m, "java", "", w) // NEW: "" means the panel's own JVM
         );
     }
 

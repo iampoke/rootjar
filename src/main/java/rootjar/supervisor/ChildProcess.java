@@ -35,6 +35,8 @@ public final class ChildProcess {
     private volatile OutputStream stdin;
     private volatile boolean startDisabled;
     private volatile int playerCount = 0;
+    /** Java executable the live process was started with; used to tell whether a restart is needed. */
+    private volatile String runningJava;
 
     private Process process;
     private Thread monitor;
@@ -55,9 +57,36 @@ public final class ChildProcess {
     public int playerCount() { return playerCount; }
 
     public void setSilent(boolean isSilent) {
-        this.silent = isSilent;
-        this.cfg = cfg.withSilent(isSilent);
+        synchronized (this) {
+            this.silent = isSilent;
+            this.cfg = cfg.withSilent(isSilent);
+        }
     }
+
+    /**
+     * Replaces the config of a stopped (or running) child without touching the process. A running process
+     * keeps the command line it was started with; call {@link #javaRestartRequired()} to see whether the
+     * configured Java changed and a restart is needed. The id must not change.
+     */
+    public synchronized void setConfig(ChildConfig newConfig) {
+        if (newConfig == null) return;
+        if (!cfg.id().equals(newConfig.id())) {
+            ConsoleOutput.root("ignoring config update for " + cfg.id() + ": id would change to " + newConfig.id());
+            return;
+        }
+        this.cfg = newConfig;
+        this.silent = newConfig.silent();
+    }
+
+    /** True when the live process runs a different Java executable than the one currently configured. */
+    public synchronized boolean javaRestartRequired() {
+        if (!isAlive()) return false;
+        String running = runningJava;
+        return running != null && !running.equals(javaFor(cfg));
+    }
+
+    /** Java executable the live (or last) process was started with, or {@code null} before the first start. */
+    public String runningJava() { return runningJava; }
 
     public synchronized boolean isAlive() { return process != null && process.isAlive(); }
     public synchronized long pid() { return process == null ? -1 : process.pid(); }
@@ -73,7 +102,7 @@ public final class ChildProcess {
         if (startDisabled) return false;
         if (process != null && process.isAlive()) return false;
 
-        List<String> cmd = CommandLineBuilder.build(cfg, javaBinary());
+        List<String> cmd = CommandLineBuilder.build(cfg, javaFor(cfg));
         ConsoleOutput.root("starting " + id() + " in " + cfg.dir() + ": " + String.join(" ", cmd));
         Process p;
         try {
@@ -87,6 +116,7 @@ public final class ChildProcess {
             return false;
         }
         process = p;
+        runningJava = cmd.get(0);
         stdin = p.getOutputStream();
         startedAtMillis = System.currentTimeMillis();
         intentionalStop = false;
@@ -272,6 +302,13 @@ public final class ChildProcess {
         Thread t = new Thread(r, name);
         t.setDaemon(true);
         return t;
+    }
+
+    /** Java executable for a child: an explicit configured path, else the panel's own JVM. */
+    public static String javaFor(ChildConfig cfg) {
+        if (cfg == null) return javaBinary();
+        String path = cfg.javaPath();
+        return (path == null || path.isBlank()) ? javaBinary() : path.trim();
     }
 
     private static String javaBinary() {

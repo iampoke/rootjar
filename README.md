@@ -29,6 +29,10 @@ You can still pre-seed a password with `java -jar server.jar --hash-password` an
 - Dashboard with per-server RAM/CPU, players, uptime; live console over SSE; file manager with
   upload/download-free editing, zip, rename, mkdir, delete; PaperMC and Modrinth installers;
   config quick-editor (`server.properties` and friends).
+- **Change Version**: switch Paper, Purpur, Vanilla, Fabric, Quilt, Folia, Velocity, Waterfall,
+  Travertine, BungeeCord or NanoLimbo from the panel, with a per-server Java runtime (detected JVMs or
+  an admin-downloaded Temurin JDK) and an update badge. The old jar is backed up automatically; Forge,
+  NeoForge, Spigot and Arclight are shown as manual cards.
 - **Delete Server** (admin only, three-step warning): removes the server from the panel and config.
   It does **not** delete any files: the folder stays on disk and inside the Pterodactyl panel's files.
 - Users: admins can create subusers and grant per-server access; non-admins only see their servers.

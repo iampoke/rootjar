@@ -14,12 +14,18 @@ public final class Supervisor implements ChildProcess.ExitListener {
     private static final long STABLE_RUN_MS = 10 * 60_000L;
 
     private final Map<String, ChildProcess> children = new LinkedHashMap<>();
-    private final Map<String, BackoffPolicy> backoffs = new HashMap<>();
-    private final Map<String, ExecutorService> lifecycle = new HashMap<>();
+    // Mutated under {@code synchronized(this)} but also read from the child monitor thread
+    // ({@code handleCrash}) and the scheduler lambda, so these two must be concurrent maps.
+    private final Map<String, BackoffPolicy> backoffs = new ConcurrentHashMap<>();
+    private final Map<String, ExecutorService> lifecycle = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> pendingRestarts = new ConcurrentHashMap<>();
+    // Serialises schedule/cancel of crash restarts and publishes a per-child epoch *before* the task
+    // is scheduled; the task re-checks it so a cancel in the schedule/publish gap is never missed.
+    private final Object restartLock = new Object();
+    private final Map<String, Long> restartEpoch = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(r -> daemon(r, "restart-scheduler"));
-            
+
     private final AtomicBoolean shuttingDown = new AtomicBoolean();
     private final CountDownLatch shutdownSignal = new CountDownLatch(1);
     private final CountDownLatch shutdownDone = new CountDownLatch(1);
@@ -36,14 +42,41 @@ public final class Supervisor implements ChildProcess.ExitListener {
     }
     
     public synchronized void updateChildConfig(String id, ChildConfig newConfig) {
+        cancelPendingRestart(id);
         ChildProcess oldChild = children.get(id);
         if (oldChild != null) {
             if (oldChild.isAlive()) {
                 oldChild.stop();
             }
+            oldChild.disableStart(); // a queued crash restart must not resurrect the replaced process
             children.put(id, new ChildProcess(newConfig, this));
+            if (!newConfig.restartBackoffSeconds().isEmpty()) {
+                backoffs.put(id, new BackoffPolicy(newConfig.restartBackoffSeconds()));
+            } else {
+                BackoffPolicy backoff = backoffs.get(id);
+                if (backoff != null) backoff.reset();
+            }
             ConsoleOutput.root("Updated config for " + id + ". Please start it.");
         }
+    }
+
+    /**
+     * Updates a child's config in place. The running process is left alone (the new settings apply on the
+     * next start); use {@link #updateChildConfig(String, ChildConfig)} when the process should be replaced.
+     */
+    public synchronized void setChildConfig(String id, ChildConfig cfg) {
+        ChildProcess child = children.get(id);
+        if (child != null) child.setConfig(cfg);
+    }
+
+    /**
+     * Sets the Java executable for a child in place: no process replace, no stop. The current child is
+     * looked up under this supervisor's lock, so the update is applied to the live config rather than a
+     * caller-side snapshot that may already be stale. The new path applies on the next start.
+     */
+    public synchronized void setJavaPath(String id, String path) {
+        ChildProcess child = children.get(id);
+        if (child != null) child.setConfig(child.config().withJavaPath(path));
     }
 
     public synchronized void removeChild(String id) {
@@ -55,6 +88,7 @@ public final class Supervisor implements ChildProcess.ExitListener {
             ExecutorService exec = lifecycle.remove(id);
             if (exec != null) exec.shutdownNow();
             cancelPendingRestart(id);
+            restartEpoch.remove(id);
             ConsoleOutput.root("Removed child from supervisor: " + id);
         }
     }
@@ -73,9 +107,11 @@ public final class Supervisor implements ChildProcess.ExitListener {
         lifecycle.put(c.id(), Executors.newSingleThreadExecutor(r -> daemon(r, "lifecycle-" + c.id())));
     }
 
-    public List<ChildProcess> children() { return new ArrayList<>(children.values()); }
-    public Optional<ChildProcess> child(String id) { return Optional.ofNullable(children.get(id)); }
-    public Optional<ChildProcess> firstConsoleChild() { return children.values().stream().filter(c -> c.config().consoleEnabled()).findFirst(); }
+    public synchronized List<ChildProcess> children() { return List.copyOf(children.values()); }
+    public synchronized Optional<ChildProcess> child(String id) { return Optional.ofNullable(children.get(id)); }
+    public synchronized Optional<ChildProcess> firstConsoleChild() {
+        return List.copyOf(children.values()).stream().filter(c -> c.config().consoleEnabled()).findFirst();
+    }
 
     public void startAll() {
         List<ChildProcess> order = sortedBy(ChildConfig::startOrder);
@@ -89,15 +125,26 @@ public final class Supervisor implements ChildProcess.ExitListener {
     private void startNow(ChildProcess c, boolean resetBackoff) {
         if (shuttingDown.get()) return;
         cancelPendingRestart(c.id());
-        if (resetBackoff) backoffs.get(c.id()).reset();
+        if (resetBackoff) {
+            BackoffPolicy backoff = backoffs.get(c.id());
+            if (backoff != null) backoff.reset();
+        }
         if (!c.start() && c.state() == ChildState.CRASHED) handleCrash(c, -1, 0);
     }
 
     public void requestLifecycle(String id, String verb) {
-        ChildProcess c = children.get(id);
-        if (c == null) return;
+        ChildProcess c;
+        ExecutorService exec;
+        synchronized (this) {
+            c = children.get(id);
+            exec = lifecycle.get(id);
+        }
+        if (c == null || exec == null) {
+            ConsoleOutput.root("ignoring " + id + "." + verb + ": child is no longer registered");
+            return;
+        }
         try {
-            lifecycle.get(id).execute(() -> runLifecycle(c, verb));
+            exec.execute(() -> runLifecycle(c, verb));
         } catch (RejectedExecutionException e) {
             ConsoleOutput.root("shutting down, ignoring " + id + "." + verb);
         }
@@ -106,6 +153,12 @@ public final class Supervisor implements ChildProcess.ExitListener {
     private void runLifecycle(ChildProcess c, String verb) {
         if (shuttingDown.get()) return;
         String id = c.id();
+        synchronized (this) {
+            if (children.get(id) != c) {
+                ConsoleOutput.root("ignoring " + id + "." + verb + ": child was removed or replaced");
+                return;
+            }
+        }
         switch (verb) {
             case "start" -> {
                 if (c.isAlive()) ConsoleOutput.root(id + " is already running");
@@ -138,19 +191,31 @@ public final class Supervisor implements ChildProcess.ExitListener {
             return;
         }
         BackoffPolicy backoff = backoffs.get(id);
+        if (backoff == null) {
+            ConsoleOutput.root(id + " crashed (exit code " + exitCode + "); it is no longer registered, not restarting");
+            return;
+        }
         if (uptimeMillis >= STABLE_RUN_MS) backoff.reset();
         int delay = backoff.next();
         c.markRestarting();
         ConsoleOutput.root(id + " crashed (exit code " + exitCode + ", ran " + formatDuration(uptimeMillis)
                 + "); restarting in " + delay + "s (attempt " + backoff.attempts() + ")");
         try {
-            ScheduledFuture<?> f = scheduler.schedule(() -> {
-                try {
-                    lifecycle.get(id).execute(() -> restartAfterCrash(c));
-                } catch (RejectedExecutionException ignored) {}
-            }, delay, TimeUnit.SECONDS);
-            ScheduledFuture<?> old = pendingRestarts.put(id, f);
-            if (old != null) old.cancel(false);
+            synchronized (restartLock) {
+                // The epoch is bumped and stored before the task is scheduled and re-checked inside
+                // it, so a cancel racing with scheduler.schedule()/the map publish cannot be missed.
+                long epoch = restartEpoch.merge(id, 1L, Long::sum);
+                ScheduledFuture<?> f = scheduler.schedule(() -> {
+                    if (restartEpoch.getOrDefault(id, Long.MIN_VALUE) != epoch) return;
+                    ExecutorService exec = lifecycle.get(id);
+                    if (exec == null) return;
+                    try {
+                        exec.execute(() -> restartAfterCrash(c));
+                    } catch (RejectedExecutionException ignored) {}
+                }, delay, TimeUnit.SECONDS);
+                ScheduledFuture<?> old = pendingRestarts.put(id, f);
+                if (old != null) old.cancel(false);
+            }
         } catch (RejectedExecutionException ignored) {}
     }
 
@@ -159,9 +224,18 @@ public final class Supervisor implements ChildProcess.ExitListener {
         startNow(c, false);
     }
 
-    private void cancelPendingRestart(String id) {
-        ScheduledFuture<?> f = pendingRestarts.remove(id);
-        if (f != null) f.cancel(false);
+    /**
+     * Cancels a scheduled crash restart for a child; public so the web layer can stop a pending restart.
+     * Sharing {@link #restartLock} with the scheduling side closes the race where a restart was scheduled
+     * but not yet published; the epoch bump also invalidates a task that already made it into the queue.
+     * A restart that has already started is unaffected.
+     */
+    public void cancelPendingRestart(String id) {
+        synchronized (restartLock) {
+            restartEpoch.merge(id, 1L, Long::sum);
+            ScheduledFuture<?> f = pendingRestarts.remove(id);
+            if (f != null) f.cancel(false);
+        }
     }
 
     public void shutdown() {
@@ -172,10 +246,14 @@ public final class Supervisor implements ChildProcess.ExitListener {
         try {
             ConsoleOutput.root("shutdown requested, stopping children in stop_order");
             shutdownSignal.countDown();
-            for (ChildProcess c : children.values()) c.disableStart();
+            for (ChildProcess c : children()) c.disableStart();
             pendingRestarts.values().forEach(f -> f.cancel(false));
             scheduler.shutdownNow();
-            lifecycle.values().forEach(ExecutorService::shutdown);
+            List<ExecutorService> executors;
+            synchronized (this) {
+                executors = List.copyOf(lifecycle.values());
+            }
+            executors.forEach(ExecutorService::shutdown);
 
             for (ChildProcess c : sortedBy(ChildConfig::stopOrder)) {
                 boolean clean = c.stop();
@@ -204,7 +282,7 @@ public final class Supervisor implements ChildProcess.ExitListener {
     }
 
     public void printStatus() {
-        for (ChildProcess c : children.values()) {
+        for (ChildProcess c : children()) {
             ChildConfig k = c.config();
             String pid = c.pid() < 0 ? "-" : String.valueOf(c.pid());
             ConsoleOutput.root(k.id() + ": " + c.state().label() + " | pid " + pid + " | up "
@@ -212,7 +290,7 @@ public final class Supervisor implements ChildProcess.ExitListener {
         }
     }
 
-    private List<ChildProcess> sortedBy(ToIntFunction<ChildConfig> key) {
+    private synchronized List<ChildProcess> sortedBy(ToIntFunction<ChildConfig> key) {
         List<ChildProcess> list = new ArrayList<>(children.values());
         list.sort(Comparator.comparingInt(c -> key.applyAsInt(c.config())));
         return list;

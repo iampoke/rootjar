@@ -31,7 +31,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
 public final class Main {
-    public static final String VERSION = "0.2.0-M3";
+    public static final String VERSION = "0.3.0";
 
     private Main() {}
 
@@ -253,7 +253,7 @@ public final class Main {
                 c = new ChildConfig(newId, c.type(), newDir, c.jar(), c.heap(), c.xmsEqualXmx(),
                     newPort, c.bind(), c.stopStrategy(), c.stopCommand(), c.stopTimeoutSeconds(),
                     newStart, newStop, c.restartOnCrash(), c.restartBackoffSeconds(),
-                    c.extraFlags(), c.consoleEnabled(), c.useAikarFlags(), c.silent());
+                    c.extraFlags(), c.consoleEnabled(), c.useAikarFlags(), c.silent(), c.javaPath());
             }
             fixedChildren.add(c);
         }

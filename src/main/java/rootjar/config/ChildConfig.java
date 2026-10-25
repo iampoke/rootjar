@@ -22,9 +22,14 @@ public record ChildConfig(
         List<String> extraFlags,
         boolean consoleEnabled,
         boolean useAikarFlags,
-        boolean silent // NEW
+        boolean silent, // NEW
+        String javaPath // NEW: absolute path to a java executable, "" or "java" for the panel default
 ) {
     public ChildConfig withSilent(boolean isSilent) {
-        return new ChildConfig(id, type, dir, jar, heap, xmsEqualXmx, port, bind, stopStrategy, stopCommand, stopTimeoutSeconds, startOrder, stopOrder, restartOnCrash, restartBackoffSeconds, extraFlags, consoleEnabled, useAikarFlags, isSilent);
+        return new ChildConfig(id, type, dir, jar, heap, xmsEqualXmx, port, bind, stopStrategy, stopCommand, stopTimeoutSeconds, startOrder, stopOrder, restartOnCrash, restartBackoffSeconds, extraFlags, consoleEnabled, useAikarFlags, isSilent, javaPath);
+    }
+
+    public ChildConfig withJavaPath(String path) {
+        return new ChildConfig(id, type, dir, jar, heap, xmsEqualXmx, port, bind, stopStrategy, stopCommand, stopTimeoutSeconds, startOrder, stopOrder, restartOnCrash, restartBackoffSeconds, extraFlags, consoleEnabled, useAikarFlags, silent, path == null ? "" : path);
     }
 }

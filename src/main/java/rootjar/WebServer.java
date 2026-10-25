@@ -7,10 +7,14 @@ import rootjar.addons.Addons;
 import rootjar.config.ChildConfig;
 import rootjar.config.ConfigEditor;
 import rootjar.config.ConfigSaver;
+import rootjar.config.JavaRuntimes;
 import rootjar.config.RootConfig;
 import rootjar.config.ServerConfig;
+import rootjar.config.SoftwareRegistry;
 import rootjar.config.StopStrategy;
+import rootjar.console.ConsoleOutput;
 import rootjar.supervisor.ChildProcess;
+import rootjar.supervisor.ChildState;
 import rootjar.supervisor.Supervisor;
 
 import java.io.*;
@@ -21,12 +25,15 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -74,16 +81,39 @@ public class WebServer {
     private static final long HTTP_CACHE_MS = 60_000;
     private static final long HASH_CACHE_MS = 10 * 60_000;
     private static final long CHECK_CACHE_MS = 10 * 60_000;
+    private static final long UPDATE_CACHE_MS = 30 * 60_000;
     private record Cached(long at, String body) {}
     private final Map<String, Cached> httpCache = new ConcurrentHashMap<>();
     private final Map<String, Cached> hashCache = new ConcurrentHashMap<>();
     private final Map<String, Cached> checkCache = new ConcurrentHashMap<>();
     private final Map<String, String> fileHashCache = new ConcurrentHashMap<>();
 
+    // ---- Phase 3: version changes, software catalog, per-server Java ----
+    private final SoftwareRegistry registry;
+    private final JavaRuntimes javaRuntimes;
+    /** Servers with a version change in flight; a second request answers 409 instead of racing on files. */
+    private final Set<String> versionLocks = ConcurrentHashMap.newKeySet();
+    private final Map<String, Cached> updateCache = new ConcurrentHashMap<>();
+    /** Server jars are ~50 MB; anything bigger is a bad redirect/error page, not a jar. */
+    private static final long MAX_JAR_BYTES = 200L * 1024L * 1024L;
+    private static final long MAX_INSTALLER_BYTES = 64L * 1024L * 1024L;
+    /** Phase 3 request bodies are tiny JSON objects; refuse bigger bodies instead of buffering them. */
+    private static final int MAX_SMALL_BODY = 8 * 1024;
+    /** Never read a whole latest.log: it can grow to hundreds of megabytes. */
+    private static final int LOG_HEAD_LINES = 200;
+    private static final long LOG_HEAD_BYTES = 256L * 1024L;
+    private static final long STOP_DEAD_WAIT_MS = 15_000;
+    /** Server types that have no Minecraft version of their own (a proxy version is not an MC version). */
+    private static final Set<String> PROXY_TYPES =
+            Set.of("velocity", "waterfall", "bungeecord", "travertine", "nanolimbo");
+
     public WebServer(RootConfig config, Supervisor supervisor, Path configPath) throws IOException {
         this.config = config;
         this.supervisor = supervisor;
         this.configPath = configPath;
+        // httpClient is a field initializer, so both dependencies exist here.
+        this.registry = new SoftwareRegistry(httpClient);
+        this.javaRuntimes = new JavaRuntimes(config.baseDir(), httpClient);
 
         this.server = HttpServer.create(new InetSocketAddress(config.server().bind(), config.server().port()), 0);
         this.server.setExecutor(Executors.newCachedThreadPool());
@@ -124,6 +154,16 @@ public class WebServer {
         route("/api/addons/delete", this::handleAddonsDelete);
         route("/api/addons/backup", this::handleAddonsBackup);
         route("/api/version/check", this::handleVersionCheck);
+
+        // Phase 3: Change Version + per-server Java
+        route("/api/software", this::handleSoftwareCatalog);
+        route("/api/version/info", this::handleVersionInfo);
+        route("/api/version/available", this::handleVersionAvailable);
+        route("/api/version/change", this::handleVersionChange);
+        route("/api/update/check", this::handleUpdateCheck);
+        route("/api/java/runtimes", this::handleJavaRuntimes);
+        route("/api/java/download", this::handleJavaDownload);
+        route("/api/java/", this::handleJavaDelete);
 
         route("/api/action/", this::handleAction);
         route("/api/silent/", this::handleSilent);
@@ -244,6 +284,20 @@ public class WebServer {
         return true;
     }
 
+    /**
+     * Interim "owner" check for version changes and per-server Java: ADMIN or OPERATOR (any user the
+     * server is assigned to). Structured body because every new Phase 3 endpoint reports errors this way.
+     */
+    private boolean requireOwner(HttpExchange ex, String serverId) throws IOException {
+        // TODO(Phase 7: server_roles)
+        Role role = roleFor(ex, serverId);
+        if (role != Role.ADMIN && role != Role.OPERATOR) {
+            sendError(ex, 403, "resolve", "No permission");
+            return false;
+        }
+        return true;
+    }
+
     /** Query param with a default; blank counts as absent. */
     private String param(HttpExchange ex, String key, String def) {
         String v = extractQuery(ex.getRequestURI().getRawQuery(), key);
@@ -305,15 +359,18 @@ public class WebServer {
         try {
             Path log = dir.resolve("logs").resolve("latest.log");
             if (Files.isRegularFile(log)) {
-                List<String> lines = Files.readAllLines(log);
-                for (int i = 0; i < Math.min(60, lines.size()); i++) {
-                    Matcher m = Pattern.compile("Starting minecraft server version\\s+(\\S+)").matcher(lines.get(i));
+                for (String line : readHeadLines(log, LOG_HEAD_LINES, LOG_HEAD_BYTES)) {
+                    Matcher m = Pattern.compile("Starting minecraft server version\\s+(\\S+)").matcher(line);
                     if (m.find()) return m.group(1);
-                    m = Pattern.compile("\\(MC:\\s*([^)]+)\\)").matcher(lines.get(i));
+                    m = Pattern.compile("Loading Minecraft\\s+(\\S+)").matcher(line);
+                    if (m.find()) return m.group(1);
+                    m = Pattern.compile("\\(MC:\\s*([^)]+)\\)").matcher(line);
                     if (m.find()) return m.group(1).trim();
                 }
             }
         } catch (Exception ignored) {}
+        // A proxy version (4.3.0) is not a Minecraft version, so never fall back to the jar name for one.
+        if (isProxyType(cfg.type())) return "";
         Matcher m = Pattern.compile("(\\d+\\.\\d+(?:\\.\\d+)?)").matcher(cfg.jar() == null ? "" : cfg.jar());
         return m.find() ? m.group(1) : "";
     }
@@ -793,7 +850,7 @@ public class WebServer {
             String type = serverType != null ? serverType : (fork != null ? fork : "paper");
 
             ChildConfig newChild = new ChildConfig(name, type, dir, jar, ram + "M", true, port, "0.0.0.0",
-                StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, true, false);
+                StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, true, false, "");
             supervisor.addChild(newChild);
 
             saveConfig(new RootConfig(config.server(),
@@ -897,6 +954,8 @@ public class WebServer {
 
         if (rest.isEmpty() || rest.equals("info")) {
             handleServerInfo(ex, serverId);
+        } else if (rest.equals("java")) {
+            handleServerJava(ex, serverId);
         } else if (rest.equals("files")) {
             handleServerFilesList(ex, serverId);
         } else if (rest.startsWith("files/")) {
@@ -1097,11 +1156,16 @@ public class WebServer {
             for (ChildProcess c : supervisor.children()) {
                 if (!c.id().equals(id) && c.config().port() == port) { send(ex, 400, "Port in use"); return; }
             }
-            ChildConfig old = child.config();
+            // Re-read the live instance right before mutating: a concurrent version change may have replaced
+            // this child (new process + new config) while the port checks ran, and must not be reverted.
+            ChildProcess live = supervisor.child(id).orElse(null);
+            if (live == null) { send(ex, 404, "Not found"); return; }
+            if (live != child) { send(ex, 409, "The server was reconfigured; reload and try again"); return; }
+            ChildConfig old = live.config();
             ChildConfig newCfg = new ChildConfig(old.id(), old.type(), old.dir(), jar, heap, old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(),
                 old.startOrder(), old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(),
-                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent());
+                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath());
             supervisor.updateChildConfig(id, newCfg);
             saveConfig(new RootConfig(config.server(),
                     supervisor.children().stream().map(ChildProcess::config).toList(), config.baseDir()));
@@ -1898,6 +1962,1049 @@ public class WebServer {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    // ---- Phase 3: software catalog, version info/change, update badge, Java runtimes ----
+
+    /** JSON error body used by every Phase 3 endpoint: {"ok":false,"stage":...,"error":...}. */
+    private void sendError(HttpExchange ex, int code, String stage, String message) throws IOException {
+        send(ex, code, "{\"ok\":false,\"stage\":\"" + jsonEscape(stage == null ? "" : stage)
+                + "\",\"error\":\"" + jsonEscape(message == null ? "" : message) + "\"}");
+    }
+
+    /** GET-only guard for the read-only Phase 3 endpoints: anything else answers the structured 405 body. */
+    private boolean requireGet(HttpExchange ex, String stage) throws IOException {
+        if ("GET".equalsIgnoreCase(ex.getRequestMethod())) return true;
+        sendError(ex, 405, stage, "GET only");
+        return false;
+    }
+
+    /** Reads a request body up to {@code maxBytes}; null means the body was larger and nothing was consumed. */
+    private static byte[] readBodyCapped(HttpExchange ex, int maxBytes) throws IOException {
+        try (InputStream in = ex.getRequestBody()) {
+            byte[] data = in.readNBytes(maxBytes + 1);
+            return data.length > maxBytes ? null : data;
+        }
+    }
+
+    /** True when the flat JSON body contains {@code "key":} (an empty string value still counts). */
+    private static boolean hasJsonKey(String json, String key) {
+        if (json == null) return false;
+        int k = json.indexOf("\"" + key + "\"");
+        if (k < 0) return false;
+        return json.indexOf(':', k + key.length() + 2) >= 0;
+    }
+
+    /** Signals a conflict that must not be reported as a generic 500 (jar replaced under a live process). */
+    private static final class ChangeConflictException extends IOException {
+        ChangeConflictException(String message) { super(message); }
+    }
+
+    private static String roleName(Role role) {
+        return role == null ? "" : role.name().toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean canChangeVersion(Role role) {
+        return role == Role.ADMIN || role == Role.OPERATOR;
+    }
+
+    /** MC version for the UI: detectMcVersion() returns "" when it cannot tell, the API says "unknown". */
+    private static String mcVersionOf(ChildConfig cfg) {
+        String v = detectMcVersion(cfg);
+        return v == null || v.isBlank() ? "unknown" : v;
+    }
+
+    private static boolean knownVersion(String v) {
+        return v != null && !v.isBlank() && !"unknown".equalsIgnoreCase(v.trim());
+    }
+
+    private static boolean isProxyType(String type) {
+        return type != null && PROXY_TYPES.contains(type.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Reads at most {@code maxLines} lines / {@code maxBytes} from the head of a file. Server logs reach
+     * hundreds of megabytes, so {@code Files.readAllLines()} must never be used for them.
+     */
+    private static List<String> readHeadLines(Path file, int maxLines, long maxBytes) {
+        if (file == null || !Files.isRegularFile(file)) return List.of();
+        int limit = Math.max(1, Math.min(maxLines, LOG_HEAD_LINES));
+        List<String> lines = new ArrayList<>(limit);
+        try (Reader reader = new BufferedReader(new InputStreamReader(
+                Files.newInputStream(file), StandardCharsets.UTF_8))) {
+            StringBuilder line = new StringBuilder(256);
+            long consumed = 0;
+            boolean eof = false;
+            char[] buffer = new char[8192];
+            while (lines.size() < limit && consumed < maxBytes) {
+                int n = reader.read(buffer);
+                if (n < 0) { eof = true; break; }
+                for (int i = 0; i < n; i++) {
+                    if (consumed >= maxBytes || lines.size() >= limit) break;
+                    char c = buffer[i];
+                    consumed++;
+                    if (c == '\n') {
+                        lines.add(line.toString());
+                        line.setLength(0);
+                    } else if (c != '\r') {
+                        line.append(c);
+                    }
+                }
+            }
+            // Flush a pending final line only at real EOF. When the byte cap stopped us mid-line the
+            // remainder is truncated, so reporting it as a line would be misleading.
+            if (eof && lines.size() < limit && line.length() > 0) lines.add(line.toString());
+        } catch (Exception ignored) {
+            // Unreadable / not UTF-8: return what was read so far.
+        }
+        return lines;
+    }
+
+    private static List<String> logHead(ChildConfig cfg, int maxLines) {
+        try {
+            return readHeadLines(cfg.dir().resolve("logs").resolve("latest.log"), maxLines, LOG_HEAD_BYTES);
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private static String versionHistory(ChildConfig cfg) {
+        try {
+            Path history = cfg.dir().resolve("version_history.json");
+            return Files.isRegularFile(history) ? Files.readString(history) : "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static String tidyVersion(String raw) {
+        if (raw == null) return "";
+        String v = raw.trim();
+        while (!v.isEmpty() && ",;:()[]\"'".indexOf(v.charAt(v.length() - 1)) >= 0) {
+            v = v.substring(0, v.length() - 1).trim();
+        }
+        return v;
+    }
+
+    /**
+     * Version component of a server jar name: paper-1.21.4-232.jar -> 1.21.4-232,
+     * BungeeCord-2107.jar -> 2107, velocity-3.4.0-SNAPSHOT-556.jar -> 3.4.0-SNAPSHOT-556.
+     */
+    private static String softwareVersionFromJar(String jarName) {
+        if (jarName == null) return "";
+        String base = jarName.replace('\\', '/');
+        int slash = base.lastIndexOf('/');
+        if (slash >= 0) base = base.substring(slash + 1);
+        base = base.replaceFirst("(?i)\\.jar(?:\\.disabled)?$", "").trim();
+        if (base.isEmpty()) return "";
+        Matcher branded = Pattern.compile("(?i)(?:^|[-_.])(paper|purpur|folia|velocity|waterfall|travertine|vanilla|fabric|quilt|spigot|bungeecord|nanolimbo)[-_.]?([0-9][A-Za-z0-9._+-]*)").matcher(base);
+        if (branded.find()) {
+            String v = tidyVersion(branded.group(2));
+            if (!v.isEmpty()) return v;
+        }
+        Matcher mcBuild = Pattern.compile("(\\d+\\.\\d+(?:\\.\\d+)?)(?:[-_](\\d+))?").matcher(base);
+        if (mcBuild.find()) return mcBuild.group(2) == null ? mcBuild.group(1) : mcBuild.group(1) + "-" + mcBuild.group(2);
+        Matcher build = Pattern.compile("(?:^|[^0-9])(\\d{1,7})$").matcher(base);
+        return build.find() ? build.group(1) : "";
+    }
+
+    /** Raw current software version (1.21.4-232, 2107, v1.9.3); "unknown" when nothing is parseable. */
+    private static String detectSoftwareVersion(ChildConfig cfg) {
+        // The jar name is the most stable source (Paper/Purpur/BungeeCord ship the build in it).
+        String fromJar = softwareVersionFromJar(cfg.jar());
+        if (!fromJar.isEmpty()) return fromJar;
+        Pattern brand = Pattern.compile("(?i)\\b(paper|purpur|folia|velocity|waterfall|travertine|spigot)\\b[^\\n]*?\\bversion\\s+([0-9][^\\s()]*)");
+        // One bounded read of the log head, reused for both patterns (this runs on a polled endpoint).
+        List<String> head = logHead(cfg, 120);
+        for (String line : head) {
+            Matcher m = brand.matcher(line);
+            if (m.find()) {
+                String v = tidyVersion(m.group(2));
+                if (!v.isEmpty()) return v;
+            }
+        }
+        for (String line : head) {
+            Matcher m = Pattern.compile("(?i)(?:Starting minecraft server version|Loading Minecraft)\\s+(\\S+)").matcher(line);
+            if (m.find()) {
+                String v = tidyVersion(m.group(1));
+                if (!v.isEmpty()) return v;
+            }
+        }
+        Matcher history = Pattern.compile("\"name\"\\s*:\\s*\"([^\"]+)\"").matcher(versionHistory(cfg));
+        if (history.find()) {
+            String v = tidyVersion(history.group(1));
+            if (!v.isEmpty()) return v;
+        }
+        String mc = detectMcVersion(cfg);
+        return mc == null || mc.isBlank() ? "unknown" : mc;
+    }
+
+    // ---- software catalog --------------------------------------------------------------------
+
+    private void handleSoftwareCatalog(HttpExchange ex) throws IOException {
+        if (!requireGet(ex, "resolve")) return;
+        if (!isAuthed(ex)) { sendError(ex, 401, "resolve", "Unauthorized"); return; }
+        List<SoftwareRegistry.Software> catalog = registry.catalog();
+        StringBuilder sb = new StringBuilder("{\"software\":[");
+        for (int i = 0; i < catalog.size(); i++) {
+            SoftwareRegistry.Software s = catalog.get(i);
+            boolean supported = s.strategy() != SoftwareRegistry.Strategy.MANUAL;
+            if (i > 0) sb.append(',');
+            sb.append("{\"id\":\"").append(jsonEscape(s.id()))
+              .append("\",\"name\":\"").append(jsonEscape(s.name()))
+              .append("\",\"description\":\"").append(jsonEscape(s.description()))
+              .append("\",\"category\":\"").append(s.category().name())
+              .append("\",\"strategy\":\"").append(s.strategy().name())
+              .append("\",\"supported\":").append(supported)
+              .append(",\"reason\":\"").append(jsonEscape(supported ? "" : s.reason())).append("\"}");
+        }
+        send(ex, 200, sb.append("]}").toString());
+    }
+
+    // ---- version info / available ------------------------------------------------------------
+
+    private void handleVersionInfo(HttpExchange ex) throws IOException {
+        if (!requireGet(ex, "resolve")) return;
+        String serverId = param(ex, "server", "");
+        ChildProcess child = supervisor.child(serverId).orElse(null);
+        if (child == null) { sendError(ex, 404, "resolve", "Server not found"); return; }
+        Role role = roleFor(ex, serverId);
+        if (role == null) { sendError(ex, 403, "resolve", "No permission"); return; }
+        ChildConfig cfg = child.config();
+        String mcVersion = mcVersionOf(cfg);
+        String softwareVersion = detectSoftwareVersion(cfg);
+        SoftwareRegistry.Software software = registry.find(cfg.type()).orElse(null);
+        boolean supported = software != null && software.strategy() != SoftwareRegistry.Strategy.MANUAL;
+        String reason = supported ? "" : (software == null
+                ? "This server type is not managed by the version catalog. Install it manually."
+                : (software.reason() == null ? "" : software.reason()));
+        String javaPath = cfg.javaPath() == null ? "" : cfg.javaPath();
+        String javaVersion = "";
+        try { javaVersion = javaRuntimes.versionAt(ChildProcess.javaFor(cfg)); } catch (RuntimeException ignored) {}
+        boolean restartRequired = false;
+        try { restartRequired = child.javaRestartRequired(); } catch (RuntimeException ignored) {}
+        String json = "{\"server\":\"" + jsonEscape(cfg.id())
+                + "\",\"type\":\"" + jsonEscape(cfg.type())
+                + "\",\"jar\":\"" + jsonEscape(cfg.jar())
+                + "\",\"mcVersion\":\"" + jsonEscape(mcVersion)
+                + "\",\"softwareVersion\":\"" + jsonEscape(softwareVersion)
+                + "\",\"running\":" + child.isAlive()
+                + ",\"players\":" + child.playerCount()
+                + ",\"supported\":" + supported
+                + ",\"reason\":\"" + jsonEscape(reason)
+                + "\",\"modsSupported\":" + Addons.supportsMods(cfg.type())
+                + ",\"hasModsFolder\":" + Files.isDirectory(cfg.dir().resolve("mods"))
+                + ",\"javaPath\":\"" + jsonEscape(javaPath)
+                + "\",\"javaVersion\":\"" + jsonEscape(javaVersion)
+                + "\",\"role\":\"" + roleName(role)
+                + "\",\"canChange\":" + canChangeVersion(role)
+                + ",\"javaRestartRequired\":" + restartRequired + "}";
+        send(ex, 200, json);
+    }
+
+    private void handleVersionAvailable(HttpExchange ex) throws IOException {
+        if (!requireGet(ex, "resolve")) return;
+        String serverId = param(ex, "server", "");
+        ChildProcess child = supervisor.child(serverId).orElse(null);
+        if (child == null) { sendError(ex, 404, "resolve", "Server not found"); return; }
+        if (roleFor(ex, serverId) == null) { sendError(ex, 403, "resolve", "No permission"); return; }
+        String softwareId = param(ex, "software", "").trim().toLowerCase(Locale.ROOT);
+        if (softwareId.isEmpty()) { sendError(ex, 400, "resolve", "software is required"); return; }
+        SoftwareRegistry.Software software = registry.find(softwareId).orElse(null);
+        if (software == null) { sendError(ex, 400, "resolve", "Unknown software"); return; }
+
+        ChildConfig cfg = child.config();
+        String current = detectSoftwareVersion(cfg);
+        String currentMc = mcVersionOf(cfg);
+        boolean supported = software.strategy() != SoftwareRegistry.Strategy.MANUAL;
+        String reason = supported ? "" : (software.reason() == null ? "" : software.reason());
+        List<SoftwareRegistry.VersionOption> versions;
+        if (!supported) {
+            versions = List.of();
+        } else {
+            try {
+                versions = registry.versions(software.id());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                sendError(ex, 502, "resolve", "Version lookup interrupted");
+                return;
+            } catch (IOException e) {
+                sendError(ex, 502, "resolve", "Could not load versions: " + e.getMessage());
+                return;
+            }
+        }
+        StringBuilder sb = new StringBuilder("{\"software\":\"").append(jsonEscape(software.id()))
+                .append("\",\"versions\":[");
+        for (int i = 0; i < versions.size(); i++) {
+            SoftwareRegistry.VersionOption option = versions.get(i);
+            if (i > 0) sb.append(',');
+            sb.append("{\"id\":\"").append(jsonEscape(option.id()))
+              .append("\",\"label\":\"").append(jsonEscape(option.label()))
+              .append("\",\"subtitle\":\"").append(jsonEscape(option.subtitle())).append("\"}");
+        }
+        sb.append("],\"current\":\"").append(jsonEscape(current))
+          .append("\",\"currentMc\":\"").append(jsonEscape(currentMc))
+          .append("\",\"supported\":").append(supported)
+          .append(",\"reason\":\"").append(jsonEscape(reason)).append("\"}");
+        send(ex, 200, sb.toString());
+    }
+
+    // ---- version change ----------------------------------------------------------------------
+
+    /** Bare file name under dir; null when the name is unsafe or escapes the server folder. */
+    private static Path jarPathIn(Path dir, String name) {
+        if (name == null) return null;
+        String clean = name.replace('\\', '/');
+        int slash = clean.lastIndexOf('/');
+        if (slash >= 0) clean = clean.substring(slash + 1);
+        clean = clean.trim();
+        if (clean.isEmpty() || clean.equals(".") || clean.equals("..") || clean.indexOf('\u0000') >= 0) return null;
+        Path base = dir.toAbsolutePath().normalize();
+        Path target = base.resolve(clean).normalize();
+        return target.getParent() != null && target.getParent().equals(base) ? target : null;
+    }
+
+    /** Copies a jar into {@code <dir>/backups/jars/<name>.<stamp>.bak}; null when it does not exist. */
+    private static Path backupJar(Path dir, String jarName) throws IOException {
+        Path source = jarPathIn(dir, jarName);
+        if (source == null || !Files.isRegularFile(source)) return null;
+        // Never follow a symlinked jar: the backup would silently capture a file outside the server folder.
+        if (Files.isSymbolicLink(source)) {
+            throw new IOException("Refusing to back up a symlinked jar: " + source.getFileName());
+        }
+        Path backups = dir.resolve("backups").resolve("jars");
+        Files.createDirectories(backups);
+        Path target = backups.resolve(source.getFileName().toString() + "." + stamp() + ".bak");
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING, LinkOption.NOFOLLOW_LINKS);
+        return target;
+    }
+
+    private void handleVersionChange(HttpExchange ex) throws IOException {
+        if (!ex.getRequestMethod().equalsIgnoreCase("POST")) { sendError(ex, 405, "resolve", "POST only"); return; }
+        // Auth first, then the body cap: an oversized body is a 413 even when its "server" key is unreadable.
+        if (!isAuthed(ex)) { sendError(ex, 401, "resolve", "Unauthorized"); return; }
+        byte[] rawBody = readBodyCapped(ex, MAX_SMALL_BODY);
+        if (rawBody == null) { sendError(ex, 413, "resolve", "Request body is too large"); return; }
+        String body = new String(rawBody, StandardCharsets.UTF_8);
+        String rawServerId = extractJson(body, "server");
+        if (rawServerId.isEmpty()) rawServerId = param(ex, "server", "");
+        final String serverId = rawServerId;
+        ChildProcess child = supervisor.child(serverId).orElse(null);
+        if (child == null) { sendError(ex, 404, "resolve", "Server not found"); return; }
+        if (!requireOwner(ex, serverId)) return;
+
+        String softwareId = extractJson(body, "software").trim().toLowerCase(Locale.ROOT);
+        String version = extractJson(body, "version").trim();
+        if (softwareId.isEmpty()) { sendError(ex, 400, "resolve", "software is required"); return; }
+        if (!SoftwareRegistry.validVersion(version)) { sendError(ex, 400, "resolve", "Invalid version"); return; }
+        SoftwareRegistry.Software software = registry.find(softwareId).orElse(null);
+        if (software == null) { sendError(ex, 400, "resolve", "Unknown software"); return; }
+        if (software.strategy() == SoftwareRegistry.Strategy.MANUAL) {
+            sendError(ex, 400, "resolve", software.reason() == null || software.reason().isBlank()
+                    ? "This software must be installed manually." : software.reason());
+            return;
+        }
+        // "backup" is accepted but Phase 3 always backs up the jar(s); only a full world backup is out of scope.
+        if (!versionLocks.add(serverId)) {
+            sendError(ex, 409, "stop", "A version change is already in progress for this server");
+            return;
+        }
+        // Whether the server must be running when the request finishes (running now, or a crash restart pending).
+        final boolean[] restart = { false };
+        try {
+            // Resolve while the server is still running, so bad input / offline upstream never stops it.
+            SoftwareRegistry.InstallPlan plan;
+            try {
+                plan = registry.resolve(software.id(), version);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                sendError(ex, 502, "resolve", "Version lookup interrupted");
+                return;
+            } catch (IOException e) {
+                sendError(ex, 502, "resolve", "Could not resolve this version: " + e.getMessage());
+                return;
+            }
+            if (plan.strategy() == SoftwareRegistry.Strategy.MANUAL) {
+                sendError(ex, 400, "resolve", plan.reason() == null || plan.reason().isBlank()
+                        ? "This software must be installed manually." : plan.reason());
+                return;
+            }
+
+            // resolve() can take a while: sample the live child NOW, not before it, and cancel a queued crash
+            // restart before touching any file so it cannot resurrect the old jar halfway through the change.
+            ChildProcess active = supervisor.child(serverId).orElse(null);
+            if (active == null || active != child) {
+                sendError(ex, 409, "save", "The server was reconfigured during the version change; nothing was changed");
+                return;
+            }
+            ChildConfig oldCfg = active.config();
+            // A graceful stop is already in flight (the user just pressed Stop): do not restart behind their
+            // back. Nothing has been touched yet, so just release the lock in the finally block.
+            ChildState before = active.state();
+            if (before == ChildState.STOPPING) {
+                sendError(ex, 409, "stop", "The server is stopping; wait for it to finish");
+                return;
+            }
+            restart[0] = active.isAlive() || before == ChildState.RESTARTING;
+            supervisor.cancelPendingRestart(serverId);
+            // Holder so the file-replacing lambda can re-check the instance that is current at that moment.
+            final ChildProcess[] owner = { active };
+
+            String plannedJar = plan.strategy() == SoftwareRegistry.Strategy.INSTALLER
+                    ? (plan.outputJar() == null || plan.outputJar().isBlank() ? plan.jarName() : plan.outputJar())
+                    : plan.jarName();
+            String newJar = Addons.sanitizeJar(plannedJar);
+            Path dir = oldCfg.dir();
+            Path targetPath = newJar == null ? null : jarPathIn(dir, newJar);
+            if (newJar == null || targetPath == null) {
+                restoreAfterAbort(serverId, restart[0]);
+                sendError(ex, 400, "resolve", "The upstream service did not provide a safe jar name");
+                return;
+            }
+            if (Files.isDirectory(targetPath)) {
+                restoreAfterAbort(serverId, restart[0]);
+                sendError(ex, 400, "resolve", "The target jar path is a directory");
+                return;
+            }
+
+            String oldJar = oldCfg.jar() == null ? "" : oldCfg.jar();
+            Path oldJarPath = jarPathIn(dir, oldJar);
+            boolean oldExisted = oldJarPath != null && Files.isRegularFile(oldJarPath);
+            boolean targetExisted = Files.isRegularFile(targetPath);
+            boolean sameJar = oldJarPath != null && oldJarPath.equals(targetPath);
+            Path oldBackup;
+            Path targetBackup;
+            try {
+                oldBackup = oldExisted ? backupJar(dir, oldJar) : null;
+                targetBackup = (targetExisted && !sameJar) ? backupJar(dir, newJar) : null;
+            } catch (IOException e) {
+                restoreAfterAbort(serverId, restart[0]);
+                sendError(ex, 500, "save", "Could not back up the existing jar: " + e.getMessage());
+                return;
+            }
+
+            // Stop only when a process is actually alive. A process ChildProcess had to SIGKILL is a successful
+            // stop once it is dead; abort only when it is *still* alive after a bounded wait.
+            if (active.isAlive()) {
+                active.stop();
+                if (!waitUntilDead(active, STOP_DEAD_WAIT_MS)) {
+                    restoreAfterAbort(serverId, restart[0]);
+                    sendError(ex, 409, "stop",
+                            "Could not stop the server (still alive after SIGKILL); the version was not changed");
+                    return;
+                }
+                restart[0] = true;
+            }
+
+            String stage = "download";
+            try {
+                if (plan.strategy() == SoftwareRegistry.Strategy.DIRECT) {
+                    downloadVerifiedJar(plan.url(), targetPath, plan.sha256(), plan.sha1(),
+                            1024L * 1024L, MAX_JAR_BYTES, () -> installGuard(serverId, owner[0], restart));
+                } else {
+                    if (!allowedDownloadUrl(plan.installerUrl())) {
+                        throw new IOException("The installer URL is not on the download allowlist");
+                    }
+                    Path installer = dir.resolve(".installer-" + System.currentTimeMillis() + ".jar");
+                    try {
+                        downloadVerifiedJar(plan.installerUrl(), installer, plan.installerSha256(), "",
+                                1024L, MAX_INSTALLER_BYTES, null);
+                        stage = "install";
+                        if (!installGuard(serverId, active, restart)) {
+                            throw new ChangeConflictException(
+                                    "The server was started or reconfigured during the version change");
+                        }
+                        runInstaller(installerJava(oldCfg), installer, plan.installerArgs(), dir);
+                        stage = "verify";
+                        if (!Files.isRegularFile(targetPath) || Files.size(targetPath) <= 1024 || !hasZipMagic(targetPath)) {
+                            throw new IOException("The installer did not create a usable " + newJar);
+                        }
+                    } finally {
+                        try { Files.deleteIfExists(installer); } catch (IOException ignored) {}
+                    }
+                }
+                stage = "save";
+                // Build the new config from the *live* config (only type/jar change) so concurrent javaPath,
+                // heap, port or silent edits made while we downloaded are not reverted.
+                ChildProcess current = supervisor.child(serverId).orElse(null);
+                if (current == null || current != active) {
+                    throw new ChangeConflictException("The server was reconfigured during the version change");
+                }
+                ChildConfig liveCfg = current.config();
+                if (!liveCfg.dir().equals(oldCfg.dir())) {
+                    throw new ChangeConflictException("The server folder changed during the version change");
+                }
+                if (current.isAlive()) {
+                    current.stop();
+                    if (!waitUntilDead(current, STOP_DEAD_WAIT_MS)) {
+                        throw new ChangeConflictException(
+                                "The server restarted during the version change and could not be stopped");
+                    }
+                    restart[0] = true;
+                }
+                ChildConfig newCfg = new ChildConfig(liveCfg.id(), software.id(), liveCfg.dir(), newJar,
+                        liveCfg.heap(), liveCfg.xmsEqualXmx(), liveCfg.port(), liveCfg.bind(),
+                        liveCfg.stopStrategy(), liveCfg.stopCommand(), liveCfg.stopTimeoutSeconds(),
+                        liveCfg.startOrder(), liveCfg.stopOrder(), liveCfg.restartOnCrash(),
+                        liveCfg.restartBackoffSeconds(), liveCfg.extraFlags(), liveCfg.consoleEnabled(),
+                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath());
+                supervisor.updateChildConfig(serverId, newCfg);
+                owner[0] = supervisor.child(serverId).orElse(null); // updateChildConfig installs a new instance
+                persistConfig();
+                stage = "start";
+                if (restart[0]) startIfRegistered(serverId);
+                boolean backedUp = oldBackup != null || targetBackup != null;
+                String response = "{\"ok\":true,\"jar\":\"" + jsonEscape(newJar)
+                        + "\",\"type\":\"" + jsonEscape(software.id())
+                        + "\",\"restarted\":" + restart[0]
+                        + ",\"backup\":" + backedUp + ",\"stage\":\"done\"}";
+                // The change already happened; a broken client connection must not trigger a rollback.
+                try { send(ex, 200, response); } catch (IOException ignored) {}
+                return;
+            } catch (ChangeConflictException e) {
+                rollbackVersionChange(serverId, owner[0], oldCfg, oldJarPath, oldBackup, targetPath, targetBackup,
+                        targetExisted, sameJar, restart[0]);
+                sendError(ex, 409, stage, e.getMessage());
+                return;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                rollbackVersionChange(serverId, owner[0], oldCfg, oldJarPath, oldBackup, targetPath, targetBackup,
+                        targetExisted, sameJar, restart[0]);
+                sendError(ex, 500, stage, "The version change was interrupted");
+                return;
+            } catch (Exception e) {
+                rollbackVersionChange(serverId, owner[0], oldCfg, oldJarPath, oldBackup, targetPath, targetBackup,
+                        targetExisted, sameJar, restart[0]);
+                sendError(ex, 500, stage, e.getMessage() == null ? "The version change failed" : e.getMessage());
+                return;
+            }
+        } finally {
+            versionLocks.remove(serverId);
+        }
+    }
+
+    /** True once the child has no live process; polls so a SIGKILLed child that takes a moment to die counts. */
+    private static boolean waitUntilDead(ChildProcess child, long timeoutMs) {
+        long deadline = System.currentTimeMillis() + Math.max(0, timeoutMs);
+        while (child.isAlive() && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return !child.isAlive();
+            }
+        }
+        return !child.isAlive();
+    }
+
+    /**
+     * True when jar files may be replaced: the same child is still registered and not running. A child that
+     * came alive unexpectedly (manual start, missed crash restart) is stopped again and remembered for the
+     * final restart; false means "abort without touching the jar".
+     */
+    private boolean installGuard(String serverId, ChildProcess expected, boolean[] restart) {
+        ChildProcess live = supervisor.child(serverId).orElse(null);
+        if (live == null || live != expected) return false;
+        if (!live.isAlive()) {
+            // An armed crash restart could fire during/after the swap; cancel it and remember that the
+            // server is expected to be running again once the change completes.
+            if (live.state() == ChildState.RESTARTING) {
+                supervisor.cancelPendingRestart(serverId);
+                restart[0] = true;
+            }
+            return true;
+        }
+        supervisor.cancelPendingRestart(serverId);
+        live.stop();
+        if (!waitUntilDead(live, STOP_DEAD_WAIT_MS)) return false;
+        restart[0] = true;
+        return true;
+    }
+
+    /** Restarts a child only while it is still registered; a child deleted mid-change must not throw. */
+    private void startIfRegistered(String serverId) {
+        try {
+            if (supervisor.child(serverId).isPresent()) supervisor.requestLifecycle(serverId, "start");
+        } catch (RuntimeException ignored) {}
+    }
+
+    /** On an early abort, undo what we already did: restart a child whose queued crash restart we cancelled. */
+    private void restoreAfterAbort(String serverId, boolean shouldRun) {
+        if (!shouldRun) return;
+        try {
+            ChildProcess live = supervisor.child(serverId).orElse(null);
+            if (live != null && !live.isAlive()) startIfRegistered(serverId);
+        } catch (RuntimeException ignored) {}
+    }
+
+    /** Panel default JVM for installers (the child's own Java may be an old Java 8 that cannot run them). */
+    private String installerJava(ChildConfig cfg) {
+        try {
+            JavaRuntimes.JavaInfo def = javaRuntimes.defaultJava();
+            if (def != null && def.path() != null && !def.path().isBlank()) return def.path();
+        } catch (RuntimeException ignored) {}
+        return ChildProcess.javaFor(cfg);
+    }
+
+    /** Copies a backup back into place, skipping the copy when the file is already byte-identical. */
+    private static void restoreFromBackup(Path backup, Path target) throws IOException {
+        if (backup == null || target == null) return;
+        if (Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS) && Files.mismatch(backup, target) == -1) return;
+        Files.copy(backup, target, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    /** Restores the previous jars/config after a failure that happened once the server had been stopped. */
+    private void rollbackVersionChange(String serverId, ChildProcess active, ChildConfig oldCfg, Path oldJarPath,
+                                       Path oldBackup, Path targetPath, Path targetBackup, boolean targetExisted,
+                                       boolean sameJar, boolean restart) {
+        try {
+            if (sameJar) {
+                if (oldBackup != null) restoreFromBackup(oldBackup, targetPath);
+                else if (!targetExisted) Files.deleteIfExists(targetPath);
+            } else {
+                if (oldBackup != null && oldJarPath != null) restoreFromBackup(oldBackup, oldJarPath);
+                if (targetBackup != null) restoreFromBackup(targetBackup, targetPath);
+                else if (!targetExisted) Files.deleteIfExists(targetPath);
+            }
+        } catch (Exception e) {
+            ConsoleOutput.root("version rollback failed: could not restore the jar files: " + e.getMessage());
+        }
+        try {
+            ChildProcess live = supervisor.child(serverId).orElse(null);
+            // Only touch a config we are still responsible for; another actor may have replaced the child.
+            if (live != null && live == active) {
+                supervisor.updateChildConfig(serverId, oldCfg);
+                persistConfig();
+            }
+        } catch (Exception e) {
+            ConsoleOutput.root("version rollback failed: could not restore the previous config: " + e.getMessage());
+        }
+        if (restart) startIfRegistered(serverId);
+    }
+
+    /** Exact-scheme https + SoftwareRegistry host allowlist; no user-supplied URL ever reaches the client. */
+    private static boolean allowedDownloadUrl(String raw) {
+        if (raw == null || raw.isBlank()) return false;
+        try {
+            URI uri = URI.create(raw);
+            if (!"https".equalsIgnoreCase(uri.getScheme())) return false;
+            if (uri.getUserInfo() != null) return false;
+            String host = uri.getHost();
+            if (host == null) return false;
+            if (!SoftwareRegistry.downloadHosts().contains(host.toLowerCase(Locale.ROOT))) return false;
+            int port = uri.getPort();
+            return port == -1 || port == 443;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Downloads a jar to {@code target + ".download"}, verifies the host (also after redirects), size,
+     * ZIP magic and the optional SHA-256/SHA-1, then atomically moves it into place. The streamed size is
+     * capped at {@code maxBytes}; {@code installGuard} runs immediately before the move so a jar is never
+     * replaced under a process that came back alive.
+     */
+    private void downloadVerifiedJar(String url, Path target, String sha256, String sha1, long minBytes,
+                                     long maxBytes, BooleanSupplier installGuard)
+            throws IOException, InterruptedException {
+        if (!allowedDownloadUrl(url)) throw new IOException("The download URL is not on the allowlist");
+        Path tmp = target.resolveSibling(target.getFileName() + ".download");
+        try {
+            Files.deleteIfExists(tmp);
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .header("User-Agent", "childserversjar-panel/0.3.0")
+                    .timeout(Duration.ofMinutes(10))
+                    .build();
+            HttpResponse<InputStream> res = httpClient.send(req, HttpResponse.BodyHandlers.ofInputStream());
+            try (InputStream in = res.body()) {
+                if (res.statusCode() != 200) throw new IOException("Download returned HTTP " + res.statusCode());
+                if (!allowedDownloadUrl(res.uri().toString())) {
+                    throw new IOException("Download was redirected to a disallowed host");
+                }
+                String limitError = "Download is larger than the " + (maxBytes / (1024L * 1024L)) + " MB limit";
+                Optional<String> declared = res.headers().firstValue("Content-Length");
+                if (declared.isPresent()) {
+                    try {
+                        if (Long.parseLong(declared.get().trim()) > maxBytes) throw new IOException(limitError);
+                    } catch (NumberFormatException ignored) {
+                        // A malformed Content-Length is caught by the streamed cap below.
+                    }
+                }
+                long total = 0;
+                byte[] buffer = new byte[64 * 1024];
+                try (OutputStream out = Files.newOutputStream(tmp, StandardOpenOption.CREATE,
+                        StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+                    int n;
+                    while ((n = in.read(buffer)) != -1) {
+                        total += n;
+                        if (total > maxBytes) throw new IOException(limitError);
+                        out.write(buffer, 0, n);
+                    }
+                }
+            }
+            long size = Files.size(tmp);
+            if (size <= minBytes) throw new IOException("Downloaded file is too small (" + size + " bytes)");
+            if (!hasZipMagic(tmp)) throw new IOException("Downloaded file is not a jar (ZIP magic missing)");
+            if (sha256 != null && !sha256.isBlank()) {
+                if (!digestHex(tmp, "SHA-256").equalsIgnoreCase(sha256.trim())) {
+                    throw new IOException("SHA-256 checksum mismatch");
+                }
+            } else if (sha1 != null && !sha1.isBlank()) {
+                if (!digestHex(tmp, "SHA-1").equalsIgnoreCase(sha1.trim())) {
+                    throw new IOException("SHA-1 checksum mismatch");
+                }
+            }
+            if (installGuard != null && !installGuard.getAsBoolean()) {
+                throw new ChangeConflictException("The server was started or reconfigured during the version change");
+            }
+            moveAtomically(tmp, target);
+        } finally {
+            try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
+        }
+    }
+
+    private static void moveAtomically(Path from, Path to) throws IOException {
+        try {
+            Files.move(from, to, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(from, to, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static boolean hasZipMagic(Path file) {
+        try (InputStream in = Files.newInputStream(file)) {
+            return in.read() == 'P' && in.read() == 'K';
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static String digestHex(Path file, String algorithm) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance(algorithm);
+            try (InputStream in = Files.newInputStream(file)) {
+                byte[] buffer = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buffer)) != -1) digest.update(buffer, 0, n);
+            }
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest.digest()) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException(algorithm + " is not available", e);
+        }
+    }
+
+    /**
+     * Runs an installer jar in the server folder: 10-minute timeout, bounded output, forced kill on
+     * timeout, non-zero exit is an error. The caller deletes the installer in a finally block.
+     */
+    private String runInstaller(String java, Path installer, List<String> args, Path workingDir)
+            throws IOException, InterruptedException {
+        List<String> command = new ArrayList<>();
+        command.add(java);
+        command.add("-jar");
+        command.add(installer.toAbsolutePath().toString());
+        if (args != null) command.addAll(args);
+        final Process process;
+        try {
+            process = new ProcessBuilder(command)
+                    .directory(workingDir.toFile())
+                    .redirectErrorStream(true)
+                    .start();
+        } catch (IOException e) {
+            throw new IOException("Could not start the installer: " + e.getMessage(), e);
+        }
+        StringBuilder output = new StringBuilder();
+        Thread reader = new Thread(() -> {
+            try (InputStream in = process.getInputStream()) {
+                byte[] buffer = new byte[4096];
+                int n;
+                while ((n = in.read(buffer)) != -1) {
+                    synchronized (output) {
+                        int room = 32_768 - output.length();
+                        if (room > 0) output.append(new String(buffer, 0, Math.min(room, n), StandardCharsets.UTF_8));
+                    }
+                }
+            } catch (IOException ignored) {}
+        }, "version-installer");
+        reader.setDaemon(true);
+        reader.start();
+        boolean finished;
+        try {
+            finished = process.waitFor(10, TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
+            process.destroyForcibly();
+            Thread.currentThread().interrupt();
+            throw e;
+        }
+        if (!finished) {
+            process.destroyForcibly();
+            try { process.waitFor(10, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            throw new IOException("The installer timed out after 10 minutes");
+        }
+        try { reader.join(3_000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        if (process.exitValue() != 0) {
+            String tail;
+            synchronized (output) {
+                String text = output.toString().trim();
+                tail = text.length() > 800 ? text.substring(text.length() - 800) : text;
+            }
+            throw new IOException("The installer failed (exit " + process.exitValue() + ")"
+                    + (tail.isEmpty() ? "" : ": " + tail));
+        }
+        return output.toString();
+    }
+
+    // ---- update badge ------------------------------------------------------------------------
+
+    private record UpdateResult(String latest, boolean available, boolean checked, String error) {}
+
+    private void handleUpdateCheck(HttpExchange ex) throws IOException {
+        if (!requireGet(ex, "resolve")) return;
+        String serverId = param(ex, "server", "");
+        ChildProcess child = supervisor.child(serverId).orElse(null);
+        if (child == null) { sendError(ex, 404, "resolve", "Server not found"); return; }
+        if (roleFor(ex, serverId) == null) { sendError(ex, 403, "resolve", "No permission"); return; }
+        ChildConfig cfg = child.config();
+        String softwareId = cfg.type() == null ? "" : cfg.type().trim().toLowerCase(Locale.ROOT);
+        // Key on the jar (cheap) so a cache hit never has to read version_history.json / latest.log again.
+        String cacheKey = serverId + "|" + softwareId + "|" + (cfg.jar() == null ? "" : cfg.jar());
+        long now = System.currentTimeMillis();
+        Cached cached = updateCache.get(cacheKey);
+        if (cached != null && now - cached.at() < UPDATE_CACHE_MS) {
+            send(ex, 200, cached.body());
+            return;
+        }
+        String current = detectSoftwareVersion(cfg);
+        UpdateResult result;
+        try {
+            result = computeUpdate(registry.find(softwareId).orElse(null), current, cfg);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            send(ex, 200, updateJson(softwareId, current, "", false, false, "Update check interrupted"));
+            return;
+        } catch (Exception e) {
+            // Never let the badge endpoint 5xx; it is polled by the UI.
+            send(ex, 200, updateJson(softwareId, current, "", false, false,
+                    "Could not check for updates: " + e.getMessage()));
+            return;
+        }
+        String json = updateJson(softwareId, current, result.latest(), result.available(),
+                result.checked(), result.error());
+        if (result.checked()) {
+            if (updateCache.size() > 200) updateCache.clear();
+            updateCache.put(cacheKey, new Cached(now, json));
+        }
+        send(ex, 200, json);
+    }
+
+    private UpdateResult computeUpdate(SoftwareRegistry.Software software, String current, ChildConfig cfg)
+            throws IOException, InterruptedException {
+        if (software == null) {
+            return new UpdateResult("", false, false, "This server type is not managed by the version catalog.");
+        }
+        if (software.strategy() == SoftwareRegistry.Strategy.MANUAL) {
+            return new UpdateResult("", false, false, software.reason() == null || software.reason().isBlank()
+                    ? "This software must be installed manually." : software.reason());
+        }
+        List<SoftwareRegistry.VersionOption> versions = registry.versions(software.id());
+        if (versions.isEmpty()) return new UpdateResult("", false, false, "No versions are available for this software.");
+        String id = software.id();
+        String latestMc = versions.get(0).id();
+
+        if ("fabric".equals(id) || "quilt".equals(id)) {
+            // Loader versions follow the latest MC version they support.
+            String currentMc = mcVersionOf(cfg);
+            boolean update = knownVersion(currentMc) && Addons.compareVersions(latestMc, currentMc) > 0;
+            return new UpdateResult(latestMc, update, true, "");
+        }
+        if ("nanolimbo".equals(id)) {
+            boolean update = knownVersion(current) && Addons.compareVersions(latestMc, current) > 0;
+            return new UpdateResult(latestMc, update, true, "");
+        }
+        if ("bungeecord".equals(id)) {
+            SoftwareRegistry.InstallPlan plan = registry.resolve(id, "latest");
+            String latest = softwareVersionFromJar(plan.jarName());
+            boolean update = knownVersion(current) && !latest.isEmpty()
+                    && Addons.compareVersions(latest, current) > 0;
+            return new UpdateResult(latest.isEmpty() ? "latest" : latest, update, true, "");
+        }
+
+        String currentMc = mcVersionOf(cfg);
+        if (knownVersion(currentMc)) {
+            int cmp = Addons.compareVersions(latestMc, currentMc);
+            if (cmp > 0) return new UpdateResult(latestMc, true, true, "");
+            if (cmp < 0) return new UpdateResult(latestMc, false, true, "");
+        }
+        // Same MC version (or a proxy with no MC version): compare builds through the resolved jar name.
+        SoftwareRegistry.InstallPlan plan = registry.resolve(id, latestMc);
+        String latest = softwareVersionFromJar(plan.jarName());
+        if (latest.isEmpty()) latest = latestMc;
+        if (!knownVersion(current)) {
+            return new UpdateResult(latest, false, false, "Could not detect the current version.");
+        }
+        boolean update = Addons.compareVersions(latest, current) > 0;
+        return new UpdateResult(latest, update, true, "");
+    }
+
+    private static String updateJson(String software, String current, String latest,
+                                     boolean available, boolean checked, String error) {
+        return "{\"software\":\"" + jsonEscape(software)
+                + "\",\"current\":\"" + jsonEscape(current)
+                + "\",\"latest\":\"" + jsonEscape(latest)
+                + "\",\"updateAvailable\":" + available
+                + ",\"checked\":" + checked
+                + ",\"error\":\"" + jsonEscape(error == null ? "" : error) + "\"}";
+    }
+
+    // ---- Java runtimes -----------------------------------------------------------------------
+
+    private static void appendJavaInfos(StringBuilder sb, List<JavaRuntimes.JavaInfo> infos) {
+        for (int i = 0; i < infos.size(); i++) {
+            JavaRuntimes.JavaInfo info = infos.get(i);
+            if (i > 0) sb.append(',');
+            sb.append("{\"id\":\"").append(jsonEscape(info.id()))
+              .append("\",\"path\":\"").append(jsonEscape(info.path()))
+              .append("\",\"version\":\"").append(jsonEscape(info.version()))
+              .append("\",\"major\":").append(info.major())
+              .append(",\"source\":\"").append(jsonEscape(info.source())).append("\"}");
+        }
+    }
+
+    private void handleJavaRuntimes(HttpExchange ex) throws IOException {
+        if (!requireGet(ex, "resolve")) return;
+        if (!isAuthed(ex)) { sendError(ex, 401, "resolve", "Unauthorized"); return; }
+        String serverId = param(ex, "server", "");
+        ChildProcess child = null;
+        if (!serverId.isEmpty()) {
+            child = supervisor.child(serverId).orElse(null);
+            if (child == null) { sendError(ex, 404, "resolve", "Server not found"); return; }
+            if (!requireOwner(ex, serverId)) return;
+        } else if (!isAdmin(ex)) {
+            sendError(ex, 403, "resolve", "Admin only");
+            return;
+        }
+        int recommended = child == null ? 0 : JavaRuntimes.recommendedMajor(detectMcVersion(child.config()));
+        JavaRuntimes.JavaInfo def;
+        List<JavaRuntimes.JavaInfo> detected;
+        List<JavaRuntimes.JavaInfo> managed;
+        try {
+            def = javaRuntimes.defaultJava();
+            detected = javaRuntimes.detect();
+            managed = javaRuntimes.managed();
+        } catch (RuntimeException e) {
+            sendError(ex, 500, "resolve", "Could not inspect Java runtimes: " + e.getMessage());
+            return;
+        }
+        StringBuilder sb = new StringBuilder("{\"default\":{\"path\":\"").append(jsonEscape(def.path()))
+                .append("\",\"version\":\"").append(jsonEscape(def.version()))
+                .append("\"},\"detected\":[");
+        appendJavaInfos(sb, detected);
+        sb.append("],\"managed\":[");
+        appendJavaInfos(sb, managed);
+        sb.append("],\"recommendedMajor\":").append(recommended)
+          .append(",\"server\":\"").append(jsonEscape(serverId)).append("\"}");
+        send(ex, 200, sb.toString());
+    }
+
+    private void handleJavaDownload(HttpExchange ex) throws IOException {
+        if (!ex.getRequestMethod().equalsIgnoreCase("POST")) { sendError(ex, 405, "download", "POST only"); return; }
+        if (!isAdmin(ex)) { sendError(ex, 403, "download", "Admin only"); return; }
+        byte[] rawBody = readBodyCapped(ex, MAX_SMALL_BODY);
+        if (rawBody == null) { sendError(ex, 413, "download", "Request body is too large"); return; }
+        String body = new String(rawBody, StandardCharsets.UTF_8);
+        String raw = extractJson(body, "major");
+        if (raw.isEmpty()) raw = param(ex, "major", "");
+        int major;
+        try {
+            major = Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            sendError(ex, 400, "download", "major must be a number");
+            return;
+        }
+        if (major < 8 || major > 30) { sendError(ex, 400, "download", "Unsupported Java major"); return; }
+        try {
+            JavaRuntimes.JavaInfo info = javaRuntimes.download(major);
+            send(ex, 200, "{\"ok\":true,\"id\":\"" + jsonEscape(info.id())
+                    + "\",\"path\":\"" + jsonEscape(info.path())
+                    + "\",\"version\":\"" + jsonEscape(info.version()) + "\"}");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            sendError(ex, 500, "download", "Java download interrupted");
+        } catch (IOException e) {
+            sendError(ex, 502, "download", "Java download failed: " + e.getMessage());
+        } catch (RuntimeException e) {
+            sendError(ex, 500, "download", "Java download failed: " + e.getMessage());
+        }
+    }
+
+    private void handleJavaDelete(HttpExchange ex) throws IOException {
+        if (!ex.getRequestMethod().equalsIgnoreCase("DELETE")) { sendError(ex, 405, "save", "DELETE only"); return; }
+        if (!isAdmin(ex)) { sendError(ex, 403, "save", "Admin only"); return; }
+        String path = ex.getRequestURI().getPath();
+        String id = path.substring(path.lastIndexOf('/') + 1);
+        if (!id.isEmpty() && id.equals("download")) { sendError(ex, 405, "save", "DELETE only"); return; }
+        if (id.isEmpty()) { sendError(ex, 400, "save", "Java runtime id is required"); return; }
+        try {
+            boolean deleted = javaRuntimes.delete(id,
+                    supervisor.children().stream().map(ChildProcess::config).toList());
+            if (!deleted) { sendError(ex, 404, "save", "Java runtime not found"); return; }
+            send(ex, 200, "{\"ok\":true,\"id\":\"" + jsonEscape(id) + "\"}");
+        } catch (IOException e) {
+            String message = e.getMessage() == null ? "Could not delete the Java runtime" : e.getMessage();
+            int code = message.toLowerCase(Locale.ROOT).contains("in use") ? 409 : 400;
+            sendError(ex, code, "save", message);
+        }
+    }
+
+    /** POST /api/servers/{id}/java: persists the path without touching a running process. */
+    private void handleServerJava(HttpExchange ex, String serverId) throws IOException {
+        if (!ex.getRequestMethod().equalsIgnoreCase("POST")) { sendError(ex, 405, "save", "POST only"); return; }
+        ChildProcess child = supervisor.child(serverId).orElse(null);
+        if (child == null) { sendError(ex, 404, "resolve", "Server not found"); return; }
+        if (!requireOwner(ex, serverId)) return;
+        byte[] rawBody = readBodyCapped(ex, MAX_SMALL_BODY);
+        if (rawBody == null) { sendError(ex, 413, "save", "Request body is too large"); return; }
+        String body = new String(rawBody, StandardCharsets.UTF_8);
+        // An unparseable body must not be treated as "clear javaPath": the path key has to be present.
+        if (!hasJsonKey(body, "path")) { sendError(ex, 400, "save", "Missing path"); return; }
+        String raw = extractJson(body, "path");
+        String clean;
+        try {
+            clean = javaRuntimes.validate(raw);
+        } catch (IOException e) {
+            sendError(ex, 400, "verify", e.getMessage() == null ? "Invalid Java path" : e.getMessage());
+            return;
+        }
+        // validate() can spend seconds probing the runtime; apply the path to the LIVE config atomically so a
+        // concurrent version change (which replaces the child) is not reverted by our stale snapshot.
+        try {
+            supervisor.setJavaPath(serverId, clean);
+        } catch (RuntimeException e) {
+            sendError(ex, 500, "save", "Could not apply the Java path: " + e.getMessage());
+            return;
+        }
+        ChildProcess live = supervisor.child(serverId).orElse(null);
+        if (live == null) {
+            sendError(ex, 409, "save", "The server was removed while the Java path was being saved");
+            return;
+        }
+        try {
+            persistConfig();
+        } catch (IOException e) {
+            sendError(ex, 500, "save", "Could not save the Java path: " + e.getMessage());
+            return;
+        }
+        String version = "";
+        try {
+            version = clean.isEmpty() ? javaRuntimes.defaultJava().version() : javaRuntimes.versionAt(clean);
+        } catch (RuntimeException ignored) {}
+        boolean restartRequired = live.javaRestartRequired();
+        send(ex, 200, "{\"ok\":true,\"path\":\"" + jsonEscape(clean)
+                + "\",\"version\":\"" + jsonEscape(version)
+                + "\",\"restartRequired\":" + restartRequired + "}");
     }
 
     private void handleConfigRead(HttpExchange ex) throws IOException {

@@ -1,21 +1,28 @@
 package rootjar;
 
 import rootjar.addons.Addons;
+import rootjar.config.ChildConfig;
 import rootjar.config.ConfigException;
 import rootjar.config.ConfigLoader;
+import rootjar.config.ConfigSaver;
 import rootjar.config.ConfigValidator;
+import rootjar.config.JavaRuntimes;
 import rootjar.config.RootConfig;
 import rootjar.config.PasswordHasher;
+import rootjar.config.SoftwareRegistry;
 import rootjar.config.StopStrategy;
 import rootjar.console.LogRingBuffer;
 import rootjar.console.StdinRouter;
 import rootjar.console.StdinRouter.Kind;
 import rootjar.supervisor.BackoffPolicy;
+import rootjar.supervisor.ChildProcess;
 import rootjar.supervisor.CommandLineBuilder;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.zip.ZipEntry;
@@ -24,6 +31,10 @@ import java.util.zip.ZipOutputStream;
 /** Dependency-free unit checks (JUnit is not available offline). Exits 1 if anything fails. */
 public final class ChecksMain {
     private static int passed, failed;
+
+    private static final String SHA256_HEX =
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private static final String SHA1_HEX = "0123456789abcdef0123456789abcdef01234567";
 
     private static void check(boolean ok, String name) {
         if (ok) passed++;
@@ -36,6 +47,14 @@ public final class ChecksMain {
         backoff();
         passwords();
         commandLine();
+        javaPathConfig();
+        softwareRegistryParsers();
+        versionOrdering();
+        bungeeArtifactUrl();
+        fillBuildTravertineFallback();
+        compareVersionIdsEdges();
+        javaRuntimeHelpers();
+        commandLineJavaPath();
         configLoadsTemplateShape();
         validation();
         addons();
@@ -104,6 +123,450 @@ public final class ChecksMain {
         int n = cmd.size();
         check(cmd.get(n - 3).equals("-jar") && cmd.get(n - 2).equals("NanoLimbo.jar") && cmd.get(n - 1).equals("nogui"), "-jar jar nogui last");
         check(cfg.children().get(0).stopStrategy() == StopStrategy.BOTH, "strategy parsed");
+    }
+
+    // ---- Phase 3: per-server java path in config.yml -----------------------------------------
+
+    private static void javaPathConfig() throws Exception {
+        Path dir = Files.createTempDirectory("java-path");
+        RootConfig base = loadConfig(dir, PasswordHasher.hash("password1".toCharArray()),
+                25568, "127.0.0.1", 25566, 25565, true);
+
+        // A normal POSIX path is written unquoted and round-trips.
+        ChildConfig configured = base.children().get(0).withJavaPath("/opt/jdk-21/bin/java");
+        Path saved = dir.resolve("saved.yml");
+        ConfigSaver.save(saved, new RootConfig(base.server(), List.of(configured), base.baseDir()));
+        String text = Files.readString(saved);
+        check(text.contains("java: /opt/jdk-21/bin/java"), "java path saved unquoted");
+        check(!text.contains("java: \"/opt/jdk-21/bin/java\""), "java path is not double-quoted");
+        check(ConfigLoader.load(saved).children().get(0).javaPath().equals("/opt/jdk-21/bin/java"),
+                "java path save/load round-trip");
+
+        // A blank path must not emit a java key at all (older configs stay unchanged).
+        ChildConfig blank = base.children().get(0).withJavaPath("  ");
+        Path blankSaved = dir.resolve("blank.yml");
+        ConfigSaver.save(blankSaved, new RootConfig(base.server(), List.of(blank), base.baseDir()));
+        boolean hasJavaKey = Files.readAllLines(blankSaved).stream()
+                .anyMatch(line -> line.trim().startsWith("java:"));
+        check(!hasJavaKey, "blank java path omits the java key");
+        check(ConfigLoader.load(blankSaved).children().get(0).javaPath().isEmpty(),
+                "blank java path loads as empty");
+
+        // Windows paths must survive byte-for-byte: the unquoted scalar keeps every backslash.
+        String windows = "C:\\Program Files\\Eclipse Adoptium\\jdk-21\\bin\\java.exe";
+        ChildConfig win = base.children().get(0).withJavaPath(windows);
+        Path winSaved = dir.resolve("windows.yml");
+        ConfigSaver.save(winSaved, new RootConfig(base.server(), List.of(win), base.baseDir()));
+        check(Files.readString(winSaved).contains("java: " + windows),
+                "windows java path saved unquoted");
+        check(ConfigLoader.load(winSaved).children().get(0).javaPath().equals(windows),
+                "windows java path survives save/load byte-for-byte");
+    }
+
+    // ---- Phase 3: SoftwareRegistry pure parsers against inline fixtures ----------------------
+
+    private static void softwareRegistryParsers() throws Exception {
+        // fill (Paper/Folia/Velocity/Waterfall/Travertine) versions, both shapes.
+        String fillVersions = """
+                {"versions":{"1.21.4":[232,231],"1.21.3":[88]}}
+                """;
+        List<String> fillIds = SoftwareRegistry.parseFillVersionIds(fillVersions);
+        check(fillIds.size() == 2 && fillIds.get(0).equals("1.21.4"), "fill versions newest first");
+
+        String fillVersionsList = """
+                {"versions":[
+                  {"version":{"id":"1.21.4"},"builds":[232,231]},
+                  {"id":"1.20.4","builds":[496]}]}
+                """;
+        List<String> fillListIds = SoftwareRegistry.parseFillVersionIds(fillVersionsList);
+        check(fillListIds.size() == 2 && fillListIds.contains("1.20.4")
+                && fillListIds.get(0).equals("1.21.4"), "fill versions object array");
+
+        String fillBuild = """
+                {"id":232,"downloads":{"server:default":{
+                  "name":"paper-1.21.4-232.jar",
+                  "url":"https://fill-data.papermc.io/v2/objects/0000/paper.jar",
+                  "checksums":{"sha256":"%s"},
+                  "size":51960123}}}
+                """.formatted(SHA256_HEX);
+        SoftwareRegistry.FillBuild build = SoftwareRegistry.parseFillBuild(fillBuild);
+        check(build.name().equals("paper-1.21.4-232.jar"), "fill build name");
+        check(build.url().equals("https://fill-data.papermc.io/v2/objects/0000/paper.jar"),
+                "fill build url");
+        check(build.sha256().equals(SHA256_HEX), "fill build sha256");
+        check(build.size() == 51960123L, "fill build size");
+
+        // Purpur versions and latest build.
+        String purpurVersions = """
+                {"project":"purpur","versions":["1.21.3","1.21.4","1.20.4"]}
+                """;
+        List<String> purpurIds = SoftwareRegistry.parsePurpurVersions(purpurVersions);
+        check(purpurIds.size() == 3 && purpurIds.get(0).equals("1.21.4"),
+                "purpur versions newest first");
+
+        String purpurBuild = """
+                {"version":"1.21.4","builds":{"latest":"2107","all":["2106","2107"]}}
+                """;
+        check(SoftwareRegistry.parsePurpurBuild(purpurBuild).equals("2107"), "purpur latest build");
+
+        // Mojang manifest, release filter, per-version URL and version JSON.
+        String vanillaManifest = """
+                {"latest":{"release":"1.21.4","snapshot":"26w03a"},
+                 "versions":[
+                   {"id":"1.21.4","type":"release",
+                    "url":"https://piston-meta.mojang.com/v1/packages/aaaa/1.21.4.json"},
+                   {"id":"26w03a","type":"snapshot",
+                    "url":"https://piston-meta.mojang.com/v1/packages/bbbb/26w03a.json"},
+                   {"id":"1.20.4","type":"release",
+                    "url":"https://piston-meta.mojang.com/v1/packages/cccc/1.20.4.json"}]}
+                """;
+        check(SoftwareRegistry.parseVanillaManifest(vanillaManifest).equals("1.21.4"),
+                "vanilla manifest latest release");
+        check(SoftwareRegistry.parseVanillaReleases(vanillaManifest).equals(List.of("1.21.4", "1.20.4")),
+                "vanilla manifest releases only, newest first");
+        check(SoftwareRegistry.parseVanillaVersionUrl(vanillaManifest, "1.20.4")
+                        .equals("https://piston-meta.mojang.com/v1/packages/cccc/1.20.4.json"),
+                "vanilla per-version url");
+        check(throwsIo(() -> SoftwareRegistry.parseVanillaVersionUrl(vanillaManifest, "1.19.4")),
+                "vanilla unknown version throws");
+
+        String vanillaVersion = """
+                {"id":"1.21.4","type":"release","downloads":{"server":{
+                  "sha1":"%s","size":54000000,
+                  "url":"https://piston-data.mojang.com/v1/objects/dddd/server.jar"}}}
+                """.formatted(SHA1_HEX);
+        SoftwareRegistry.VanillaDownload vanilla =
+                SoftwareRegistry.parseVanillaVersionJson(vanillaVersion);
+        check(vanilla.version().equals("1.21.4"), "vanilla version json id");
+        check(vanilla.url().equals("https://piston-data.mojang.com/v1/objects/dddd/server.jar"),
+                "vanilla version json url");
+        check(vanilla.sha1().equals(SHA1_HEX), "vanilla version json sha1");
+
+        // Fabric installer (stable wins), loader and game versions.
+        String fabricInstaller = """
+                [{"version":"0.11.2","stable":false,
+                  "url":"https://maven.fabricmc.net/net/fabricmc/fabric-installer/0.11.2/fabric-installer-0.11.2.jar"},
+                 {"version":"1.0.1","stable":true,
+                  "url":"https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.0.1/fabric-installer-1.0.1.jar"}]
+                """;
+        SoftwareRegistry.InstallerFile fabric =
+                SoftwareRegistry.parseFabricInstaller(fabricInstaller);
+        check(fabric.version().equals("1.0.1")
+                && fabric.url().endsWith("fabric-installer-1.0.1.jar"), "fabric installer stable entry");
+        check(fabric.sha256().isEmpty(), "fabric installer has no inline checksum");
+
+        String fabricLoader = """
+                [{"loader":{"version":"0.16.9","stable":false}},
+                 {"loader":{"version":"0.16.10","stable":true}}]
+                """;
+        check(SoftwareRegistry.parseFabricLoader(fabricLoader).equals("0.16.10"),
+                "fabric stable loader");
+
+        String fabricGame = """
+                [{"version":"1.21.4","stable":true},
+                 {"version":"26w03a","stable":false},
+                 {"version":"1.21.3","stable":true}]
+                """;
+        check(SoftwareRegistry.parseFabricGameVersions(fabricGame)
+                .equals(List.of("1.21.4", "1.21.3")), "fabric stable game versions");
+
+        // Quilt installer (hashes.sha256 fallback) and game versions.
+        String quiltInstaller = """
+                [{"version":"0.9.2",
+                  "url":"https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/0.9.2/quilt-installer-0.9.2.jar",
+                  "hashes":{"sha256":"%s"}}]
+                """.formatted(SHA256_HEX);
+        SoftwareRegistry.InstallerFile quilt =
+                SoftwareRegistry.parseQuiltInstaller(quiltInstaller);
+        check(quilt.version().equals("0.9.2") && quilt.url().endsWith("quilt-installer-0.9.2.jar"),
+                "quilt installer entry");
+        check(quilt.sha256().equals(SHA256_HEX), "quilt installer hashes.sha256");
+
+        String quiltGame = """
+                [{"version":"1.21.4","stable":true},{"version":"1.21.3","stable":true}]
+                """;
+        check(SoftwareRegistry.parseQuiltGameVersions(quiltGame)
+                .equals(List.of("1.21.4", "1.21.3")), "quilt stable game versions");
+
+        // Maven .sha256 sidecar.
+        check(SoftwareRegistry.parseSha256Sidecar(
+                        SHA256_HEX.toUpperCase() + "  quilt-installer-0.9.2.jar\n").equals(SHA256_HEX),
+                "sha256 sidecar extracts and lowercases digest");
+        check(SoftwareRegistry.parseSha256Sidecar("no digest here").isEmpty(),
+                "sha256 sidecar without digest is empty");
+        check(SoftwareRegistry.parseSha256Sidecar(null).isEmpty(), "sha256 sidecar null is empty");
+
+        // BungeeCord Jenkins build number, with the buildNumber alias.
+        check(SoftwareRegistry.parseBungeeBuild("{\"number\":2107,\"result\":\"SUCCESS\"}") == 2107,
+                "bungee build number");
+        check(SoftwareRegistry.parseBungeeBuild("{\"buildNumber\":\"2099\"}") == 2099,
+                "bungee buildNumber alias");
+
+        // NanoLimbo release: tag, jar asset preference, url and digest.
+        String nanoRelease = """
+                {"tag_name":"v1.9.4","name":"NanoLimbo 1.9.4","draft":false,
+                 "assets":[
+                   {"name":"sources.jar",
+                    "browser_download_url":"https://github.com/Nan1t/NanoLimbo/releases/download/v1.9.4/sources.jar"},
+                   {"name":"NanoLimbo.jar",
+                    "browser_download_url":"https://github.com/Nan1t/NanoLimbo/releases/download/v1.9.4/NanoLimbo.jar",
+                    "digest":"sha256:%s"}]}
+                """.formatted(SHA256_HEX);
+        SoftwareRegistry.NanoLimboRelease nano =
+                SoftwareRegistry.parseNanoLimboRelease(nanoRelease);
+        check(nano.tag().equals("v1.9.4"), "nanolimbo release tag");
+        check(nano.name().equals("NanoLimbo 1.9.4"), "nanolimbo release name");
+        check(nano.assetName().equals("NanoLimbo.jar"), "nanolimbo prefers NanoLimbo.jar asset");
+        check(nano.url().endsWith("/v1.9.4/NanoLimbo.jar"), "nanolimbo asset url");
+        check(nano.sha256().equals(SHA256_HEX), "nanolimbo digest sha256");
+
+        String nanoReleases = """
+                [{"tag_name":"v1.9.4","name":"NanoLimbo 1.9.4","draft":false},
+                 {"tag_name":"v1.9.3","name":"","draft":true}]
+                """;
+        List<SoftwareRegistry.VersionOption> nanoOptions =
+                SoftwareRegistry.parseNanoLimboReleases(nanoReleases);
+        check(nanoOptions.size() == 1 && nanoOptions.get(0).id().equals("v1.9.4"),
+                "nanolimbo releases skip drafts");
+        check(nanoOptions.get(0).label().equals("NanoLimbo 1.9.4")
+                && nanoOptions.get(0).subtitle().equals("v1.9.4"), "nanolimbo release label/subtitle");
+
+        // Malformed and empty bodies must throw IOException (never a silent empty result).
+        check(throwsIo(() -> SoftwareRegistry.parseFillVersionIds("")), "empty fill versions throws");
+        check(throwsIo(() -> SoftwareRegistry.parseFillVersionIds("{}")), "fill versions without key throws");
+        check(throwsIo(() -> SoftwareRegistry.parseFillBuild("")), "empty fill build throws");
+        check(throwsIo(() -> SoftwareRegistry.parseFillBuild("{\"downloads\":{}}")),
+                "fill build without server:default throws");
+        check(throwsIo(() -> SoftwareRegistry.parsePurpurVersions("")), "empty purpur versions throws");
+        check(throwsIo(() -> SoftwareRegistry.parsePurpurBuild("{\"builds\":{}}")),
+                "purpur build without latest throws");
+        check(throwsIo(() -> SoftwareRegistry.parseVanillaManifest("")), "empty vanilla manifest throws");
+        check(throwsIo(() -> SoftwareRegistry.parseVanillaReleases("{\"versions\":[]}")),
+                "vanilla manifest without releases throws");
+        check(throwsIo(() -> SoftwareRegistry.parseVanillaVersionJson("")),
+                "empty vanilla version json throws");
+        check(throwsIo(() -> SoftwareRegistry.parseFabricInstaller("[]")),
+                "empty fabric installer list throws");
+        check(throwsIo(() -> SoftwareRegistry.parseFabricLoader("[]")),
+                "empty fabric loader list throws");
+        check(throwsIo(() -> SoftwareRegistry.parseFabricGameVersions("{}")),
+                "fabric game versions non-array throws");
+        check(throwsIo(() -> SoftwareRegistry.parseQuiltInstaller("[]")),
+                "empty quilt installer list throws");
+        check(throwsIo(() -> SoftwareRegistry.parseQuiltGameVersions("[]")),
+                "empty quilt game versions throws");
+        check(throwsIo(() -> SoftwareRegistry.parseNanoLimboRelease("")),
+                "empty nanolimbo release throws");
+        check(throwsIo(() -> SoftwareRegistry.parseNanoLimboReleases("[]")),
+                "empty nanolimbo releases throws");
+        check(throwsIo(() -> SoftwareRegistry.parseBungeeBuild("{}")),
+                "bungee build without number throws");
+
+        // Version token validation used by resolve() and the HTTP layer.
+        for (String v : List.of("1.21.4", "1.21.4-232", "26.3", "0.16.10+1.21.4",
+                "1" + "a".repeat(31))) {
+            check(SoftwareRegistry.validVersion(v), "validVersion accepts " + v);
+        }
+        for (String v : List.of("", "../x", "a/b", "1" + "a".repeat(32), "-1.21.4", ".hidden")) {
+            check(!SoftwareRegistry.validVersion(v), "validVersion rejects " + v);
+        }
+        check(!SoftwareRegistry.validVersion(null), "validVersion rejects null");
+    }
+
+    // ---- Phase 3: version ordering (build suffix is newer than a bare core) -------------------
+
+    private static void versionOrdering() {
+        List<String[]> newer = List.of(
+                new String[]{"1.21.4-232", "1.21.4"},
+                new String[]{"26.3", "26.3-rc-3"},
+                new String[]{"1.21.10", "1.21.4"});
+        List<String[]> older = List.of(
+                new String[]{"1.21.4-231", "1.21.4-232"},
+                new String[]{"26.3-rc-2", "26.3-rc-10"},
+                new String[]{"1.21.11-pre5", "1.21.11"},
+                new String[]{"3.4.0-SNAPSHOT-552", "3.4.0-SNAPSHOT-556"});
+
+        for (String[] pair : newer) {
+            check(SoftwareRegistry.compareVersionIds(pair[0], pair[1]) > 0,
+                    pair[0] + " sorts after " + pair[1]);
+        }
+        for (String[] pair : older) {
+            check(SoftwareRegistry.compareVersionIds(pair[0], pair[1]) < 0,
+                    pair[0] + " sorts before " + pair[1]);
+        }
+
+        // Both sort directions must agree for every pair above.
+        boolean symmetric = true;
+        List<String[]> all = new ArrayList<>(newer);
+        all.addAll(older);
+        for (String[] pair : all) {
+            int forward = SoftwareRegistry.compareVersionIds(pair[0], pair[1]);
+            int backward = SoftwareRegistry.compareVersionIds(pair[1], pair[0]);
+            if (Integer.signum(forward) != -Integer.signum(backward)) {
+                symmetric = false;
+                System.out.println("  not antisymmetric: " + pair[0] + " vs " + pair[1]
+                        + " (" + forward + " / " + backward + ")");
+            }
+        }
+        check(symmetric, "compareVersionIds is antisymmetric for the ordering fixtures");
+    }
+
+    // ---- Phase 3: BungeeCord Jenkins artifact URL --------------------------------------------
+
+    private static void bungeeArtifactUrl() {
+        check(SoftwareRegistry.bungeeArtifactUrl(2107).equals(
+                        "https://ci.md-5.net/job/BungeeCord/2107/artifact/bootstrap/target/BungeeCord.jar"),
+                "bungee artifact url keeps the /job/BungeeCord segment");
+        // The implementation rejects non-positive builds with IllegalArgumentException.
+        check(throwsIllegalArgument(() -> SoftwareRegistry.bungeeArtifactUrl(0)),
+                "bungee build 0 throws IllegalArgumentException");
+        check(throwsIllegalArgument(() -> SoftwareRegistry.bungeeArtifactUrl(-1)),
+                "bungee negative build throws IllegalArgumentException");
+    }
+
+    // ---- Phase 3: fill build "application" fallback (Travertine) -----------------------------
+
+    private static void fillBuildTravertineFallback() throws Exception {
+        String applicationOnly = """
+                {"id":569,"downloads":{"application":{
+                  "name":"travertine-1.21.4-569.jar",
+                  "url":"https://fill-data.papermc.io/v2/objects/aaaa/travertine.jar",
+                  "checksums":{"sha256":"%s"},
+                  "size":4356789}}}
+                """.formatted(SHA256_HEX);
+        SoftwareRegistry.FillBuild fallback = SoftwareRegistry.parseFillBuild(applicationOnly);
+        check(fallback.name().equals("travertine-1.21.4-569.jar"),
+                "fill application fallback name");
+        check(fallback.url().equals("https://fill-data.papermc.io/v2/objects/aaaa/travertine.jar"),
+                "fill application fallback url");
+        check(fallback.sha256().equals(SHA256_HEX), "fill application fallback sha256");
+        check(fallback.size() == 4356789L, "fill application fallback size");
+
+        String bothDownloads = """
+                {"id":232,"downloads":{
+                  "server:default":{
+                    "name":"paper-1.21.4-232.jar",
+                    "url":"https://fill-data.papermc.io/v2/objects/bbbb/paper.jar",
+                    "checksums":{"sha256":"%s"},
+                    "size":51960123},
+                  "application":{
+                    "name":"travertine-1.21.4-569.jar",
+                    "url":"https://fill-data.papermc.io/v2/objects/aaaa/travertine.jar",
+                    "checksums":{"sha256":"%s"},
+                    "size":4356789}}}
+                """.formatted(SHA256_HEX, "f".repeat(64));
+        SoftwareRegistry.FillBuild preferred = SoftwareRegistry.parseFillBuild(bothDownloads);
+        check(preferred.name().equals("paper-1.21.4-232.jar")
+                        && preferred.url().endsWith("/paper.jar"),
+                "fill build prefers server:default over application");
+        check(preferred.sha256().equals(SHA256_HEX) && preferred.size() == 51960123L,
+                "fill build server:default keeps its own checksum and size");
+
+        // No server:default and no usable application entry: still an IOException.
+        check(throwsIo(() -> SoftwareRegistry.parseFillBuild("{\"downloads\":{}}")),
+                "fill build without any usable download throws IOException");
+        check(throwsIo(() -> SoftwareRegistry.parseFillBuild(
+                        "{\"downloads\":{\"application\":{\"name\":\"no-url.jar\"}}}")),
+                "fill application fallback without url throws IOException");
+    }
+
+    // ---- Phase 3: compareVersionIds edge cases ----------------------------------------------
+
+    private static void compareVersionIdsEdges() {
+        check(SoftwareRegistry.compareVersionIds("1.21.4", "1.21.4") == 0,
+                "equal version ids compare 0");
+        check(SoftwareRegistry.compareVersionIds(" 1.21.4 ", "1.21.4") == 0,
+                "version ids are trimmed before comparing");
+        check(SoftwareRegistry.compareVersionIds(null, null) == 0,
+                "null/null compares 0 without throwing");
+        check(SoftwareRegistry.compareVersionIds("", "") == 0,
+                "blank/blank compares 0 without throwing");
+
+        boolean deterministic = true;
+        for (String weird : List.of("", "unknown", "-", "???", "../x", "1.21.4+build.1")) {
+            int first = SoftwareRegistry.compareVersionIds(weird, "1.21.4");
+            int second = SoftwareRegistry.compareVersionIds(weird, "1.21.4");
+            int reverse = SoftwareRegistry.compareVersionIds("1.21.4", weird);
+            if (first != second || Integer.signum(first) != -Integer.signum(reverse)) {
+                deterministic = false;
+                System.out.println("  non-deterministic compare for \"" + weird + "\"");
+            }
+        }
+        check(deterministic, "unknown/blank version ids compare deterministically without throwing");
+    }
+
+    private static boolean throwsIllegalArgument(IoAction action) {
+        try {
+            action.run();
+            return false;
+        } catch (IllegalArgumentException e) {
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // ---- Phase 3: JavaRuntimes pure helpers --------------------------------------------------
+
+    private static void javaRuntimeHelpers() {
+        JavaRuntimes.JavaVersion openjdk21 = JavaRuntimes.parseVersionOutput("""
+                openjdk version "21.0.13" 2025-10-21 LTS
+                OpenJDK Runtime Environment Temurin-21.0.13+9 (build 21.0.13+9-LTS)
+                OpenJDK 64-Bit Server VM Temurin-21.0.13+9 (build 21.0.13+9-LTS, mixed mode, sharing)
+                """);
+        check(openjdk21.major() == 21 && openjdk21.full().equals("21.0.13"),
+                "parse openjdk 21.0.13+9-LTS");
+        check(JavaRuntimes.parseVersionOutput("21.0.13+9-LTS").major() == 21,
+                "parse bare 21.0.13+9-LTS");
+
+        JavaRuntimes.JavaVersion legacy8 = JavaRuntimes.parseVersionOutput("""
+                openjdk version "1.8.0_402"
+                OpenJDK Runtime Environment (build 1.8.0_402-b06)
+                """);
+        check(legacy8.major() == 8 && legacy8.full().equals("1.8.0_402"), "parse legacy 1.8.0_402");
+
+        JavaRuntimes.JavaVersion jdk25 = JavaRuntimes.parseVersionOutput(
+                "openjdk version \"25.0.5\" 2025-09-16");
+        check(jdk25.major() == 25 && jdk25.full().equals("25.0.5"), "parse 25.0.5");
+
+        JavaRuntimes.JavaVersion garbage =
+                JavaRuntimes.parseVersionOutput("not a java version at all");
+        check(garbage.major() == 0 && garbage.full().isEmpty(), "parse garbage yields major 0");
+        check(JavaRuntimes.parseVersionOutput(null).major() == 0, "parse null yields major 0");
+
+        check(JavaRuntimes.recommendedMajor("1.16.5") == 8, "recommend java 8 for 1.16.5");
+        check(JavaRuntimes.recommendedMajor("1.20.4") == 17, "recommend java 17 for 1.20.4");
+        check(JavaRuntimes.recommendedMajor("1.20.5") == 21, "recommend java 21 for 1.20.5");
+        check(JavaRuntimes.recommendedMajor("1.21.4") == 21, "recommend java 21 for 1.21.4");
+        check(JavaRuntimes.recommendedMajor("26.3") == 25, "recommend java 25 for 26.3");
+        check(JavaRuntimes.recommendedMajor("unknown") == 0, "recommend nothing for unknown version");
+    }
+
+    // ---- Phase 3: configured java binary reaches the command line ---------------------------
+
+    private static void commandLineJavaPath() throws Exception {
+        Path dir = Files.createTempDirectory("java-cl");
+        RootConfig cfg = loadConfig(dir, PasswordHasher.hash("password1".toCharArray()),
+                25568, "127.0.0.1", 25566, 25565, true);
+        ChildConfig plain = cfg.children().get(0);
+        String panelJava = panelJavaBinary();
+
+        check(ChildProcess.javaFor(plain).equals(panelJava), "blank java path uses panel JVM");
+        check(ChildProcess.javaFor(plain.withJavaPath("   ")).equals(panelJava),
+                "whitespace java path uses panel JVM");
+        check(ChildProcess.javaFor(null).equals(panelJava), "null config uses panel JVM");
+
+        String custom = "/opt/jdk-21/bin/java";
+        ChildConfig customCfg = plain.withJavaPath(custom);
+        check(ChildProcess.javaFor(customCfg).equals(custom), "configured java path wins");
+
+        List<String> cmd = CommandLineBuilder.build(customCfg, ChildProcess.javaFor(customCfg));
+        check(cmd.get(0).equals(custom), "configured java path is argv[0]");
+        check(cmd.get(cmd.size() - 3).equals("-jar") && cmd.get(cmd.size() - 1).equals("nogui"),
+                "configured java path keeps -jar jar nogui tail");
+
+        List<String> panelCmd = CommandLineBuilder.build(plain, ChildProcess.javaFor(plain));
+        check(panelCmd.get(0).equals(panelJava), "panel JVM is argv[0] when java path is unset");
     }
 
     private static void configLoadsTemplateShape() throws Exception {
@@ -212,6 +675,29 @@ public final class ChecksMain {
 
     private static boolean contains(List<String> problems, String text) {
         return problems.stream().anyMatch(p -> p.contains(text));
+    }
+
+    @FunctionalInterface
+    private interface IoAction {
+        void run() throws Exception;
+    }
+
+    /** True only when the action throws IOException; other exceptions count as a failed check. */
+    private static boolean throwsIo(IoAction action) {
+        try {
+            action.run();
+            return false;
+        } catch (IOException e) {
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Mirrors ChildProcess.javaFor's panel default so the check is host-independent. */
+    private static String panelJavaBinary() {
+        Path p = Path.of(System.getProperty("java.home"), "bin", "java");
+        return Files.isExecutable(p) ? p.toString() : "java";
     }
 
     private static RootConfig loadConfig(Path dir, String hash, int panel, String nanoBind, int nanoPort, int veloPort,

@@ -62,6 +62,11 @@ public class ConfigSaver {
             sb.append("    console_enabled: ").append(c.consoleEnabled()).append("\n");
             sb.append("    use_aikar_flags: ").append(c.useAikarFlags()).append("\n");
             sb.append("    silent: ").append(c.silent()).append("\n"); // NEW
+            // Written unquoted on purpose: the YAML reader unescapes quoted scalars, which would eat the
+            // backslashes in Windows paths like C:\Program Files\Java\bin\java.exe. JavaRuntimes.validate()
+            // rejects values that cannot round-trip as a plain scalar (newlines, control chars, " #").
+            String javaPath = c.javaPath() == null ? "" : c.javaPath().replace("\r", "").replace("\n", "").trim();
+            if (!javaPath.isEmpty()) sb.append("    java: ").append(javaPath).append("\n"); // NEW
         }
         Files.writeString(file, sb.toString());
     }
