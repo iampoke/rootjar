@@ -1,0 +1,2415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.cdnfonts.com/css/minecraft-4" rel="stylesheet">
+    <style>
+        :root { --hue: 215; --bg-body: hsl(var(--hue), 20%, 8%); --bg-panel: hsl(var(--hue), 20%, 12%); --bg-card: hsl(var(--hue), 20%, 15%); --bg-hover: hsl(var(--hue), 20%, 20%); --bg-input: hsl(var(--hue), 20%, 10%); --text-main: hsl(var(--hue), 10%, 90%); --text-muted: hsl(var(--hue), 10%, 60%); --text-dark: hsl(var(--hue), 10%, 40%); --accent: hsl(var(--hue), 80%, 60%); --accent-hover: hsl(var(--hue), 80%, 50%); --success: hsl(150, 70%, 50%); --danger: hsl(350, 70%, 60%); --warning: hsl(40, 90%, 60%); --border: hsl(var(--hue), 20%, 18%); --border-light: hsl(var(--hue), 20%, 25%); --shadow: 0 8px 24px rgba(0,0,0,0.4); --font-main: 'Inter', sans-serif; --font-mono: monospace; }
+        
+        body.mc-font { font-family: 'Minecraft', monospace; -webkit-font-smoothing: none; image-rendering: pixelated; font-size: 16px; }
+        body.mc-font * { font-weight: normal !important; }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg-body); color: var(--text-main); font-family: var(--font-main); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        
+        #toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 999; display: flex; flex-direction: column; gap: 12px; }
+        .toast { background: var(--bg-panel); border-left: 4px solid var(--accent); color: var(--text-main); padding: 16px 20px; border-radius: 8px; animation: slideIn 0.3s ease-out; box-shadow: var(--shadow); }
+        .toast.error { border-left-color: var(--danger); }
+        .toast.success { border-left-color: var(--success); }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        #login-screen { position: fixed; inset: 0; background: var(--bg-body); z-index: 100; display: flex; align-items: center; justify-content: center; }
+        .login-box { background: var(--bg-panel); padding: 40px; border-radius: 16px; border: 1px solid var(--border); width: 340px; text-align: center; box-shadow: var(--shadow); }
+        .login-box h1 { margin-bottom: 24px; color: var(--accent); }
+        .login-box input { width: 100%; padding: 12px; margin-bottom: 16px; background: var(--bg-input); border: 1px solid var(--border); color: white; border-radius: 8px; outline: none; }
+        .login-box button { width: 100%; padding: 12px; background: var(--accent); border: none; border-radius: 8px; font-weight: 600; cursor: pointer; color: var(--bg-body); }
+
+        #app { display: none; flex-direction: column; height: 100vh; }
+        
+        .topbar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--border); background: var(--bg-body); }
+        .topbar-left { display: flex; align-items: center; gap: 32px; }
+        .logo { font-weight: 700; font-size: 20px; color: var(--accent); cursor: pointer; }
+        .breadcrumbs { display: flex; gap: 8px; font-size: 13px; color: var(--text-muted); }
+        
+        .global-stats { display: flex; gap: 12px; }
+        .stat-pill { background: var(--bg-panel); border: 1px solid var(--border); padding: 6px 12px; border-radius: 20px; font-size: 12px; font-family: var(--font-mono); color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+        .stat-val { color: var(--text-main); font-weight: bold; }
+
+        .topbar-right { display: flex; gap: 20px; align-items: center; }
+        .theme-picker { display: flex; align-items: center; gap: 8px; background: var(--bg-panel); padding: 6px 12px; border-radius: 20px; border: 1px solid var(--border); }
+        .theme-dot { width: 16px; height: 16px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
+        .theme-dot.active { border-color: white; }
+        .font-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-muted); cursor: pointer; }
+        .font-toggle input { cursor: pointer; accent-color: var(--accent); width: 16px; height: 16px; }
+        .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-weight: bold; color: var(--bg-body); }
+
+        .view-wrapper { flex: 1; display: none; overflow: hidden; }
+        .view-wrapper.active { display: flex; flex-direction: column; }
+
+        /* Wizard / Modal Styles */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 100; overflow-y: auto;
+        }
+        .wizard-container {
+            background: var(--bg-panel); border-radius: 12px;
+            width: 100%; max-width: 600px; margin: 20px;
+            box-shadow: var(--shadow); display: flex;
+            flex-direction: column;
+        }
+        .wizard-header { padding: 20px 24px; border-bottom: 1px solid var(--border); }
+        .wizard-header h2 { font-size: 18px; font-weight: 600; }
+        .wizard-progress {
+            display: flex; gap: 8px; margin-top: 16px;
+        }
+        .progress-step {
+            flex: 1; padding: 8px 4px; text-align: center;
+            font-size: 13px; color: var(--text-muted);
+            border-bottom: 2px solid var(--border-light);
+        }
+        .progress-step.active { color: var(--accent); border-color: var(--accent); }
+        .wizard-content {
+            padding: 24px; max-height: 400px; overflow-y: auto;
+        }
+        .wizard-step { display: none; }
+        .wizard-step.active { display: block; }
+        .radio-group { display: flex; flex-direction: column; gap: 12px; }
+        .radio-option {
+            display: flex; align-items: flex-start; gap: 12px;
+            padding: 16px; background: var(--bg-input);
+            border: 2px solid var(--border); border-radius: 8px;
+            cursor: pointer; transition: border-color 0.2s;
+        }
+        .radio-option:hover { border-color: var(--accent); }
+        .radio-option input[type="radio"] { margin-top: 2px; accent-color: var(--accent); }
+        .radio-content { flex: 1; }
+        .radio-title { font-weight: 600; font-size: 15px; }
+        .radio-desc { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+        .wizard-select {
+            width: 100%; padding: 10px; background: var(--bg-input);
+            border: 1px solid var(--border); color: white;
+            border-radius: 8px; font-size: 14px;
+        }
+        .version-help { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+        .form-grid { display: grid; gap: 16px; }
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        .form-group label { font-size: 13px; color: var(--text-main); }
+        .form-group input {
+            padding: 12px; background: var(--bg-input);
+            border: 1px solid var(--border); border-radius: 8px;
+            color: white; outline: none;
+        }
+        .form-group input:focus { border-color: var(--accent); }
+        .review-card {
+            background: var(--bg-input); padding: 20px;
+            border-radius: 8px; border: 1px solid var(--border);
+        }
+        .review-row {
+            display: flex; justify-content: space-between;
+            padding: 8px 0; border-bottom: 1px solid var(--border-light);
+        }
+        .review-row:last-child { border-bottom: none; }
+        .review-row span:first-child { color: var(--text-muted); }
+        .wizard-footer {
+            display: flex; gap: 10px; padding: 16px 24px;
+            border-top: 1px solid var(--border);
+        }
+        .wizard-footer button { flex-shrink: 0; }
+        .dashboard-content { padding: 32px; overflow-y: auto; height: 100%; }
+        .dashboard-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; }
+        
+        /* NEW DASHBOARD CARDS */
+        .server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(450px, 1fr)); gap: 20px; }
+        .server-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+        .sc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .sc-name { font-size: 18px; font-weight: 700; }
+        .sc-status { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+        .sc-status.RUNNING { background: rgba(16,185,129,0.1); color: var(--success); }
+        .sc-status.STOPPED { background: rgba(239,68,68,0.1); color: var(--danger); }
+        
+        .sc-stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; background: var(--bg-body); padding: 16px; border-radius: 8px; }
+        .sc-stat-box { display: flex; flex-direction: column; gap: 6px; }
+        .sc-stat-header { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+        .sc-stat-header svg { width: 14px; height: 14px; }
+        .sc-stat-values { display: flex; justify-content: space-between; font-size: 13px; font-family: var(--font-mono); font-weight: bold; color: var(--text-main); }
+        .sc-stat-values span:last-child { color: var(--text-muted); font-weight: normal; }
+        .sc-bar-bg { height: 4px; background: #000; border-radius: 2px; overflow: hidden; }
+        .sc-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+        
+        .sc-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+        .sc-uptime { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); }
+        
+        .btn { background: var(--accent); color: var(--bg-body); padding: 8px 16px; border-radius: 6px; font-weight: 600; border: none; cursor: pointer; }
+        .btn:hover { background: var(--accent-hover); }
+        .btn-outline { background: var(--bg-hover); color: var(--text-main); border: 1px solid var(--border); }
+        
+        .manage-stats-banner { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 24px; display: flex; justify-content: space-between; box-shadow: var(--shadow); }
+        .manage-stat-box { display: flex; flex-direction: column; gap: 4px; }
+        .manage-stat-title { font-size: 12px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
+        .manage-stat-value { font-size: 20px; font-family: var(--font-mono); font-weight: 700; color: var(--text-main); }
+        .manage-stat-sub { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+
+        .console-layout { display: flex; flex: 1; overflow: hidden; padding: 16px; gap: 16px; }
+        .sidebar-left { width: 240px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; flex-shrink: 0; }
+        .back-btn { padding: 16px; font-size: 12px; font-weight: 600; color: var(--text-muted); cursor: pointer; border-bottom: 1px solid var(--border); }
+        
+        .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--text-muted); cursor: pointer; transition: 0.1s; font-weight: 500; }
+        .nav-item:hover { background: var(--bg-hover); color: var(--text-main); }
+        .nav-item.active { background: var(--bg-hover); color: var(--accent); border-left: 3px solid var(--accent); }
+        .nav-item svg { width: 18px; height: 18px; }
+        
+        .server-status-box { margin: 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+        .status-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+        .status-btn { padding: 8px; border-radius: 8px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 11px; color: white; }
+        .status-btn.start { background: hsla(150,70%,50%,0.2); color: var(--success); }
+        .status-btn.stop { background: hsla(40,90%,60%,0.2); color: var(--warning); }
+        .status-btn.restart { background: hsla(215,80%,60%,0.2); color: var(--accent); }
+        .status-btn.kill { background: hsla(350,70%,60%,0.2); color: var(--danger); }
+        .status-text { font-size: 11px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); display: inline-block; margin-right: 6px; box-shadow: 0 0 8px var(--success); }
+
+        .content-center { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .tab-container { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+        .tab-container.active { display: flex; }
+        
+        .console-container { flex: 1; background: #000; border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; }
+        .console-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-panel); }
+        .console-select { padding: 6px 8px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-main); font-size: 12px; font-weight: 700; outline: none; }
+        .console-search { flex: 1; min-width: 120px; padding: 6px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-main); font-size: 12px; outline: none; }
+        .console-select:focus, .console-search:focus { border-color: var(--accent); }
+        .console-btn { padding: 6px 10px; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 6px; color: var(--text-main); font-size: 12px; font-weight: 600; cursor: pointer; }
+        .console-btn:hover { color: var(--accent); border-color: var(--accent); }
+        .console-output { flex: 1; padding: 14px 16px; overflow-y: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.45; color: var(--text-main); }
+        .console-line { white-space: pre-wrap; word-break: break-word; margin-bottom: 1px; }
+        .console-time { color: var(--text-muted); opacity: .65; margin-right: 8px; }
+        .console-msg { white-space: pre-wrap; }
+        .console-input-row { padding: 10px 12px 12px; border-top: 1px solid var(--border); background: var(--bg-panel); }
+        .console-input-box { display: flex; align-items: center; gap: 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px; padding: 0 12px; }
+        .console-input-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px hsla(215,80%,60%,0.15); }
+        .console-chevron { color: var(--accent); font-size: 20px; line-height: 1; }
+        .console-input-box input { flex: 1; padding: 12px 0; background: transparent; border: none; color: white; font-family: var(--font-mono); outline: none; }
+
+        .addons-page { flex: 1; overflow-y: auto; padding: 4px 2px 20px; display: flex; flex-direction: column; gap: 18px; }
+        .addons-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .addons-head h2 { font-size: 20px; font-weight: 700; }
+        .addons-context { font-size: 12px; color: var(--text-muted); font-weight: 500; margin-left: 8px; }
+        .addons-head-actions { display: flex; gap: 8px; }
+        .addons-warn { padding: 12px 14px; border: 1px solid hsla(38,92%,55%,.35); background: hsla(38,92%,55%,.08); color: hsl(38,92%,70%); border-radius: 8px; font-size: 13px; line-height: 1.45; }
+        .addons-section { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+        .addons-section-head { display: flex; align-items: center; justify-content: space-between; }
+        .addons-section-head h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); }
+        .addons-list { display: flex; flex-direction: column; gap: 6px; }
+        .addon-row { display: grid; grid-template-columns: minmax(0,1fr) 120px auto; gap: 12px; align-items: center; padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; }
+        .addon-row.disabled { opacity: .55; }
+        .addon-name { font-family: var(--font-mono); font-size: 12px; word-break: break-all; }
+        .addon-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+        .addon-actions { display: flex; gap: 6px; justify-content: flex-end; }
+        .addon-toggle { padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; border: 1px solid var(--border); background: var(--bg-hover); color: var(--text-muted); }
+        .addon-toggle.on { color: var(--success); border-color: hsla(150,70%,50%,.4); background: hsla(150,70%,50%,.1); }
+        .addon-toggle.off { color: var(--danger); border-color: hsla(350,70%,60%,.35); background: hsla(350,70%,60%,.08); }
+        .addons-search { display: flex; gap: 8px; }
+        .addons-search input { flex: 1; padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text-main); font-size: 13px; outline: none; }
+        .addons-search input:focus { border-color: var(--accent); }
+        .addons-sub { font-size: 11px; color: var(--text-muted); }
+        .addons-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; }
+        .addon-card { background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+        .addon-card-head { display: flex; gap: 10px; align-items: center; }
+        .addon-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--bg-hover); display: flex; align-items: center; justify-content: center; font-weight: 800; color: var(--accent); flex-shrink: 0; overflow: hidden; }
+        .addon-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .addon-card-title { font-weight: 700; font-size: 14px; }
+        .addon-card-author { font-size: 11px; color: var(--text-muted); }
+        .addon-desc { font-size: 12px; color: var(--text-muted); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+        .addon-card-foot { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
+        .addons-pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; font-size: 12px; color: var(--text-muted); }
+        .addons-empty { font-size: 13px; color: var(--text-muted); padding: 8px 2px; }
+
+        .type-badge { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: var(--bg-hover); color: var(--text-muted); }
+        .type-badge.type-paper, .type-badge.type-folia { background: hsla(38, 92%, 55%, .15); color: hsl(38, 92%, 68%); }
+        .type-badge.type-purpur, .type-badge.type-quilt { background: hsla(275, 70%, 60%, .16); color: hsl(275, 70%, 75%); }
+        .type-badge.type-vanilla { background: hsla(145, 65%, 48%, .15); color: hsl(145, 65%, 65%); }
+        .type-badge.type-fabric { background: hsla(35, 80%, 60%, .16); color: hsl(35, 80%, 72%); }
+        .type-badge.type-spigot { background: hsla(28, 85%, 55%, .16); color: hsl(28, 85%, 70%); }
+        .type-badge.type-velocity { background: hsla(195, 85%, 55%, .16); color: hsl(195, 85%, 72%); }
+        .type-badge.type-waterfall, .type-badge.type-bungeecord, .type-badge.type-travertine { background: hsla(210, 80%, 58%, .16); color: hsl(210, 80%, 74%); }
+        .type-badge.type-nanolimbo, .type-badge.type-custom { background: hsla(220, 8%, 55%, .18); color: var(--text-muted); }
+        .type-badge.type-jda, .type-badge.type-discord4j { background: hsla(235, 70%, 62%, .18); color: hsl(235, 70%, 76%); }
+        .type-badge.type-arclight { background: hsla(0, 70%, 58%, .15); color: hsl(0, 70%, 72%); }
+        .sc-type { margin-top: 4px; }
+        .server-type { margin-top: 6px; }
+        
+        .fm-container { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; flex: 1; }
+        .fm-header { padding: 12px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; background: var(--bg-body); }
+        .fm-table { width: 100%; border-collapse: collapse; }
+        .fm-table th, .fm-table td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
+        .fm-file, .fm-dir { cursor: pointer; }
+        .fm-file:hover, .fm-dir:hover { text-decoration: underline; }
+        
+        .fm-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 200; display: none; align-items: center; justify-content: center; }
+        .fm-modal.active { display: flex; }
+        .fm-modal-content { background: var(--bg-panel); border-radius: 16px; width: 90%; height: 85vh; display: flex; flex-direction: column; }
+        .fm-modal-textarea { flex: 1; background: #000; color: #a3be8c; padding: 20px; border: none; font-family: var(--font-mono); resize: none; outline: none; }
+
+        /* Visual config editor */
+        .config-editor-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 14px; padding: 4px 2px 8px; }
+        .config-editor-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .config-editor-title { display: flex; align-items: center; gap: 10px; }
+        .config-editor-title svg { width: 22px; height: 22px; color: var(--accent); }
+        .config-editor-title h2 { font-size: 20px; font-weight: 700; }
+        .config-toolbar { display: flex; gap: 10px; align-items: center; }
+        .config-file-select { flex: 0 1 44%; min-width: 200px; max-width: 560px; padding: 10px 12px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; color: var(--text-main); font-size: 13px; outline: none; }
+        .config-search { flex: 1; min-width: 160px; padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text-main); font-size: 13px; outline: none; }
+        .config-file-select:focus, .config-search:focus { border-color: var(--accent); }
+        .config-search:disabled { opacity: .45; }
+        .config-raw-btn { padding: 9px 14px; }
+        .config-raw-btn.active { background: var(--accent); color: var(--bg-body); border-color: var(--accent); }
+        .config-hint { display: none; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-panel); color: var(--text-muted); font-size: 13px; line-height: 1.45; }
+        .config-editor-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
+        .config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; align-content: start; padding-bottom: 18px; }
+        .config-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+        .config-card-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        .config-chip { flex-shrink: 0; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--bg-hover); color: var(--text-muted); border-radius: 4px; padding: 3px 7px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+        .config-key { color: var(--text-main); font-size: 12px; font-weight: 700; letter-spacing: .3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .config-input { width: 100%; padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-main); font-family: var(--font-mono); font-size: 13px; outline: none; }
+        .config-input:focus { border-color: var(--accent); }
+        .config-toggle-row { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+        .config-switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+        .config-switch input { opacity: 0; width: 0; height: 0; }
+        .config-slider { position: absolute; cursor: pointer; inset: 0; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 22px; transition: .15s; }
+        .config-slider:before { content: ""; position: absolute; height: 16px; width: 16px; left: 2px; top: 2px; background: var(--text-muted); border-radius: 50%; transition: .15s; }
+        .config-switch input:checked + .config-slider { background: hsla(150,70%,50%,0.25); border-color: var(--success); }
+        .config-switch input:checked + .config-slider:before { transform: translateX(18px); background: var(--success); }
+        .config-toggle-text { font-size: 12px; color: var(--text-muted); }
+        .config-raw { display: none; width: 100%; min-height: 320px; height: calc(100% - 4px); background: #000; color: #a3be8c; border: 1px solid var(--border); border-radius: 10px; padding: 16px; font-family: var(--font-mono); font-size: 13px; line-height: 1.5; resize: none; outline: none; }
+        .sc-status.STARTING, .sc-status.STOPPING { background: rgba(245,158,11,0.12); color: var(--warning); }
+        .sc-status.RESTARTING { background: rgba(59,130,246,0.12); color: var(--accent); }
+        .sc-status.CRASHED { background: rgba(239,68,68,0.18); color: var(--danger); }
+        
+        .ctx-menu { position: absolute; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; display: none; flex-direction: column; z-index: 100; box-shadow: var(--shadow); }
+        .ctx-item { padding: 10px 16px; cursor: pointer; font-size: 13px; }
+        .ctx-item:hover { background: var(--bg-hover); }
+
+        .sidebar-right { width: 320px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; flex-shrink: 0; }
+        .info-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 16px; padding: 20px; box-shadow: var(--shadow); }
+        .server-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+        .server-icon { width: 40px; height: 40px; background: #5c9c5c; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; }
+        .server-name { font-size: 16px; font-weight: 700; }
+        
+        /* IP Box with Copy Button */
+        .ip-box { background: transparent; border: none; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 12px 0; font-family: var(--font-mono); font-size: 14px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; color: var(--text-main); }
+        .copy-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; transition: 0.2s; display: flex; align-items: center; }
+        .copy-btn:hover { color: var(--accent); }
+        
+        .info-grid { display: flex; justify-content: space-between; font-size: 12px; padding: 0 4px; }
+        .info-item { display: flex; flex-direction: column; gap: 6px; }
+        .info-label { color: var(--text-muted); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;}
+        .info-val { font-weight: 700; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); }
+
+        .resource-header { display: flex; justify-content: space-between; font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted); margin-bottom: 20px; letter-spacing: 0.5px; }
+        .live-badge { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--success); font-weight: 600; text-transform: none; }
+        .resource-row { display: flex; gap: 16px; margin-bottom: 24px; }
+        .resource-icon-box { width: 44px; height: 44px; border-radius: 10px; background: var(--bg-body); display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; overflow: hidden; color: var(--text-muted); }
+        .resource-icon-box::after { content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 30%; background: var(--accent); opacity: 0.8; z-index: 1; }
+        .resource-icon-box svg { z-index: 2; }
+        .resource-data { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+        .res-top { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 4px; }
+        .res-title { font-size: 13px; font-weight: 600; color: var(--text-main); }
+        .res-pct { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+        .res-bottom { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+        .res-val { font-size: 18px; font-weight: 700; color: var(--text-main); font-family: var(--font-mono); }
+        .res-max { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+        .res-bar-bg { height: 4px; background: var(--bg-body); border-radius: 2px; overflow: hidden; width: 100%; }
+        .res-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; box-shadow: 0 0 10px var(--accent); }
+        
+        .network-row { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 16px; margin-top: 8px; }
+        .net-label { font-size: 13px; font-weight: 600; color: var(--text-main); }
+        .net-stats { display: flex; gap: 12px; font-family: var(--font-mono); font-size: 12px; font-weight: 600; }
+    </style>
+</head>
+<body class="mc-font">
+    <div id="toast-container"></div>
+    <div id="ctx-menu" class="ctx-menu">
+        <div class="ctx-item" onclick="ctxAction('rename')">Rename</div>
+        <div class="ctx-item" onclick="ctxAction('zip')">Archive</div>
+        <div class="ctx-item" onclick="ctxAction('delete')">Delete</div>
+    </div>
+
+    <div id="login-screen">
+        <div class="login-box">
+            <h1>Panel</h1>
+            <input type="text" id="login-user" placeholder="Username" value="admin">
+            <input type="password" id="login-pass" placeholder="Password">
+            <button onclick="doLogin()">Sign In</button>
+        </div>
+    </div>
+
+    <div id="app">
+        <div class="topbar">
+            <div class="topbar-left">
+                <div class="logo" onclick="switchView('dashboard')">Panel</div>
+                <div class="breadcrumbs" id="breadcrumbs"><span>Servers</span></div>
+                
+                <div class="global-stats" id="global-stats-container">
+                    <div class="stat-pill">RAM: <span class="stat-val" id="global-ram-txt">0 / 3072 MB</span></div>
+                    <div class="stat-pill">CPU: <span class="stat-val" id="global-cpu-txt">0%</span></div>
+                    <div class="stat-pill">STORAGE: <span class="stat-val" id="global-storage-txt">0 B</span></div>
+                </div>
+            </div>
+            
+            <div class="topbar-right">
+                <div class="theme-picker">
+                    <div class="theme-dot active" style="background: hsl(215, 80%, 60%);" onclick="setTheme(215, this)"></div>
+                    <div class="theme-dot" style="background: hsl(150, 70%, 50%);" onclick="setTheme(150, this)"></div>
+                    <div class="theme-dot" style="background: hsl(270, 70%, 60%);" onclick="setTheme(270, this)"></div>
+                    <div class="theme-dot" style="background: hsl(350, 70%, 60%);" onclick="setTheme(350, this)"></div>
+                </div>
+                <label class="font-toggle">
+                    <input type="checkbox" id="mcFontToggle" checked onchange="toggleFont()"> MC Font
+                </label>
+                <div class="avatar" id="avatar-name">A</div>
+                <button class="btn btn-outline" style="padding:6px 14px;" onclick="doLogout()">Log out</button>
+            </div>
+        </div>
+
+        <div id="view-dashboard" class="view-wrapper active">
+            <div class="dashboard-content">
+                <div class="dashboard-header">
+                    <h1>Your Servers</h1>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn btn-outline" onclick="switchView('users')" id="admin-users-btn">Manage Users</button>
+                        <button class="btn" onclick="switchView('manage')" id="create-btn">+ Create Server</button>
+                    </div>
+                </div>
+                <div class="server-grid" id="server-grid"></div>
+            </div>
+        </div>
+
+        <!-- USERS VIEW (GLOBAL) -->
+        <div id="view-users" class="view-wrapper">
+            <div class="dashboard-content">
+                <div class="dashboard-header">
+                    <div>
+                        <h1>Manage Users</h1>
+                        <p style="color:var(--text-muted); font-size:14px; margin-top:4px;">Create subusers. After creating a user, go to a specific server and add them there.</p>
+                    </div>
+                </div>
+
+                <div style="background: var(--bg-panel); padding: 24px; border-radius: 12px; border: 1px solid var(--border); max-width: 800px; margin-bottom: 30px;">
+                    <h3 style="margin-bottom: 15px;">Create New User</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <input type="text" id="u-name" placeholder="Username" style="padding:12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; color:white;">
+                        <input type="text" id="u-pass" placeholder="Password" style="padding:12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; color:white;">
+                    </div>
+                    <button class="btn" style="margin-top:16px; width:100%;" onclick="createUser()">Create User</button>
+                </div>
+
+                <h2 style="margin-bottom: 16px;">Existing Users</h2>
+                <div style="border-radius: 8px; border: 1px solid var(--border); overflow: hidden; max-width: 800px;">
+                    <table class="fm-table">
+                        <thead><tr><th>Username</th><th>Role</th><th>Allowed Servers</th></tr></thead>
+                        <tbody id="users-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- MANAGE SERVERS VIEW -->
+        <div id="view-manage" class="view-wrapper">
+            <div class="dashboard-content">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                      <h1>Create / Manage Servers</h1>
+                      <button class="btn" onclick="openCreateWizard()">+ Create Server</button>
+                  </div>
+                    <div class="manage-stats-banner">
+                        <div class="manage-stat-box">
+                            <span class="manage-stat-title">Currently In Use</span>
+                            <span class="manage-stat-value" id="m-used-ram">0 MB</span>
+                            <span class="manage-stat-sub">Actual RAM usage</span>
+                        </div>
+                        <div class="manage-stat-box" style="text-align: right;">
+                            <span class="manage-stat-title">Total Allocated</span>
+                            <span class="manage-stat-value" id="m-alloc-ram">0 MB / 3072 MB</span>
+                            <span class="manage-stat-sub" id="m-free-ram">3072 MB Free</span>
+                        </div>
+                    </div>
+
+                  <!-- Create Wizard Modal -->
+                  <div id="create-wizard-overlay" class="modal-overlay" style="display: none;">
+                      <div class="wizard-container">
+                          <div class="wizard-header">
+                              <h2>Create Server</h2>
+                              <div class="wizard-progress">
+                                  <div class="progress-step active" data-step="1">Game Type</div>
+                                  <div class="progress-step" data-step="2">Software</div>
+                                  <div class="progress-step" data-step="3">Version</div>
+                                  <div class="progress-step" data-step="4">Configuration</div>
+                                  <div class="progress-step" data-step="5">Review</div>
+                              </div>
+                          </div>
+                          <div class="wizard-content">
+                              <!-- Step 1: Game Type -->
+                              <div id="wizard-step-1" class="wizard-step active">
+                                  <h3 style="margin-bottom: 16px;">Select Game Type</h3>
+                                  <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 14px;">Choose what kind of server you want to create.</p>
+                                  <div class="radio-group" id="gametype-options">
+                                      <label class="radio-option">
+                                          <input type="radio" name="gameType" value="minecraft" checked onchange="wizardGameType='minecraft';updateForkOptions();updateWizardUI()">
+                                          <div class="radio-content">
+                                              <div class="radio-title">Minecraft Server</div>
+                                              <div class="radio-desc">Java Minecraft servers using Paper, Purpur, Fabric, or Quilt</div>
+                                          </div>
+                                      </label>
+                                      <label class="radio-option">
+                                          <input type="radio" name="gameType" value="discord_bot" onchange="wizardGameType='discord_bot';updateForkOptions();updateWizardUI()">
+                                          <div class="radio-content">
+                                              <div class="radio-title">Discord Bot</div>
+                                              <div class="radio-desc">Java-based Discord bot using JDA or Discord4J</div>
+                                          </div>
+                                      </label>
+                                      <label class="radio-option">
+                                          <input type="radio" name="gameType" value="custom" onchange="wizardGameType='custom';updateForkOptions();updateWizardUI()">
+                                          <div class="radio-content">
+                                              <div class="radio-title">Custom</div>
+                                              <div class="radio-desc">Manually configure any server type</div>
+                                          </div>
+                                      </label>
+                                  </div>
+                              </div>
+                              <!-- Step 2: Software Selection -->
+                              <div id="wizard-step-2" class="wizard-step">
+                                  <h3 style="margin-bottom: 16px;">Select Server Software</h3>
+                                  <div class="radio-group" id="fork-options"></div>
+                              </div>
+
+                              <!-- Step 3: Version Selection -->
+                              <div id="wizard-step-3" class="wizard-step">
+                                  <h3 style="margin-bottom: 16px;">Select Version</h3>
+                                  <div style="margin-bottom: 12px;"><select id="wizard-version-select" class="wizard-select"></select></div>
+                                  <p style="color: var(--text-muted); font-size: 12px;">Leave empty for latest stable build.</p>
+                              </div>
+
+                              <!-- Step 4: Configuration -->
+                              <div id="wizard-step-4" class="wizard-step">
+                                  <h3 style="margin-bottom: 16px;">Server Configuration</h3>
+                                  <div class="form-grid">
+                                      <div class="form-group">
+                                          <label>Server Name (No Spaces)</label>
+                                          <input type="text" id="wizard-name" placeholder="my-server" pattern="[A-Za-z0-9_-]+" title="Letters, numbers, - and _ only">
+                                      </div>
+                                      <div class="form-group">
+                                          <label>Port</label>
+                                          <input type="number" id="wizard-port" placeholder="25565" value="25565">
+                                      </div>
+                                      <div class="form-group">
+                                          <label>RAM (MB)</label>
+                                          <input type="number" id="wizard-ram" placeholder="1024" value="1024">
+                                          <button class="btn btn-outline" style="margin-top:8px; font-size:12px; padding:4px;" onclick="applyRamPreset()">Apply Recommended</button>
+                                      </div>
+                                      <div class="form-group">
+                                          <label>Jar File Name</label>
+                                          <input type="text" id="wizard-jar" placeholder="server.jar" value="server.jar">
+                                      </div>
+                                  </div>
+                              </div>
+
+                              <!-- Step 5: Review -->
+                              <div id="wizard-step-5" class="wizard-step">
+                                  <h3 style="margin-bottom: 16px;">Review &amp; Create</h3>
+                                  <div class="review-card" id="wizard-review"></div>
+                              </div>
+                          </div>
+                          <div class="wizard-footer">
+                              <button class="btn btn-outline" onclick="wizardBack()">Back</button>
+                              <button class="btn btn-outline" onclick="closeCreateWizard()">Cancel</button>
+                              <button class="btn" id="wizard-next-btn" style="margin-left:auto;" onclick="wizardNext()">Next</button>
+                              <button class="btn" id="wizard-create-btn" style="display:none; margin-left:auto;" onclick="wizardCreateServer()">Create Server</button>
+                          </div>
+                      </div>
+                  </div>
+                <div style="border-radius: 8px; border: 1px solid var(--border); overflow: hidden; background: var(--bg-panel);">
+                    <table class="fm-table">
+                        <thead><tr><th>Name</th><th>Type</th><th>Port</th><th>RAM</th><th>Jar</th><th style="text-align:right;">Actions</th></tr></thead>
+                        <tbody id="manage-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONSOLE LAYOUT -->
+        <div id="view-console" class="view-wrapper">
+            <div class="console-layout">
+                <div class="sidebar-left">
+                    <div class="back-btn" onclick="switchView('dashboard')">← BACK</div>
+                    
+                    <div class="server-status-box">
+                        <div class="status-actions">
+                            <button class="status-btn start" onclick="powerAction('start')">Start</button>
+                            <button class="status-btn stop" onclick="powerAction('stop')">Stop</button>
+                            <button class="status-btn restart" onclick="powerAction('restart')">Restart</button>
+                            <button class="status-btn kill" onclick="powerAction('kill')">Kill</button>
+                        </div>
+                        <div class="status-text">
+                            <span><span class="status-dot"></span>CONNECTED</span>
+                            <span id="sidebar-status">-</span>
+                        </div>
+                    </div>
+
+                    <div class="nav-item active" id="tab-btn-console" onclick="switchTab('console')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg> Console
+                    </div>
+                    <div class="nav-item" id="tab-btn-files" onclick="switchTab('files')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> Files
+                    </div>
+                    <div class="nav-item" id="tab-btn-plugins" onclick="switchTab('plugins')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg> Plugins
+                    </div>
+                    <div class="nav-item" id="tab-btn-mods" onclick="switchTab('mods')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg> Mods
+                    </div>
+                    <div class="nav-item" id="tab-btn-config" onclick="switchTab('config')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> Config
+                    </div>
+                    
+                    <!-- NEW SERVER USERS TAB -->
+                    <div class="nav-item" id="tab-btn-users" onclick="switchTab('users')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg> Users
+                    </div>
+                    
+                    <div style="margin-top: auto; padding: 16px;"></div>
+                </div>
+                
+                <div class="content-center">
+                    <div id="tab-console" class="tab-container active">
+                        <div class="console-container">
+                            <div class="console-toolbar">
+                                <select id="console-filter" class="console-select" onchange="consoleFilter.level=this.value;renderConsole()">
+                                    <option value="ALL">ALL</option>
+                                    <option value="INFO">INFO</option>
+                                    <option value="WARN">WARN</option>
+                                    <option value="ERROR">ERROR</option>
+                                </select>
+                                <input type="text" id="console-search" class="console-search" placeholder="Filter console..." oninput="consoleFilter.text=this.value;renderConsole()">
+                                <button class="console-btn" onclick="downloadConsoleLog()" title="Download the full log">Download</button>
+                            </div>
+                            <div class="console-output" id="console-output"></div>
+                            <div class="console-input-row">
+                                <div class="console-input-box">
+                                    <span class="console-chevron">»</span>
+                                    <input type="text" id="console-input" placeholder="Type a command..." onkeydown="handleConsoleKey(event)" autocomplete="off" spellcheck="false">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="tab-files" class="tab-container">
+                        <div class="fm-container">
+                            <div class="fm-header">
+                                <button class="btn btn-outline" onclick="loadFileList('.')">Refresh</button>
+                                <button class="btn" onclick="promptMkdir()">+ Folder</button>
+                            </div>
+                            <div style="flex:1; overflow-y:auto;">
+                                <table class="fm-table">
+                                    <thead><tr><th>Name</th><th>Size</th><th>Modified</th></tr></thead>
+                                    <tbody id="fm-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="tab-plugins" class="tab-container">
+                        <div class="addons-page" id="addons-plugin"></div>
+                    </div>
+                    <div id="tab-mods" class="tab-container">
+                        <div class="addons-page" id="addons-mod"></div>
+                    </div>
+                    <div id="tab-config" class="tab-container">
+                        <div class="config-editor-wrap">
+                            <div class="config-editor-head">
+                                <div class="config-editor-title">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                    <h2>Config Editor</h2>
+                                </div>
+                                <button class="btn" id="config-save-btn" onclick="saveConfig()">Save</button>
+                            </div>
+                            <div class="config-toolbar">
+                                <select id="config-file" class="config-file-select" onchange="loadConfig()"></select>
+                                <input type="text" id="config-search" class="config-search" placeholder="Search config options..." oninput="filterConfigEntries()">
+                                <button class="btn btn-outline config-raw-btn" id="config-raw-btn" onclick="toggleConfigRaw()">Raw</button>
+                            </div>
+                            <div id="config-hint" class="config-hint"></div>
+                            <div class="config-editor-body">
+                                <div id="config-editor" class="config-grid"></div>
+                                <textarea id="config-raw" class="config-raw" spellcheck="false" oninput="configMarkDirty()"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- NEW SERVER USERS TAB CONTENT -->
+                    <div id="tab-users" class="tab-container">
+                        <div class="fm-container" style="padding:20px;">
+                            <h3>Users with access to this server</h3>
+                            <table class="fm-table" style="margin-top:20px;">
+                                <thead><tr><th>Username</th><th>Role</th><th style="text-align:right;">Actions</th></tr></thead>
+                                <tbody id="server-users-tbody"></tbody>
+                            </table>
+
+                            <h3 style="margin-top:40px;">Add User to Server</h3>
+                            <div style="display:flex; gap:10px; margin-top:10px;">
+                                <select id="add-user-select" style="flex:1; padding:10px; background:var(--bg-input); border:1px solid var(--border); color:white; border-radius:8px;">
+                                    <option value="">Select a user...</option>
+                                </select>
+                                <button class="btn" onclick="addUserToServer()">Add User</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar-right">
+                    <div class="info-card">
+                        <div class="server-brand">
+                            <div class="server-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+                            </div>
+                            <div>
+                                <div class="server-name" id="console-server-name">Loading...</div>
+                                <div class="server-type" id="console-server-type">-</div>
+                            </div>
+                        </div>
+                        
+                        <div class="ip-box">
+                            <span id="sidebar-ip">-</span>
+                            <button class="copy-btn" onclick="copyIp()" title="Copy IP">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                        </div>
+
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label">UPTIME</span>
+                                <span class="info-val" id="sidebar-uptime">0h 0m 0s</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">PLAYERS</span>
+                                <span class="info-val" id="sidebar-players">0</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">STATUS</span>
+                                <span class="info-val" id="sidebar-status-2">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="info-card">
+                        <div class="resource-header">
+                            <span>RESOURCES</span>
+                            <span class="live-badge"><span class="status-dot"></span> Live</span>
+                        </div>
+                        
+                        <div class="resource-row">
+                            <div class="resource-icon-box">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+                            </div>
+                            <div class="resource-data">
+                                <div class="res-top">
+                                    <span class="res-title">CPU Load</span>
+                                    <span class="res-pct" id="res-cpu-txt">0%</span>
+                                </div>
+                                <div class="res-bottom">
+                                    <span class="res-val" id="res-cpu-val">0.00%</span>
+                                    <span class="res-max">/ 200%</span>
+                                </div>
+                                <div class="res-bar-bg"><div class="res-bar-fill" id="res-cpu-bar" style="width: 0%;"></div></div>
+                            </div>
+                        </div>
+
+                        <div class="resource-row">
+                            <div class="resource-icon-box" style="background: hsla(150,70%,50%,0.1); color: var(--success);">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="6" y1="10" x2="6" y2="14"></line><line x1="10" y1="10" x2="10" y2="14"></line><line x1="14" y1="10" x2="14" y2="14"></line><line x1="18" y1="10" x2="18" y2="14"></line></svg>
+                            </div>
+                            <div class="resource-data">
+                                <div class="res-top">
+                                    <span class="res-title">Memory</span>
+                                    <span class="res-pct" id="res-ram-pct">0%</span>
+                                </div>
+                                <div class="res-bottom">
+                                    <span class="res-val" id="res-ram-val">0 MB</span>
+                                    <span class="res-max" id="res-ram-max">/ 0 MB</span>
+                                </div>
+                                <div class="res-bar-bg"><div class="res-bar-fill" id="res-ram-bar" style="width: 0%; background: var(--success); box-shadow: 0 0 10px var(--success);"></div></div>
+                            </div>
+                        </div>
+                        
+                        <div class="resource-row" style="margin-bottom: 0;">
+                            <div class="resource-icon-box" style="background: hsla(270,70%,60%,0.1); color: #8b5cf6;">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                            </div>
+                            <div class="resource-data">
+                                <div class="res-top">
+                                    <span class="res-title">Disk</span>
+                                    <span class="res-pct" id="res-disk-pct">4%</span>
+                                </div>
+                                <div class="res-bottom">
+                                    <span class="res-val" id="res-disk-val">1.68 GB</span>
+                                    <span class="res-max">/ 40 GB</span>
+                                </div>
+                                <div class="res-bar-bg"><div class="res-bar-fill" id="res-disk-bar" style="width: 4%; background: #8b5cf6; box-shadow: 0 0 10px #8b5cf6;"></div></div>
+                            </div>
+                        </div>
+
+                        <div class="network-row">
+                            <div class="net-label">Network</div>
+                            <div class="net-stats">
+                                <span class="net-down" id="net-down-txt" style="color: var(--accent);">↓ 0 KiB/s</span>
+                                <span class="net-up" id="net-up-txt" style="color: var(--accent);">↑ 0 KiB/s</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="fm-modal" id="fm-modal">
+        <div class="fm-modal-content">
+            <div style="padding:16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between;">
+                <span id="fm-modal-filename">File</span>
+                <div>
+                    <button class="btn" onclick="saveFile()">Save</button>
+                    <button class="btn btn-outline" onclick="document.getElementById('fm-modal').classList.remove('active')">Close</button>
+                </div>
+            </div>
+            <textarea class="fm-modal-textarea" id="fm-modal-textarea" spellcheck="false"></textarea>
+        </div>
+    </div>
+
+    <div class="fm-modal" id="confirm-modal">
+        <div class="fm-modal-content" style="height: auto; max-width: 460px;">
+            <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                <span id="confirm-title" style="font-weight:700;">Confirm</span>
+                <button class="btn btn-outline" onclick="closeConfirm()">X</button>
+            </div>
+            <div style="padding:20px;">
+                <p id="confirm-body" style="font-size:14px; color:var(--text-muted); line-height:1.6;"></p>
+                <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
+                    <button class="btn btn-outline" onclick="closeConfirm()">Cancel</button>
+                    <button class="btn" id="confirm-ok" onclick="runConfirm()">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="fm-modal" id="version-modal">
+        <div class="fm-modal-content" style="height: auto; max-width: 400px;">
+            <div style="padding:16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between;">
+                <span id="version-modal-title">Select Version</span>
+                <button class="btn btn-outline" onclick="document.getElementById('version-modal').classList.remove('active')">X</button>
+            </div>
+            <div style="padding:20px;">
+                <p style="font-size:14px; margin-bottom:15px; color:var(--text-muted);">Please select a version to install:</p>
+                <select id="version-select" style="width:100%; padding:10px; background:var(--bg-input); border:1px solid var(--border); color:white; border-radius:8px; margin-bottom:20px;"></select>
+                <button class="btn" style="width:100%;" onclick="confirmInstallVersion()">Install Selected Version</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- DELETE SERVER MODAL (3-step warning, admin only). Files on disk are kept; only the panel/config entry goes away. -->
+    <div class="fm-modal" id="delete-modal">
+        <div class="fm-modal-content" style="height:auto; max-width:480px;">
+            <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-weight:700;">Delete Server</span>
+                <span id="del-step-indicator" style="font-size:11px; color:var(--text-muted); font-weight:600;">STEP 1 OF 3</span>
+            </div>
+
+            <div id="del-step-1" style="padding:24px;">
+                <h3 style="color:var(--danger); margin-bottom:12px;">You are deleting &quot;<span id="del-name-1"></span>&quot;</h3>
+                <p style="font-size:14px; color:var(--text-muted); line-height:1.6; margin-bottom:16px;">
+                    This removes the server from this panel and from the root config, so it no longer runs or shows up here.
+                </p>
+                <ul style="font-size:13px; color:var(--text-muted); line-height:1.9; padding-left:20px; margin-bottom:20px;">
+                    <li>The server process is stopped if it is currently running</li>
+                    <li>It disappears from this panel and can no longer be started here</li>
+                    <li><strong style="color:var(--text-main);">Files are NOT deleted</strong>: the folder, worlds and jars stay on disk and in your Pterodactyl panel files</li>
+                </ul>
+                <div style="display:flex; gap:10px; justify-content:flex-end;">
+                    <button class="btn btn-outline" onclick="closeDeleteModal()">Cancel</button>
+                    <button class="btn" style="background:var(--danger);" onclick="deleteStep2()">Continue</button>
+                </div>
+            </div>
+
+            <div id="del-step-2" style="padding:24px; display:none;">
+                <p style="font-size:14px; margin-bottom:12px;">Step 2 of 3: type the server name <strong id="del-name-2" style="color:var(--danger);"></strong> to confirm:</p>
+                <input type="text" id="del-confirm-input" oninput="deleteCheckName()" autocomplete="off" spellcheck="false"
+                       style="width:100%; padding:12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; color:white; outline:none;">
+                <div style="display:flex; gap:10px; justify-content:space-between; margin-top:20px;">
+                    <button class="btn btn-outline" onclick="deleteStep1()">Back</button>
+                    <button class="btn" id="del-step2-btn" style="background:var(--danger);" disabled onclick="deleteStep3()">Continue</button>
+                </div>
+            </div>
+
+            <div id="del-step-3" style="padding:24px; display:none;">
+                <p style="font-size:14px; margin-bottom:20px; line-height:1.6;">
+                    <strong style="color:var(--danger);">Final warning.</strong> &quot;<span id="del-name-3"></span>&quot; will be removed
+                    from this panel and will no longer be managed here. Its files stay on disk and in Pterodactyl.
+                </p>
+                <div style="display:flex; gap:10px; justify-content:space-between;">
+                    <button class="btn btn-outline" onclick="closeDeleteModal()">Cancel</button>
+                    <button class="btn" id="del-final-btn" style="background:var(--danger);" disabled onclick="confirmDeleteServer()">Please wait...</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentServer = null, currentPath = ".", currentFile = null, isAdmin = false;
+        let sse = null, currentServersList = [], currentPublicIp = "127.0.0.1";
+        let consoleLines = [], consoleHistory = [], consoleHistoryIndex = -1;
+        let consoleFilter = { level: 'ALL', text: '' };
+        window.csrfToken = '';
+
+        // Every state-changing /api call carries the per-session CSRF token; the backend rejects POSTs without it.
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = function (input, init) {
+            const opts = init || {};
+            const url = typeof input === 'string' ? input : (input && input.url) || '';
+            const method = (opts.method || 'GET').toUpperCase();
+            if (url.startsWith('/api/') && method !== 'GET' && method !== 'HEAD') {
+                const headers = Object.assign({}, opts.headers || {});
+                if (!headers['X-CSRF-Token']) headers['X-CSRF-Token'] = window.csrfToken || '';
+                opts.headers = headers;
+            }
+            return nativeFetch(input, opts);
+        };
+        let configFiles = [], configEntries = [], configCurrentFile = '', configRawContent = '';
+        let configFileExists = false, configRawMode = false, configDirty = false;
+        let allUsers = [];
+        let cpuMaxPct = 300;
+        let deleteTarget = null, deleteCountdown = null;
+
+        function showToast(msg, type='info') {
+            const t = document.createElement('div'); t.className = 'toast ' + type; t.innerText = msg;
+            document.getElementById('toast-container').appendChild(t);
+            setTimeout(() => t.remove(), 4000);
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+        
+        const ANSI_BASE = {
+            30: '#4b5263', 31: '#e06c75', 32: '#98c379', 33: '#e5c07b', 34: '#61afef',
+            35: '#c678dd', 36: '#56b6c2', 37: '#dcdfe4', 90: '#5c6370', 91: '#ff7b86',
+            92: '#b5e890', 93: '#ffd68a', 94: '#7cc4ff', 95: '#d9a0ff', 96: '#7fe3ee', 97: '#ffffff'
+        };
+
+        function ansi256(n) {
+            if (n < 16) return ANSI_BASE[n < 8 ? 30 + n : 90 + (n - 8)] || '#dcdfe4';
+            if (n < 232) {
+                const q = [0, 95, 135, 175, 215, 255];
+                const i = n - 16;
+                return `rgb(${q[Math.floor(i / 36)]},${q[Math.floor(i / 6) % 6]},${q[i % 6]})`;
+            }
+            const g = 8 + 10 * (n - 232);
+            return `rgb(${g},${g},${g})`;
+        }
+
+        // Converts ANSI SGR sequences (colours, 256/truecolor, bold, underline, ...) to escaped HTML spans.
+        // Text is escaped per run, so log content can never inject markup.
+        function ansiToHtml(text) {
+            let out = '';
+            let fg = null, bg = null, bold = false, dim = false, italic = false, underline = false, strike = false;
+            const push = (s) => {
+                if (!s) return;
+                const parts = [];
+                if (fg) parts.push('color:' + fg);
+                if (bg) parts.push('background:' + bg);
+                if (bold) parts.push('font-weight:700');
+                if (dim) parts.push('opacity:.7');
+                if (italic) parts.push('font-style:italic');
+                const deco = [];
+                if (underline) deco.push('underline');
+                if (strike) deco.push('line-through');
+                if (deco.length) parts.push('text-decoration:' + deco.join(' '));
+                out += parts.length ? `<span style="${parts.join(';')}">${escapeHtml(s)}</span>` : escapeHtml(s);
+            };
+            let i = 0;
+            while (i < text.length) {
+                if (text[i] !== '\x1b') {
+                    let j = i;
+                    while (j < text.length && text[j] !== '\x1b') j++;
+                    push(text.slice(i, j));
+                    i = j;
+                    continue;
+                }
+                const next = text[i + 1];
+                if (next === '[') {
+                    let j = i + 2;
+                    while (j < text.length && !/[A-Za-z]/.test(text[j])) j++;
+                    if (j >= text.length) break;
+                    const params = text.slice(i + 2, j);
+                    if (text[j] === 'm') {
+                        const codes = params === '' ? [0] : params.split(';').map(Number);
+                        for (let k = 0; k < codes.length; k++) {
+                            const c = codes[k];
+                            if (Number.isNaN(c)) continue;
+                            if (c === 0) { fg = null; bg = null; bold = dim = italic = underline = strike = false; }
+                            else if (c === 1) bold = true;
+                            else if (c === 2) dim = true;
+                            else if (c === 3) italic = true;
+                            else if (c === 4) underline = true;
+                            else if (c === 9) strike = true;
+                            else if (c === 22) { bold = false; dim = false; }
+                            else if (c === 23) italic = false;
+                            else if (c === 24) underline = false;
+                            else if (c === 29) strike = false;
+                            else if (c === 39) fg = null;
+                            else if (c === 49) bg = null;
+                            else if (c >= 30 && c <= 37) fg = ANSI_BASE[c];
+                            else if (c >= 90 && c <= 97) fg = ANSI_BASE[c];
+                            else if (c >= 40 && c <= 47) bg = ANSI_BASE[c - 10];
+                            else if (c >= 100 && c <= 107) bg = ANSI_BASE[c - 10];
+                            else if (c === 38 || c === 48) {
+                                const set = c === 38 ? (v) => { fg = v; } : (v) => { bg = v; };
+                                if (codes[k + 1] === 5) { set(ansi256(codes[k + 2] || 0)); k += 2; }
+                                else if (codes[k + 1] === 2) { set(`rgb(${codes[k + 2] || 0},${codes[k + 3] || 0},${codes[k + 4] || 0})`); k += 4; }
+                            }
+                        }
+                    }
+                    i = j + 1;
+                    continue;
+                }
+                if (next === ']') {
+                    let j = i + 2;
+                    while (j < text.length && text[j] !== '\x07' && !(text[j] === '\x1b' && text[j + 1] === '\\')) j++;
+                    i = Math.min(text.length, j + (text[j] === '\x1b' ? 2 : 1));
+                    continue;
+                }
+                i += 2;
+            }
+            return out;
+        }
+
+        function detectLevel(line) {
+            const m = /\b(TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|SEVERE)\b/i.exec(line);
+            if (!m) return '';
+            const l = m[1].toUpperCase();
+            if (l === 'WARNING') return 'WARN';
+            if (l === 'SEVERE') return 'ERROR';
+            return l;
+        }
+
+        function consolePasses(entry) {
+            if (consoleFilter.level !== 'ALL' && entry.level !== consoleFilter.level) return false;
+            const q = consoleFilter.text.trim().toLowerCase();
+            return !q || entry.raw.toLowerCase().indexOf(q) !== -1;
+        }
+
+        function appendConsoleEntry(entry) {
+            const out = document.getElementById('console-output');
+            const holder = document.createElement('div');
+            holder.innerHTML = `<div class="console-line" data-level="${entry.level}"><span class="console-time">[${entry.time}]</span><span class="console-msg">${entry.html}</span></div>`;
+            out.appendChild(holder.firstChild);
+            while (out.children.length > 1000) out.removeChild(out.firstChild);
+        }
+
+        function pushConsoleLine(raw) {
+            const text = String(raw == null ? '' : raw);
+            const detected = detectLevel(text);
+            const previous = consoleLines.length ? consoleLines[consoleLines.length - 1].level : 'INFO';
+            // Only stack-trace/continuation lines inherit the previous severity; a fresh untagged line is INFO.
+            const isContinuation = /^(\s|at\s|Caused by:|\.\.\.)/.test(text);
+            const entry = {
+                raw: text,
+                html: ansiToHtml(text),
+                level: detected || (isContinuation ? previous : 'INFO'),
+                time: new Date().toLocaleTimeString()
+            };
+            consoleLines.push(entry);
+            if (consoleLines.length > 1000) consoleLines.shift();
+            if (!consolePasses(entry)) return;
+            const out = document.getElementById('console-output');
+            const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 24;
+            appendConsoleEntry(entry);
+            if (atBottom) out.scrollTop = out.scrollHeight;
+        }
+
+        function renderConsole() {
+            const out = document.getElementById('console-output');
+            out.innerHTML = '';
+            for (const entry of consoleLines) if (consolePasses(entry)) appendConsoleEntry(entry);
+            out.scrollTop = out.scrollHeight;
+        }
+
+        function downloadConsoleLog() {
+            if (!currentServer) return showToast('Open a server first', 'error');
+            window.location = '/api/logs/download?server=' + encodeURIComponent(currentServer.id);
+        }
+
+        function typeLabel(type) {
+            const map = {
+                paper: 'Paper', purpur: 'Purpur', vanilla: 'Vanilla', fabric: 'Fabric', quilt: 'Quilt',
+                spigot: 'Spigot', folia: 'Folia', velocity: 'Velocity', waterfall: 'Waterfall',
+                travertine: 'Travertine', bungeecord: 'BungeeCord', nanolimbo: 'NanoLimbo',
+                jda: 'JDA', discord4j: 'Discord4J', arclight: 'Arclight', custom: 'Custom'
+            };
+            const key = String(type || '').toLowerCase();
+            return map[key] || (type ? String(type) : 'Custom');
+        }
+
+        function typeBadge(type) {
+            const key = String(type || 'custom').toLowerCase().replace(/[^a-z0-9_-]/g, '') || 'custom';
+            return `<span class="type-badge type-${key}">${escapeHtml(typeLabel(type))}</span>`;
+        }
+
+        function setTheme(hue, el) {
+            document.documentElement.style.setProperty('--hue', hue);
+            document.querySelectorAll('.theme-dot').forEach(d => d.classList.remove('active'));
+            el.classList.add('active');
+        }
+        
+        function toggleFont() {
+            document.body.classList.toggle('mc-font', document.getElementById('mcFontToggle').checked);
+        }
+
+        async function copyText(text) {
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(text);
+                    return true;
+                }
+            } catch (_) {}
+            // Plain-HTTP origin or a browser without the async clipboard API.
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+            document.body.appendChild(ta);
+            ta.select();
+            ta.setSelectionRange(0, ta.value.length);
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+            ta.remove();
+            return ok;
+        }
+
+        async function copyIp() {
+            const el = document.getElementById('sidebar-ip');
+            const ip = el ? el.innerText.trim() : '';
+            if (!ip || ip === '-' || ip === 'Loading...') return showToast("IP not available yet", "error");
+            const ok = await copyText(ip);
+            showToast(ok ? "IP copied to clipboard!" : "Failed to copy IP", ok ? "success" : "error");
+        }
+
+        async function doLogin() {
+            const u = document.getElementById('login-user').value;
+            const p = document.getElementById('login-pass').value;
+            const res = await fetch('/api/login', { method: 'POST', body: JSON.stringify({u, p}) });
+            if (res.ok) {
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('app').style.display = 'flex';
+                document.getElementById('avatar-name').innerText = u.charAt(0).toUpperCase();
+                refresh();
+                setInterval(refresh, 2000);
+            } else showToast("Invalid login", "error");
+        }
+
+        window.onload = async () => {
+            const res = await fetch('/api/status');
+            if (res.ok) {
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('app').style.display = 'flex';
+                refresh();
+                setInterval(refresh, 2000);
+            }
+        };
+
+        function switchView(v) {
+            document.querySelectorAll('.view-wrapper').forEach(e => e.classList.remove('active'));
+            document.getElementById('view-' + v).classList.add('active');
+            if (v === 'dashboard') document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span>`;
+            if (v === 'manage') { document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span> / <span>Manage</span>`; renderManageList(); }
+            if (v === 'users') { document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span> / <span>Users</span>`; loadGlobalUsers(); }
+        }
+
+        function switchTab(t) {
+            document.querySelectorAll('.nav-item').forEach(e => e.classList.remove('active'));
+            document.getElementById('tab-btn-' + t).classList.add('active');
+            document.querySelectorAll('.tab-container').forEach(e => e.classList.remove('active'));
+            document.getElementById('tab-' + t).classList.add('active');
+            
+            if (t === 'files') loadFileList('.');
+            if (t === 'config') loadConfigFiles();
+            if (t === 'users') loadServerUsers();
+            if (t === 'plugins') loadAddons('plugin');
+            if (t === 'mods') loadAddons('mod');
+            if (t === 'console') { const input = document.getElementById('console-input'); if (input) input.focus(); }
+        }
+
+        function fmtBytes(b) {
+            if (!b || b < 0) return "0 B";
+            if (b >= 1073741824) return (b / 1073741824).toFixed(2) + " GB";
+            if (b >= 1048576) return (b / 1048576).toFixed(1) + " MB";
+            if (b >= 1024) return (b / 1024).toFixed(1) + " KB";
+            return Math.round(b) + " B";
+        }
+
+        async function refresh() {
+            const res = await fetch('/api/status');
+            if (!res.ok) return;
+            const data = await res.json();
+            isAdmin = data.isAdmin;
+            window.csrfToken = data.csrfToken || '';
+            currentServersList = data.servers;
+            currentPublicIp = data.publicIp || "127.0.0.1";
+            cpuMaxPct = data.cpuMax || 300;
+            const storageMax = data.storageMax || 0;
+            document.getElementById('create-btn').style.display = isAdmin ? 'block' : 'none';
+            document.getElementById('admin-users-btn').style.display = isAdmin ? 'block' : 'none';
+
+            document.getElementById('global-ram-txt').innerText = data.ramUsed + " / " + data.ramMax + " MB";
+            document.getElementById('global-cpu-txt').innerText = data.cpuUsed + "%";
+            document.getElementById('global-storage-txt').innerText =
+                fmtBytes(data.storageUsed) + (storageMax > 0 ? " / " + fmtBytes(storageMax) : " used");
+
+            if (document.getElementById('view-manage').classList.contains('active')) {
+                renderManageList();
+            }
+
+            if (document.getElementById('view-dashboard').classList.contains('active')) {
+                const grid = document.getElementById('server-grid'); grid.innerHTML = '';
+                if (data.servers.length === 0) {
+                    grid.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding:40px; color:var(--text-muted);">No servers running.</div>`;
+                    return;
+                }
+                data.servers.forEach(s => {
+                    const ramPct = Math.min((s.ramUsed / s.ramMax) * 100, 100);
+                    const cpuPct = Math.min((s.cpuUsed / cpuMaxPct) * 100, 100);
+                    const diskPct = storageMax > 0 ? Math.min((s.diskUsed / storageMax) * 100, 100) : 0;
+                    
+                    grid.innerHTML += `<div class="server-card">
+                        <div class="sc-header">
+                            <div>
+                                <div class="sc-name">${escapeHtml(s.id)}</div>
+                                <div class="sc-type">${typeBadge(s.type)}</div>
+                            </div>
+                            <div class="sc-status ${s.status}">${s.status}</div>
+                        </div>
+                        
+                        <div class="sc-stats-row">
+                            <div class="sc-stat-box">
+                                <div class="sc-stat-header">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect></svg>
+                                    CPU
+                                </div>
+                                <div class="sc-stat-values"><span>${s.cpuUsed}%</span> <span>/ ${cpuMaxPct}%</span></div>
+                                <div class="sc-bar-bg"><div class="sc-bar-fill" style="width: ${cpuPct}%; background: var(--accent);"></div></div>
+                            </div>
+                            
+                            <div class="sc-stat-box">
+                                <div class="sc-stat-header">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="6" y1="10" x2="6" y2="14"></line><line x1="10" y1="10" x2="10" y2="14"></line><line x1="14" y1="10" x2="14" y2="14"></line><line x1="18" y1="10" x2="18" y2="14"></line></svg>
+                                    Memory
+                                </div>
+                                <div class="sc-stat-values"><span>${s.ramUsed} MB</span> <span>/ ${s.ramMax} MB</span></div>
+                                <div class="sc-bar-bg"><div class="sc-bar-fill" style="width: ${ramPct}%; background: var(--success);"></div></div>
+                            </div>
+                            
+                            <div class="sc-stat-box">
+                                <div class="sc-stat-header">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                                    Storage
+                                </div>
+                                <div class="sc-stat-values"><span>${fmtBytes(s.diskUsed)}</span> <span>${storageMax > 0 ? "/ " + fmtBytes(storageMax) : "used"}</span></div>
+                                <div class="sc-bar-bg"><div class="sc-bar-fill" style="width: ${diskPct}%; background: #8b5cf6;"></div></div>
+                            </div>
+                        </div>
+                        
+                        <div class="sc-footer">
+                            <div class="sc-uptime">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                                Uptime: ${s.uptime}
+                            </div>
+                            <div style="display:flex; gap:8px;">
+                                ${isAdmin ? `<button class="btn btn-outline" style="border-color:var(--danger); color:var(--danger);" onclick="openDeleteModal('${s.id}')">Delete</button>` : ''}
+                                <button class="btn" onclick="openServer('${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')">Manage</button>
+                            </div>
+                        </div>
+                    </div>`;
+                });
+            }
+
+            if (document.getElementById('view-console').classList.contains('active') && currentServer) {
+                const s = data.servers.find(x => x.id === currentServer.id);
+                if (s) {
+                    document.getElementById('sidebar-status').innerText = s.status;
+                    document.getElementById('sidebar-status-2').innerText = s.status;
+                    document.getElementById('sidebar-uptime').innerText = s.uptime;
+                    document.getElementById('sidebar-players').innerText = s.players;
+                    
+                    document.getElementById('res-cpu-txt').innerText = s.cpuUsed + '%';
+                    document.getElementById('res-cpu-val').innerText = s.cpuUsed + '%';
+                    document.getElementById('res-cpu-bar').style.width = Math.min((s.cpuUsed / cpuMaxPct) * 100, 100) + '%';
+
+                    const ramPct = Math.round((s.ramUsed / s.ramMax) * 100);
+                    document.getElementById('res-ram-pct').innerText = ramPct + '%';
+                    document.getElementById('res-ram-val').innerText = s.ramUsed + ' MB';
+                    document.getElementById('res-ram-max').innerText = '/ ' + s.ramMax + ' MB';
+                    document.getElementById('res-ram-bar').style.width = ramPct + '%';
+
+                    document.getElementById('net-down-txt').innerText = '↓ ' + data.netRx + ' KiB/s';
+                    document.getElementById('net-up-txt').innerText = '↑ ' + data.netTx + ' KiB/s';
+                }
+            }
+        }
+
+        function renderManageList() {
+            const tbody = document.getElementById('manage-table-body');
+            tbody.innerHTML = '';
+            currentServersList.forEach(s => {
+                tbody.innerHTML += `<tr>
+                    <td><strong>${escapeHtml(s.id)}</strong></td>
+                    <td>${typeBadge(s.type)}</td>
+                    <td>${s.port}</td>
+                    <td>${s.ramMax} MB</td>
+                    <td>${s.jar}</td>
+                    <td style="text-align:right;">
+                        ${isAdmin ? `<button class="btn btn-outline" style="border-color:var(--danger); color:var(--danger); margin-right:8px;" onclick="openDeleteModal('${s.id}')">Delete</button>` : ''}
+                        <button class="btn btn-outline" onclick="openServer('${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')">Manage</button>
+                    </td>
+                </tr>`;
+            });
+        }
+
+        async function loadGlobalUsers() {
+            if (!isAdmin) return;
+            const res = await fetch('/api/users/list');
+            if (!res.ok) return;
+            allUsers = await res.json();
+            
+            const tbody = document.getElementById('users-tbody');
+            tbody.innerHTML = '';
+            allUsers.forEach(u => {
+                tbody.innerHTML += `<tr>
+                    <td><strong>${u.username}</strong></td>
+                    <td>${u.role}</td>
+                    <td>${u.servers}</td>
+                </tr>`;
+            });
+        }
+
+        async function loadServerUsers() {
+            if (!currentServer) return;
+            await loadGlobalUsers(); // Refresh the master list
+            
+            const tbody = document.getElementById('server-users-tbody');
+            const select = document.getElementById('add-user-select');
+            tbody.innerHTML = '';
+            select.innerHTML = '<option value="">Select a user...</option>';
+
+            allUsers.forEach(u => {
+                const hasAccess = u.servers.split(',').includes(currentServer.id) || u.servers === '*';
+                
+                if (hasAccess) {
+                    tbody.innerHTML += `<tr>
+                        <td><strong>${u.username}</strong></td>
+                        <td>${u.role}</td>
+                        <td style="text-align:right;">
+                            <button class="btn btn-outline" style="border-color:var(--danger); color:var(--danger);" onclick="removeUserFromServer('${u.username}')">Remove</button>
+                        </td>
+                    </tr>`;
+                } else {
+                    select.innerHTML += `<option value="${u.username}">${u.username}</option>`;
+                }
+            });
+        }
+
+        async function createUser() {
+            const user = document.getElementById('u-name').value;
+            const pass = document.getElementById('u-pass').value;
+            if (!user || !pass) return showToast("Fill all fields", "error");
+            
+            const res = await fetch('/api/users/create', { method: 'POST', body: JSON.stringify({user, pass}) });
+            if (res.ok) {
+                showToast("User created!", "success");
+                document.getElementById('u-name').value = '';
+                document.getElementById('u-pass').value = '';
+                loadGlobalUsers();
+            } else {
+                showToast("Failed to create user", "error");
+            }
+        }
+
+        async function addUserToServer() {
+            const select = document.getElementById('add-user-select');
+            const user = select.value;
+            if (!user) return showToast("Select a user", "error");
+
+            const res = await fetch('/api/users/assign', {
+                method: 'POST',
+                body: JSON.stringify({ user, server: currentServer.id, action: "add" })
+            });
+
+            if (res.ok) {
+                showToast("User added to server", "success");
+                loadServerUsers();
+            } else {
+                showToast("Failed to add user", "error");
+            }
+        }
+
+        async function removeUserFromServer(user) {
+            if (!confirm(`Remove ${user} from this server?`)) return;
+
+            const res = await fetch('/api/users/assign', {
+                method: 'POST',
+                body: JSON.stringify({ user, server: currentServer.id, action: "remove" })
+            });
+
+            if (res.ok) {
+                showToast("User removed from server", "success");
+                loadServerUsers();
+            } else {
+                showToast("Failed to remove user", "error");
+            }
+        }
+
+        async function powerAction(action) {
+            if (!currentServer) return;
+            await fetch('/api/action/' + currentServer.id, { method: 'POST', body: action });
+            refresh();
+        }
+
+        function openServer(id, port, type) {
+            currentServer = { id, port, type: type || '' };
+            configCurrentFile = '';
+            configFiles = [];
+            configEntries = [];
+            consoleLines = [];
+            consoleHistory = [];
+            consoleHistoryIndex = -1;
+            consoleFilter = { level: 'ALL', text: '' };
+            for (const addonKind of ['plugin', 'mod']) {
+                addonsState[addonKind].built = false;
+                addonsState[addonKind].items = [];
+                addonsState[addonKind].offset = 0;
+                addonsState[addonKind].total = 0;
+                const host = document.getElementById('addons-' + addonKind);
+                if (host) host.innerHTML = '';
+            }
+            const filter = document.getElementById('console-filter');
+            if (filter) filter.value = 'ALL';
+            const search = document.getElementById('console-search');
+            if (search) search.value = '';
+            document.getElementById('console-server-name').innerText = id;
+            document.getElementById('console-server-type').innerHTML = typeBadge(type);
+            document.getElementById('sidebar-ip').innerText = currentPublicIp + ":" + port;
+            document.getElementById('console-output').innerHTML = '';
+            switchView('console'); switchTab('console');
+            if (sse) sse.close();
+            sse = new EventSource('/api/console/' + id);
+            sse.onmessage = (e) => pushConsoleLine(e.data);
+            const input = document.getElementById('console-input');
+            if (input) input.focus();
+        }
+
+        function sendConsoleCommand(command) {
+            if (!currentServer || !command) return;
+            fetch('/api/command/' + currentServer.id, { method: 'POST', body: command });
+            consoleHistory.push(command);
+            if (consoleHistory.length > 100) consoleHistory.shift();
+            consoleHistoryIndex = -1;
+        }
+
+        function handleConsoleKey(e) {
+            const input = e.target;
+            if (e.key === 'Enter') {
+                const command = input.value.trim();
+                if (!command || !currentServer) return;
+                sendConsoleCommand(command);
+                input.value = '';
+                return;
+            }
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                if (!consoleHistory.length) return;
+                e.preventDefault();
+                if (e.key === 'ArrowUp') {
+                    consoleHistoryIndex = consoleHistoryIndex === -1
+                        ? consoleHistory.length - 1
+                        : Math.max(0, consoleHistoryIndex - 1);
+                } else {
+                    if (consoleHistoryIndex === -1) return;
+                    consoleHistoryIndex++;
+                    if (consoleHistoryIndex >= consoleHistory.length) {
+                        consoleHistoryIndex = -1;
+                        input.value = '';
+                        return;
+                    }
+                }
+                input.value = consoleHistory[consoleHistoryIndex] || '';
+                setTimeout(() => input.setSelectionRange(input.value.length, input.value.length), 0);
+            }
+        }
+
+        // Wizard state
+        let wizardStep = 1;
+        let wizardGameType = 'minecraft';
+        let wizardFork = 'paper';
+        let wizardVersion = '';
+        let wizardBuild = '';
+        let wizardDownloadUrl = '';
+        let forkRam = {};
+
+        async function loadGameTypes() {
+            const el = document.getElementById('gametype-options');
+            if (!el) return;
+            try {
+                const res = await fetch('/api/create/types');
+                if (!res.ok) return;
+                const types = await res.json();
+                if (!Array.isArray(types) || !types.length) return;
+                el.innerHTML = types.map(t => `
+                    <label class="radio-option">
+                        <input type="radio" name="gameType" value="${t.id}" ${t.id === wizardGameType ? 'checked' : ''} onchange="wizardGameType='${t.id}';updateForkOptions();updateWizardUI()">
+                        <div class="radio-content">
+                            <div class="radio-title">${t.name}</div>
+                            <div class="radio-desc">${t.description || ''}</div>
+                        </div>
+                    </label>
+                `).join('');
+            } catch (e) { /* offline: keep the static markup */ }
+        }
+
+        function openCreateWizard() {
+            wizardStep = 1;
+            wizardGameType = 'minecraft';
+            wizardFork = 'paper';
+            wizardVersion = '';
+            wizardBuild = '';
+            wizardDownloadUrl = '';
+            updateWizardUI();
+            document.getElementById('create-wizard-overlay').style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+            loadGameTypes();
+            updateForkOptions();
+        }
+
+        function closeCreateWizard() {
+            document.getElementById('create-wizard-overlay').style.display = 'none';
+            document.body.style.overflow = '';
+        }
+
+        async function updateForkOptions() {
+            const el = document.getElementById('fork-options');
+            if (!el) return;
+            let forks = null;
+            try {
+                const res = await fetch('/api/create/forks?type=' + encodeURIComponent(wizardGameType));
+                if (res.ok) {
+                    const list = await res.json();
+                    if (Array.isArray(list) && list.length) {
+                        forks = list.map(f => ({ id: f.id, name: f.name, ram: f.ram_recommended || 1024 }));
+                    }
+                }
+            } catch (e) { /* offline: fall through to defaults */ }
+            if (!forks) {
+                if (wizardGameType === 'minecraft') {
+                    forks = [
+                        {id: 'paper', name: 'Paper', ram: 1024},
+                        {id: 'purpur', name: 'Purpur', ram: 1024},
+                        {id: 'fabric', name: 'Fabric', ram: 1024},
+                        {id: 'quilt', name: 'Quilt', ram: 1024},
+                        {id: 'spigot', name: 'Spigot', ram: 1024}
+                    ];
+                } else if (wizardGameType === 'discord_bot') {
+                    forks = [
+                        {id: 'jda', name: 'JDA (Java Discord API)', ram: 512},
+                        {id: 'discord4j', name: 'Discord4J', ram: 512}
+                    ];
+                } else {
+                    forks = [{id: 'custom', name: 'Custom', ram: 1024}];
+                }
+            }
+            forkRam = {};
+            forks.forEach(f => forkRam[f.id] = f.ram);
+            if (!forks.some(f => f.id === wizardFork)) wizardFork = forks[0].id;
+            el.innerHTML = forks.map(f => `
+                <label class="radio-option">
+                    <input type="radio" name="fork" value="${f.id}" ${f.id === wizardFork ? 'checked' : ''} onchange="wizardFork='${f.id}';applyRamPreset();applyJarPreset()">
+                    <div class="radio-content">
+                        <div class="radio-title">${f.name}</div>
+                        <div class="radio-desc">Recommended RAM: ${f.ram} MB</div>
+                    </div>
+                </label>
+            `).join('');
+            applyJarPreset();
+        }
+
+        async function loadVersions() {
+            const select = document.getElementById('wizard-version-select');
+            if (!select) return;
+            select.innerHTML = '<option value="">Loading...</option>';
+
+            let versions = null;
+            try {
+                const res = await fetch('/api/create/versions?fork=' + encodeURIComponent(wizardFork));
+                if (res.ok) {
+                    const list = await res.json();
+                    if (Array.isArray(list) && list.length) {
+                        versions = list.map(v => typeof v === 'string' ? v : (v.version || v.id)).filter(Boolean);
+                    }
+                }
+            } catch (e) { /* offline: fall through to defaults */ }
+
+            if (!versions) {
+                // Fallback, also used for forks without a version API (spigot, jda, custom)
+                versions = ['1.21.4', '1.20.4'];
+            }
+            select.innerHTML = versions.map(v => `<option value="${v}">${v}</option>`).join('');
+            select.value = versions[0];
+            wizardVersion = versions[0];
+        }
+
+        function applyRamPreset() {
+            const ram = document.getElementById('wizard-ram');
+            const presets = {
+                'paper': 1024, 'purpur': 1024, 'fabric': 1024, 'quilt': 1024, 'spigot': 1024,
+                'jda': 512, 'discord4j': 512, 'custom': 1024
+            };
+            ram.value = forkRam[wizardFork] || presets[wizardFork] || 1024;
+        }
+
+        function applyJarPreset() {
+            const jar = document.getElementById('wizard-jar');
+            if (!jar) return;
+            const presets = {
+                'paper': 'paper.jar', 'purpur': 'purpur.jar',
+                'fabric': 'fabric-server-launch.jar', 'quilt': 'quilt-server-launch.jar',
+                'spigot': 'spigot.jar', 'jda': 'bot.jar', 'discord4j': 'bot.jar',
+                'custom': 'server.jar'
+            };
+            jar.value = presets[wizardFork] || 'server.jar';
+        }
+
+        async function previewWizardJar() {
+            wizardDownloadUrl = '';
+            if (!['paper', 'purpur'].includes(wizardFork) || !wizardVersion) return;
+            try {
+                const res = await fetch(`/api/create/preview?fork=${wizardFork}&version=${encodeURIComponent(wizardVersion)}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.jar_name) document.getElementById('wizard-jar').value = data.jar_name;
+                wizardDownloadUrl = data.download_url || '';
+            } catch (e) { /* keep the manual jar name */ }
+        }
+
+        function updateWizardUI() {
+            const minecraft = wizardGameType === 'minecraft';
+            if (!minecraft && wizardStep === 3) wizardStep = 2;
+            if (!minecraft) wizardVersion = '';
+
+            document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.progress-step').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.wizard-step').forEach(s => s.style.display = 'none');
+
+            const versionProgress = document.querySelector('.progress-step[data-step="3"]');
+            if (versionProgress) versionProgress.style.display = minecraft ? '' : 'none';
+
+            document.getElementById('wizard-step-' + wizardStep).classList.add('active');
+            const activeProgress = document.querySelector('.progress-step[data-step="' + wizardStep + '"]');
+            if (activeProgress) activeProgress.classList.add('active');
+            document.getElementById('wizard-step-' + wizardStep).style.display = 'block';
+
+            const nextBtn = document.getElementById('wizard-next-btn');
+            const createBtn = document.getElementById('wizard-create-btn');
+            if (wizardStep >= 5) {
+                nextBtn.style.display = 'none';
+                createBtn.style.display = 'inline-block';
+            } else {
+                nextBtn.style.display = 'inline-block';
+                createBtn.style.display = 'none';
+            }
+
+            if (wizardStep === 3) loadVersions();
+            if (wizardStep === 4) {
+                if (minecraft && ['paper', 'purpur'].includes(wizardFork)) previewWizardJar();
+                else applyJarPreset();
+            }
+
+            updateReview();
+        }
+
+        function updateReview() {
+            const typeName = wizardGameType === 'minecraft' ? 'Minecraft' : (wizardGameType === 'discord_bot' ? 'Discord Bot' : 'Custom');
+            const name = document.getElementById('wizard-name').value || 'untitled';
+            const port = document.getElementById('wizard-port').value || '25565';
+            const ram = document.getElementById('wizard-ram').value || '1024';
+            const jar = document.getElementById('wizard-jar').value || 'server.jar';
+            const rows = [
+                ['Game Type', typeName],
+                ['Software', wizardFork]
+            ];
+            if (wizardGameType === 'minecraft') rows.push(['Version', wizardVersion || 'latest']);
+            rows.push(
+                ['Server Name', name],
+                ['Port', port],
+                ['RAM', ram + ' MB'],
+                ['Jar File', jar]
+            );
+            if (wizardDownloadUrl) rows.push(['Download', wizardDownloadUrl]);
+            document.getElementById('wizard-review').innerHTML = rows.map(r =>
+                `<div class="review-row"><span class="review-label">${r[0]}</span><span class="review-value">${r[1]}</span></div>`
+            ).join('');
+        }
+
+        function wizardBack() {
+            if (wizardStep > 1) wizardStep--;
+            if (wizardStep === 3 && wizardGameType !== 'minecraft') wizardStep = 2;
+            updateWizardUI();
+        }
+
+        function wizardNext() {
+            if (wizardStep === 3) {
+                const select = document.getElementById('wizard-version-select');
+                wizardVersion = select.value || '';
+            }
+            if (wizardStep === 2 && wizardGameType !== 'minecraft') {
+                wizardStep = 4;
+            } else if (wizardStep < 5) {
+                wizardStep++;
+            }
+            updateWizardUI();
+        }
+
+        async function wizardCreateServer() {
+            const name = document.getElementById('wizard-name').value;
+            const port = document.getElementById('wizard-port').value;
+            const ram = document.getElementById('wizard-ram').value;
+            const jar = document.getElementById('wizard-jar').value;
+
+            if (!name || !port || !ram || !jar) {
+                showToast("Fill all fields", "error");
+                return;
+            }
+            if (!/^[A-Za-z0-9_-]+$/.test(name)) {
+                showToast("Server name cannot contain spaces (use letters, numbers, - or _)", "error");
+                return;
+            }
+
+            const payload = {
+                name: name,
+                port: parseInt(port),
+                ram: parseInt(ram),
+                jar: jar,
+                fork: wizardFork,
+                server_type: wizardGameType,
+                download_url: wizardDownloadUrl || ''
+            };
+
+            const createBtn = document.getElementById('wizard-create-btn');
+            createBtn.disabled = true;
+            createBtn.innerText = 'Creating...';
+            try {
+                const res = await fetch('/api/create/server', { method: 'POST', body: JSON.stringify(payload) });
+                if (res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    if (data.warning) showToast(data.warning, "error");
+                    else if (data.jar_downloaded) showToast("Server created and jar downloaded!", "success");
+                    else showToast("Server created!", "success");
+                    closeCreateWizard();
+                    refresh();
+                } else {
+                    showToast(await res.text(), "error");
+                }
+            } catch (e) {
+                showToast("Connection error: " + e.message, "error");
+            } finally {
+                createBtn.disabled = false;
+                createBtn.innerText = 'Create Server';
+            }
+        }
+
+        async function loadFileList(path) {
+            currentPath = path;
+            const res = await fetch(`/api/files/list/${currentServer.id}?path=${encodeURIComponent(path)}`);
+            if (!res.ok) return;
+            const files = await res.json();
+            const tbody = document.getElementById('fm-tbody'); tbody.innerHTML = '';
+            if (path !== '.') tbody.innerHTML += `<tr><td class="fm-dir" onclick="loadFileList('${path.split('/').slice(0,-1).join('/') || '.'}')">📁 ..</td><td>-</td><td>-</td></tr>`;
+            files.forEach(f => {
+                tbody.innerHTML += `<tr oncontextmenu="showCtx(event, '${path}', '${f.name}')">
+                    <td class="${f.dir?'fm-dir':'fm-file'}" onclick="${f.dir?`loadFileList('${path==='.'?f.name:path+'/'+f.name}')`:`openFile('${path}', '${f.name}')`}">
+                        ${f.dir?'📁':'📄'} ${f.name}
+                    </td>
+                    <td>${f.dir?'-':Math.round(f.size/1024)+' KB'}</td>
+                    <td>${new Date(f.modified).toLocaleString()}</td>
+                </tr>`;
+            });
+        }
+
+        let ctxTarget = { path: '', name: '' };
+        function showCtx(e, path, name) {
+            e.preventDefault();
+            ctxTarget = { path, name };
+            const menu = document.getElementById('ctx-menu');
+            menu.style.display = 'flex'; menu.style.left = e.pageX + 'px'; menu.style.top = e.pageY + 'px';
+        }
+        document.addEventListener('click', () => document.getElementById('ctx-menu').style.display = 'none');
+
+        async function ctxAction(action) {
+            const fullPath = ctxTarget.path === '.' ? ctxTarget.name : ctxTarget.path + '/' + ctxTarget.name;
+            if (action === 'delete') {
+                if (!confirm('Delete ' + ctxTarget.name + '?')) return;
+                await fetch(`/api/files/delete/${currentServer.id}?path=${encodeURIComponent(fullPath)}`, { method: 'POST' });
+                loadFileList(currentPath);
+            } else if (action === 'rename') {
+                const newName = prompt('New name:', ctxTarget.name);
+                if (!newName) return;
+                await fetch(`/api/files/rename/${currentServer.id}?old=${encodeURIComponent(fullPath)}&new=${encodeURIComponent(newName)}`, { method: 'POST' });
+                loadFileList(currentPath);
+            } else if (action === 'zip') {
+                await fetch(`/api/files/zip/${currentServer.id}?path=${encodeURIComponent(fullPath)}`, { method: 'POST' });
+                loadFileList(currentPath);
+            }
+        }
+
+        async function promptMkdir() {
+            const name = prompt('Folder name:');
+            if (!name) return;
+            const fullPath = currentPath === '.' ? name : currentPath + '/' + name;
+            await fetch(`/api/files/mkdir/${currentServer.id}?path=${encodeURIComponent(fullPath)}`, { method: 'POST' });
+            loadFileList(currentPath);
+        }
+
+        async function openFile(path, name) {
+            const fullPath = path === '.' ? name : path + '/' + name;
+            const res = await fetch(`/api/files/read/${currentServer.id}?path=${encodeURIComponent(fullPath)}`);
+            if (!res.ok) return showToast('Cannot read file', 'error');
+            currentFile = fullPath;
+            document.getElementById('fm-modal-filename').innerText = name;
+            document.getElementById('fm-modal-textarea').value = await res.text();
+            document.getElementById('fm-modal').classList.add('active');
+        }
+        async function saveFile() {
+            const res = await fetch(`/api/files/write/${currentServer.id}?path=${encodeURIComponent(currentFile)}`, { method: 'POST', body: document.getElementById('fm-modal-textarea').value });
+            if (res.ok) { showToast('Saved', 'success'); document.getElementById('fm-modal').classList.remove('active'); }
+        }
+
+        // ===== Mods / Plugins (Phase 2) =====
+        const addonsState = {
+            plugin: { built: false, items: [], query: '', offset: 0, limit: 10, total: 0, mcVersion: '', loaders: [] },
+            mod:    { built: false, items: [], query: '', offset: 0, limit: 10, total: 0, mcVersion: '', loaders: [] }
+        };
+        let pendingAddon = { kind: 'plugin', projectId: null, title: '' };
+        let confirmAction = null;
+
+        function addonsKey(kind) { return kind === 'mod' ? 'mod' : 'plugin'; }
+        function addonsLabel(kind) { return kind === 'mod' ? 'Mods' : 'Plugins'; }
+
+        function initAddonsTab(kind) {
+            const key = addonsKey(kind);
+            const state = addonsState[key];
+            if (state.built) return;
+            const host = document.getElementById('addons-' + key);
+            if (!host) return;
+            const label = addonsLabel(key);
+            host.innerHTML = `
+                <div class="addons-head">
+                    <h2>${label}<span class="addons-context" id="addons-context-${key}"></span></h2>
+                    <div class="addons-head-actions">
+                        <button class="btn btn-outline" onclick="backupAddons('${key}')">Backup folder</button>
+                        <button class="btn btn-outline" onclick="loadAddons('${key}', true)">Refresh</button>
+                    </div>
+                </div>
+                <div class="addons-warn" id="addons-warn-${key}" style="display:none;"></div>
+                <div class="addons-section">
+                    <div class="addons-section-head">
+                        <h3>Installed</h3>
+                        <span class="addons-sub" id="addons-count-${key}"></span>
+                    </div>
+                    <div class="addons-list" id="addons-list-${key}"></div>
+                </div>
+                <div class="addons-section">
+                    <div class="addons-section-head"><h3>Add from Modrinth</h3></div>
+                    <div class="addons-search">
+                        <input type="text" id="addons-query-${key}" placeholder="Search ${label.toLowerCase()}..." onkeydown="if(event.key==='Enter')searchModrinth('${key}')">
+                        <button class="btn" onclick="searchModrinth('${key}')">Search</button>
+                    </div>
+                    <div class="addons-sub" id="addons-results-info-${key}"></div>
+                    <div class="addons-results" id="addons-results-${key}"></div>
+                    <div class="addons-pager">
+                        <button class="btn btn-outline" onclick="addonsPage('${key}', -1)">Prev</button>
+                        <span id="addons-page-${key}">Page 1</span>
+                        <button class="btn btn-outline" onclick="addonsPage('${key}', 1)">Next</button>
+                    </div>
+                </div>`;
+            state.built = true;
+        }
+
+        async function loadAddons(kind, updates = false) {
+            const key = addonsKey(kind);
+            if (!currentServer) return;
+            initAddonsTab(key);
+            const list = document.getElementById('addons-list-' + key);
+            if (list && !addonsState[key].items.length) list.innerHTML = '<div class="addons-empty">Loading installed addons...</div>';
+            const res = await fetch('/api/addons/list?server=' + encodeURIComponent(currentServer.id)
+                + '&kind=' + key + (updates ? '&updates=1' : ''));
+            if (!res.ok) {
+                if (list) list.innerHTML = '<div class="addons-empty">Could not read the addons folder.</div>';
+                return;
+            }
+            const data = await res.json();
+            const state = addonsState[key];
+            state.items = data.items || [];
+            state.mcVersion = data.mcVersion || '';
+            state.loaders = data.loaders || [];
+            renderInstalled(key, data);
+        }
+
+        function renderInstalled(key, data) {
+            const state = addonsState[key];
+            const list = document.getElementById('addons-list-' + key);
+            const count = document.getElementById('addons-count-' + key);
+            const ctx = document.getElementById('addons-context-' + key);
+            const warn = document.getElementById('addons-warn-' + key);
+            if (ctx) {
+                const parts = [data.folder, data.mcVersion ? 'MC ' + data.mcVersion : '', (data.loaders || []).filter(Boolean).join(' / ')]
+                    .map(p => (p || '').trim()).filter(Boolean);
+                ctx.innerText = parts.join(' · ');
+            }
+            if (count) count.innerText = state.items.length + (state.items.length === 1 ? ' file' : ' files');
+            if (warn) {
+                if (!data.supported) {
+                    warn.style.display = 'block';
+                    warn.innerHTML = `<strong>${escapeHtml((currentServer && currentServer.type) || 'This server')}</strong> does not load ${key === 'mod' ? 'mods' : 'plugins'}. Installing anyway may do nothing — choose <em>Install anyway</em> when prompted.`;
+                } else if (!data.hasFolder) {
+                    warn.style.display = 'block';
+                    warn.innerText = `No ${data.folder}/ folder yet. It is created the first time you install something.`;
+                } else {
+                    warn.style.display = 'none';
+                }
+            }
+            if (!list) return;
+            if (!state.items.length) {
+                list.innerHTML = '<div class="addons-empty">Nothing installed yet.</div>';
+                return;
+            }
+            list.innerHTML = state.items.map(item => {
+                const meta = [item.projectTitle ? escapeHtml(item.projectTitle) : '', item.versionNumber ? escapeHtml(item.versionNumber) : ''].filter(Boolean).join(' · ');
+                const canUpdate = item.updateAvailable && item.updateVersionId && item.updateVersionId !== item.versionId;
+                return `<div class="addon-row ${item.enabled ? '' : 'disabled'}">
+                    <div>
+                        <div class="addon-name">${escapeHtml(item.file)}</div>
+                        <div class="addon-meta">${meta || 'Not on Modrinth'}</div>
+                    </div>
+                    <div>
+                        <button class="addon-toggle ${item.enabled ? 'on' : 'off'}" data-kind="${key}" data-file="${escapeHtml(item.file)}" onclick="toggleAddon(this.dataset.kind, this.dataset.file)">${item.enabled ? 'Enabled' : 'Disabled'}</button>
+                    </div>
+                    <div class="addon-actions">
+                        ${canUpdate ? `<button class="btn" style="padding:5px 10px; font-size:11px;" data-kind="${key}" data-version="${escapeHtml(item.updateVersionId)}" onclick="installAddon(this.dataset.kind, this.dataset.version, true)">Update</button>` : ''}
+                        <button class="btn btn-outline" style="border-color:var(--danger); color:var(--danger); padding:5px 10px; font-size:11px;" data-kind="${key}" data-file="${escapeHtml(item.file)}" onclick="deleteAddon(this.dataset.kind, this.dataset.file)">Delete</button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        async function searchModrinth(kind) {
+            const key = addonsKey(kind);
+            if (!currentServer) return showToast('Open a server first', 'error');
+            initAddonsTab(key);
+            const state = addonsState[key];
+            const input = document.getElementById('addons-query-' + key);
+            state.query = input ? input.value : '';
+            state.offset = 0;
+            await fetchModrinthSearch(key);
+        }
+
+        async function fetchModrinthSearch(key) {
+            const state = addonsState[key];
+            const results = document.getElementById('addons-results-' + key);
+            const info = document.getElementById('addons-results-info-' + key);
+            if (results) results.innerHTML = '<div class="addons-empty">Searching Modrinth...</div>';
+            const url = '/api/modrinth/search?server=' + encodeURIComponent(currentServer.id)
+                + '&kind=' + key + '&query=' + encodeURIComponent(state.query)
+                + '&offset=' + state.offset + '&limit=' + state.limit;
+            const res = await fetch(url);
+            if (!res.ok) {
+                if (results) results.innerHTML = '<div class="addons-empty">Modrinth search failed. Try again in a moment.</div>';
+                return;
+            }
+            const data = await res.json();
+            state.total = data.total_hits || 0;
+            if (info) info.innerText = state.total ? state.total.toLocaleString() + ' results' : 'No results';
+            renderSearchResults(key, data.hits || []);
+            const page = document.getElementById('addons-page-' + key);
+            const pages = Math.max(1, Math.ceil(state.total / state.limit));
+            if (page) page.innerText = `Page ${Math.floor(state.offset / state.limit) + 1} of ${pages}`;
+        }
+
+        function renderSearchResults(key, hits) {
+            const results = document.getElementById('addons-results-' + key);
+            if (!results) return;
+            if (!hits.length) { results.innerHTML = '<div class="addons-empty">Nothing matched. Try a different search.</div>'; return; }
+            results.innerHTML = hits.map(hit => `<div class="addon-card">
+                <div class="addon-card-head">
+                    <div class="addon-icon">${modrinthIcon(hit)}</div>
+                    <div>
+                        <div class="addon-card-title">${escapeHtml(hit.title || 'Untitled')}</div>
+                        <div class="addon-card-author">by ${escapeHtml(hit.author || 'unknown')} · ${hit.project_type === 'mod' ? 'Mod' : 'Plugin'}</div>
+                    </div>
+                </div>
+                <div class="addon-desc">${escapeHtml(hit.description || '')}</div>
+                <div class="addon-card-foot">
+                    <span class="addons-sub">${(hit.downloads || 0).toLocaleString()} downloads</span>
+                    <button class="btn" data-kind="${key}" data-project="${escapeHtml(hit.project_id || '')}" data-title="${escapeHtml(hit.title || '')}" onclick="openVersionModal(this.dataset.kind, this.dataset.project, this.dataset.title)">Install</button>
+                </div>
+            </div>`).join('');
+        }
+
+        function modrinthIcon(hit) {
+            const url = hit && hit.icon_url ? String(hit.icon_url) : '';
+            if (url.startsWith('https://cdn.modrinth.com/')) return `<img src="${escapeHtml(url)}" alt="" loading="lazy">`;
+            return escapeHtml((hit && hit.title ? hit.title : '?').charAt(0).toUpperCase());
+        }
+
+        function addonsPage(kind, delta) {
+            const key = addonsKey(kind);
+            const state = addonsState[key];
+            const page = Math.floor(state.offset / state.limit) + delta;
+            if (page < 0) return;
+            const maxPage = Math.max(0, Math.ceil(state.total / state.limit) - 1);
+            if (page > maxPage) return;
+            state.offset = page * state.limit;
+            fetchModrinthSearch(key);
+        }
+
+        async function openVersionModal(kind, projectId, title) {
+            const key = addonsKey(kind);
+            if (!currentServer || !projectId) return;
+            pendingAddon = { kind: key, projectId, title: title || '' };
+            document.getElementById('version-modal-title').innerText = 'Install ' + (title || projectId);
+            const sel = document.getElementById('version-select');
+            sel.innerHTML = '<option value="">Loading versions...</option>';
+            document.getElementById('version-modal').classList.add('active');
+            const res = await fetch('/api/modrinth/versions?project=' + encodeURIComponent(projectId)
+                + '&server=' + encodeURIComponent(currentServer.id) + '&kind=' + key);
+            if (!res.ok) { sel.innerHTML = '<option value="">Failed to load versions</option>'; return; }
+            const versions = await res.json();
+            sel.innerHTML = '';
+            if (!Array.isArray(versions) || !versions.length) {
+                sel.innerHTML = '<option value="">No version matches this server</option>';
+                return;
+            }
+            versions.forEach(v => {
+                const file = (v.files || []).find(f => f.primary) || (v.files || [])[0];
+                const opt = document.createElement('option');
+                opt.value = v.id;
+                opt.innerText = `${v.version_number} — ${(v.game_versions || []).slice(-1)[0] || '?'}${file ? ' · ' + fmtBytes(file.size) : ''}`;
+                sel.appendChild(opt);
+            });
+        }
+
+        function closeVersionModal() {
+            document.getElementById('version-modal').classList.remove('active');
+        }
+
+        async function confirmInstallVersion() {
+            const versionId = document.getElementById('version-select').value;
+            if (!versionId || !/^[A-Za-z0-9_-]{1,40}$/.test(versionId)) return showToast('Wait for the version list to load', 'error');
+            await installAddon(pendingAddon.kind, versionId, false);
+        }
+
+        async function installAddon(kind, versionId, force) {
+            const key = addonsKey(kind);
+            if (!currentServer || !versionId) return;
+            const res = await fetch('/api/modrinth/install?server=' + encodeURIComponent(currentServer.id)
+                + '&version_id=' + encodeURIComponent(versionId) + '&kind=' + key + (force ? '&force=1' : ''),
+                { method: 'POST' });
+            if (res.status === 409) {
+                let detail = {};
+                try { detail = await res.json(); } catch (_) {}
+                closeVersionModal();
+                confirmModal({
+                    title: 'This server does not load ' + (key === 'mod' ? 'mods' : 'plugins'),
+                    body: `${detail.type || (currentServer && currentServer.type) || 'This server'} ignores the ${key === 'mod' ? 'mods/' : 'plugins/'} folder. The file will still be downloaded there, but it will not run.`,
+                    confirmText: 'Install anyway',
+                    onConfirm: () => installAddon(key, versionId, true)
+                });
+                return;
+            }
+            if (!res.ok) return showToast('Install failed', 'error');
+            const data = await res.json().catch(() => ({}));
+            closeVersionModal();
+            showToast((data.replaced ? 'Replaced ' : 'Installed ') + (data.file || (key === 'mod' ? 'mod' : 'plugin')), 'success');
+            loadAddons(key, true);
+        }
+
+        async function toggleAddon(kind, file) {
+            const key = addonsKey(kind);
+            if (!currentServer || !file) return;
+            const res = await fetch(`/api/addons/toggle?server=${encodeURIComponent(currentServer.id)}&kind=${key}&file=${encodeURIComponent(file)}`, { method: 'POST' });
+            if (!res.ok) return showToast('Could not toggle that file', 'error');
+            loadAddons(key, false);
+        }
+
+        function deleteAddon(kind, file) {
+            const key = addonsKey(kind);
+            if (!currentServer || !file) return;
+            confirmModal({
+                title: 'Delete ' + file + '?',
+                body: 'The file is removed from the server folder. There is no recycle bin yet, so the panel cannot restore it.',
+                confirmText: 'Delete',
+                danger: true,
+                onConfirm: async () => {
+                    const res = await fetch(`/api/addons/delete?server=${encodeURIComponent(currentServer.id)}&kind=${key}&file=${encodeURIComponent(file)}`, { method: 'DELETE' });
+                    if (!res.ok) return showToast('Delete failed', 'error');
+                    showToast('Deleted ' + file, 'success');
+                    loadAddons(key, false);
+                }
+            });
+        }
+
+        async function backupAddons(kind) {
+            const key = addonsKey(kind);
+            if (!currentServer) return;
+            showToast('Backing up the ' + key + ' folder...', 'info');
+            const res = await fetch(`/api/addons/backup?server=${encodeURIComponent(currentServer.id)}&kind=${key}`, { method: 'POST' });
+            if (!res.ok) return showToast('Backup failed', 'error');
+            const data = await res.json().catch(() => ({}));
+            showToast('Saved ' + (data.name || 'backup') + ' (' + (data.files || 0) + ' files)', 'success');
+        }
+
+        function confirmModal({ title, body, confirmText, danger, onConfirm }) {
+            confirmAction = onConfirm || null;
+            document.getElementById('confirm-title').innerText = title || 'Confirm';
+            document.getElementById('confirm-body').innerText = body || '';
+            const ok = document.getElementById('confirm-ok');
+            ok.innerText = confirmText || 'Confirm';
+            ok.style.background = danger ? 'var(--danger)' : 'var(--accent)';
+            document.getElementById('confirm-modal').classList.add('active');
+        }
+
+        function closeConfirm() {
+            confirmAction = null;
+            document.getElementById('confirm-modal').classList.remove('active');
+        }
+
+        async function runConfirm() {
+            const action = confirmAction;
+            closeConfirm();
+            if (action) await action();
+        }
+
+        // ===== Visual config editor =====
+
+        function configSetMessage(msg) {
+            const hint = document.getElementById('config-hint');
+            if (msg) { hint.innerText = msg; hint.style.display = 'block'; }
+            else { hint.innerText = ''; hint.style.display = 'none'; }
+        }
+
+        function configShowMessage(msg) {
+            configSetMessage(msg);
+            document.getElementById('config-editor').style.display = 'none';
+            document.getElementById('config-raw').style.display = 'none';
+            document.getElementById('config-search').disabled = true;
+        }
+
+        function configMarkDirty() {
+            configDirty = true;
+            const btn = document.getElementById('config-save-btn');
+            if (btn) btn.innerText = 'Save *';
+        }
+
+        function configClearDirty() {
+            configDirty = false;
+            const btn = document.getElementById('config-save-btn');
+            if (btn) btn.innerText = 'Save';
+        }
+
+        async function loadConfigFiles() {
+            if (!currentServer) { configShowMessage('Open a server first.'); return; }
+            const sel = document.getElementById('config-file');
+            sel.innerHTML = '<option value="">Loading...</option>';
+            configSetMessage('');
+            try {
+                const res = await fetch('/api/config/editor/files?server=' + encodeURIComponent(currentServer.id));
+                if (!res.ok) {
+                    sel.innerHTML = '<option value="">Unavailable</option>';
+                    configShowMessage('Cannot read the config file list.');
+                    return;
+                }
+                const data = await res.json();
+                configFiles = Array.isArray(data.files) ? data.files : [];
+                if (!configFiles.length) {
+                    sel.innerHTML = '<option value="">No config files</option>';
+                    configShowMessage('No editable config files were found for this server.');
+                    return;
+                }
+                const groups = new Map();
+                configFiles.forEach(f => {
+                    if (!groups.has(f.scope)) groups.set(f.scope, []);
+                    groups.get(f.scope).push(f);
+                });
+                sel.innerHTML = [...groups.entries()].map(([scope, files]) =>
+                    `<optgroup label="${escapeHtml(scope)}">` +
+                    files.map(f => `<option value="${escapeHtml(f.path)}">${escapeHtml(f.path)}${f.exists ? '' : ' (not generated)'}</option>`).join('') +
+                    `</optgroup>`
+                ).join('');
+                const preferred = configFiles.find(f => f.path === configCurrentFile)
+                    ? configCurrentFile
+                    : (configFiles.find(f => f.exists) || configFiles[0]).path;
+                sel.value = preferred;
+                configCurrentFile = preferred;
+                await loadConfig();
+            } catch (e) {
+                configShowMessage('Cannot read the config file list: ' + e.message);
+            }
+        }
+
+        async function loadConfig() {
+            const file = document.getElementById('config-file').value;
+            if (!file || !currentServer) return;
+            configCurrentFile = file;
+            configRawMode = false;
+            configClearDirty();
+            try {
+                const res = await fetch(`/api/config/editor/read?server=${encodeURIComponent(currentServer.id)}&file=${encodeURIComponent(file)}`);
+                if (!res.ok) { configShowMessage('Cannot read this config file.'); return; }
+                const data = await res.json();
+                configEntries = Array.isArray(data.entries) ? data.entries : [];
+                configRawContent = data.raw || '';
+                configFileExists = !!data.exists;
+                if (!configFileExists) {
+                    configShowMessage('This config file does not exist yet. Start the server once so it generates it.');
+                    document.getElementById('config-raw').value = '';
+                    return;
+                }
+                if (!configEntries.length) {
+                    configRawMode = true;
+                    document.getElementById('config-raw-btn').classList.add('active');
+                    configShowRaw();
+                    configSetMessage('This file has no visual options; it is shown as raw text.');
+                    return;
+                }
+                document.getElementById('config-raw-btn').classList.remove('active');
+                renderConfigEntries();
+            } catch (e) {
+                configShowMessage('Cannot read this config file: ' + e.message);
+            }
+        }
+
+        function renderConfigEntries() {
+            const grid = document.getElementById('config-editor');
+            grid.style.display = 'grid';
+            document.getElementById('config-raw').style.display = 'none';
+            document.getElementById('config-search').disabled = false;
+            configSetMessage('');
+            grid.innerHTML = configEntries.map((e, i) => {
+                const id = 'cfg-' + i;
+                const section = e.section || '';
+                const chip = section ? section.split('.')[0] : 'General';
+                let label = e.key;
+                if (section.includes('.')) {
+                    label = section.split('.').slice(1).join('.') + '.' + e.key;
+                }
+                if (e.key.startsWith('[')) {
+                    const leaf = section.split('.').pop() || section;
+                    label = (leaf ? leaf + ' ' : '') + e.key.replace('[', '').replace(']', '');
+                }
+                let control;
+                if (e.type === 'boolean') {
+                    const checked = String(e.value).toLowerCase() === 'true';
+                    control = `<div class="config-toggle-row">
+                        <label class="config-switch">
+                            <input type="checkbox" id="${id}" data-path="${escapeHtml(e.path)}" data-type="boolean" data-original="${checked ? 'true' : 'false'}" ${checked ? 'checked' : ''} onchange="configToggleChanged(this)">
+                            <span class="config-slider"></span>
+                        </label>
+                        <span class="config-toggle-text" id="${id}-txt">${checked ? 'Enabled' : 'Disabled'}</span>
+                    </div>`;
+                } else if (e.type === 'number') {
+                    control = `<input class="config-input" type="number" step="any" id="${id}" data-path="${escapeHtml(e.path)}" data-type="number" data-original="${escapeHtml(e.value)}" value="${escapeHtml(e.value)}" oninput="configMarkDirty()">`;
+                } else {
+                    control = `<input class="config-input" type="text" id="${id}" data-path="${escapeHtml(e.path)}" data-type="${escapeHtml(e.type)}" data-original="${escapeHtml(e.value)}" value="${escapeHtml(e.value)}" oninput="configMarkDirty()">`;
+                }
+                return `<div class="config-card" data-search="${escapeHtml((e.path + ' ' + e.key).toLowerCase())}">
+                    <div class="config-card-head">
+                        <span class="config-chip" title="${escapeHtml(section || 'general')}">${escapeHtml(chip)}</span>
+                        <span class="config-key" title="${escapeHtml(e.path)}">${escapeHtml(label)}</span>
+                    </div>
+                    ${control}
+                </div>`;
+            }).join('');
+            filterConfigEntries();
+            configClearDirty();
+        }
+
+        function configShowRaw() {
+            const raw = document.getElementById('config-raw');
+            raw.value = configRawContent;
+            raw.style.display = 'block';
+            document.getElementById('config-editor').style.display = 'none';
+            document.getElementById('config-search').disabled = true;
+            configSetMessage('Raw editing mode — the file is written exactly as shown.');
+            configClearDirty();
+        }
+
+        function configToggleChanged(el) {
+            const text = document.getElementById(el.id + '-txt');
+            if (text) text.innerText = el.checked ? 'Enabled' : 'Disabled';
+            configMarkDirty();
+        }
+
+        function filterConfigEntries() {
+            if (configRawMode) return;
+            const q = (document.getElementById('config-search').value || '').trim().toLowerCase();
+            document.querySelectorAll('#config-editor .config-card').forEach(card => {
+                card.style.display = !q || (card.dataset.search || '').includes(q) ? '' : 'none';
+            });
+        }
+
+        function toggleConfigRaw() {
+            if (!configFileExists) return;
+            if (configRawMode) {
+                if (!configEntries.length) { showToast('This file can only be edited as raw text.', 'info'); return; }
+                if (configDirty && !confirm('Discard unsaved raw changes and switch to the visual editor?')) return;
+                configRawMode = false;
+                document.getElementById('config-raw-btn').classList.remove('active');
+                renderConfigEntries();
+            } else {
+                if (configDirty && !confirm('Discard unsaved changes and switch to raw mode?')) return;
+                configRawMode = true;
+                document.getElementById('config-raw-btn').classList.add('active');
+                configShowRaw();
+            }
+        }
+
+        async function saveConfig() {
+            if (!currentServer || !configCurrentFile) return;
+            if (!configFileExists) { showToast('This config file does not exist yet.', 'error'); return; }
+            const btn = document.getElementById('config-save-btn');
+            btn.disabled = true;
+            btn.innerText = 'Saving...';
+            try {
+                let body, url;
+                if (configRawMode) {
+                    body = document.getElementById('config-raw').value;
+                    if (body === configRawContent) { showToast('No changes to save', 'info'); return; }
+                    url = `/api/config/editor/save?server=${encodeURIComponent(currentServer.id)}&file=${encodeURIComponent(configCurrentFile)}&raw=1`;
+                } else {
+                    const updates = [];
+                    document.querySelectorAll('#config-editor [data-path]').forEach(el => {
+                        const value = el.dataset.type === 'boolean'
+                            ? (el.checked ? 'true' : 'false')
+                            : el.value;
+                        if (value !== el.dataset.original) {
+                            updates.push(encodeURIComponent(el.dataset.path) + '=' + encodeURIComponent(value));
+                        }
+                    });
+                    if (!updates.length) { showToast('No changes to save', 'info'); return; }
+                    body = updates.join('\n');
+                    url = `/api/config/editor/save?server=${encodeURIComponent(currentServer.id)}&file=${encodeURIComponent(configCurrentFile)}`;
+                }
+                const res = await fetch(url, { method: 'POST', body });
+                if (!res.ok) {
+                    const msg = await res.text();
+                    showToast('Save failed: ' + (msg || res.status), 'error');
+                    return;
+                }
+                showToast('Config saved', 'success');
+                configClearDirty();
+                await loadConfig();
+            } catch (e) {
+                showToast('Save failed: ' + e.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = configDirty ? 'Save *' : 'Save';
+            }
+        }
+
+        // ===== Delete Server (3-step warning) =====
+        function openDeleteModal(id) {
+            deleteTarget = id;
+            document.getElementById('del-name-1').innerText = id;
+            document.getElementById('del-name-2').innerText = id;
+            document.getElementById('del-name-3').innerText = id;
+            document.getElementById('del-confirm-input').value = '';
+            document.getElementById('del-step2-btn').disabled = true;
+            deleteStep1();
+            document.getElementById('delete-modal').classList.add('active');
+        }
+
+        function showDelStep(n) {
+            document.getElementById('del-step-indicator').innerText = 'STEP ' + n + ' OF 3';
+            [1, 2, 3].forEach(i => document.getElementById('del-step-' + i).style.display = (i === n ? 'block' : 'none'));
+            if (n === 2) setTimeout(() => document.getElementById('del-confirm-input').focus(), 50);
+        }
+
+        function deleteStep1() {
+            clearInterval(deleteCountdown);
+            const btn = document.getElementById('del-final-btn');
+            btn.disabled = true; btn.innerText = 'Please wait...';
+            showDelStep(1);
+        }
+
+        function deleteStep2() {
+            clearInterval(deleteCountdown);
+            showDelStep(2);
+        }
+
+        function deleteStep3() {
+            showDelStep(3);
+            const btn = document.getElementById('del-final-btn');
+            btn.disabled = true;
+            let left = 5;
+            btn.innerText = 'Please wait ' + left + 's...';
+            clearInterval(deleteCountdown);
+            deleteCountdown = setInterval(() => {
+                left--;
+                if (left <= 0) { clearInterval(deleteCountdown); btn.disabled = false; btn.innerText = 'Delete Server'; }
+                else btn.innerText = 'Please wait ' + left + 's...';
+            }, 1000);
+        }
+
+        function deleteCheckName() {
+            document.getElementById('del-step2-btn').disabled =
+                document.getElementById('del-confirm-input').value !== deleteTarget;
+        }
+
+        function closeDeleteModal() {
+            clearInterval(deleteCountdown);
+            document.getElementById('delete-modal').classList.remove('active');
+            deleteTarget = null;
+        }
+
+        async function confirmDeleteServer() {
+            if (!deleteTarget) return;
+            const btn = document.getElementById('del-final-btn');
+            btn.disabled = true; btn.innerText = 'Deleting...';
+            try {
+                const res = await fetch('/api/delete/' + deleteTarget, { method: 'POST' });
+                if (res.ok) {
+                    showToast('Server "' + deleteTarget + '" removed from panel (files kept on disk)', 'success');
+                    if (sse && currentServer && currentServer.id === deleteTarget) { sse.close(); sse = null; currentServer = null; }
+                    closeDeleteModal();
+                    refresh();
+                    switchView('dashboard');
+                } else {
+                    showToast('Failed to delete: ' + await res.text(), 'error');
+                    btn.disabled = false; btn.innerText = 'Delete Server';
+                }
+            } catch (err) {
+                showToast('Failed to delete: ' + err, 'error');
+                btn.disabled = false; btn.innerText = 'Delete Server';
+            }
+        }
+
+        async function doLogout() {
+            try { await fetch('/api/logout', { method: 'POST' }); } catch (err) {}
+            location.reload();
+        }
+    </script>
+</body>
+</html>
+</html>

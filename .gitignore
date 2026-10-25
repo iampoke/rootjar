@@ -1,0 +1,11 @@
+build/
+target/
+*.jar
+*.class
+*.log
+.idea/
+*.iml
+.vscode/
+handoff.md
+NEXT-BATCH-PLAN.md
+make.bat

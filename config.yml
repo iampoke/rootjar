@@ -1,0 +1,49 @@
+# Root jar configuration. Edit, then restart the server from the Pterodactyl panel.
+# Paths ("dir") are relative to the folder this file is in.
+
+server:
+  bind: 0.0.0.0
+  port: 25568
+  session_ttl_seconds: 86400
+  login_rate_limit_per_ip_per_minute: 5
+  login_lockout_after_failures: 10
+  login_lockout_seconds: 300
+  password_hash: "placeholder"    # refuse to start if still placeholder
+  trusted_proxies: ["*"]           # for X-Forwarded-For parsing
+
+children:
+  - id: nanolimbo
+    type: nanolimbo
+    dir: ./nanolimbo
+    jar: NanoLimbo.jar
+    heap: 256M
+    xms_equal_xmx: true
+    port: 25566
+    bind: 127.0.0.1
+    stop_strategy: both             # stdin -> SIGTERM -> SIGKILL
+    stop_command: "stop"
+    stop_timeout_seconds: 15
+    start_order: 1
+    stop_order: 2
+    restart_on_crash: true
+    restart_backoff_seconds: [5, 10, 30, 60, 300]
+    extra_flags: []
+    console_enabled: false
+
+  - id: velocity
+    type: velocity
+    dir: ./velocity
+    jar: velocity.jar
+    heap: 768M
+    xms_equal_xmx: true
+    port: 25565
+    bind: 0.0.0.0
+    stop_strategy: stdin
+    stop_command: "shutdown"
+    stop_timeout_seconds: 30
+    start_order: 2
+    stop_order: 1
+    restart_on_crash: true
+    restart_backoff_seconds: [5, 10, 30, 60, 300]
+    extra_flags: []
+    console_enabled: true
