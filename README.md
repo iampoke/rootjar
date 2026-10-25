@@ -76,4 +76,4 @@ so you can edit `index.html` and restart to apply changes without rebuilding.
 `scripts/m1-accept.sh` runs the real jar against dummy servers (config rejection, prefixes, routing,
 start/stop order, SIGTERM, the SIGKILL path and crash backoff; about 3 minutes).
 
-# TLDR; Create many minecraft servers from 1 jar file if you're limited to 1 server. The only requirements are multiple ports you need per server.
+# TLDR; Create many Minecraft Servers, Discord Bots or anything from 1 jar file if you're limited to 1 server. The only requirements are multiple ports you need per server.
