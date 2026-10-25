@@ -1,9 +1,8 @@
 # Root jar (supervisor + web panel)
 
-One `server.jar` that Pterodactyl launches. It starts the configured children (NanoLimbo, Velocity, and
-Paper servers created at runtime), prefixes their output into the panel console, routes console commands
-to the right one, and stops everything gracefully. It also runs a built-in **web panel** with login,
-live console, file manager, Paper/Modrinth installers and per-user access control.
+**This is a root server jar** - it runs inside a single Pterodactyl container and manages an entire Minecraft network. The main objective is to act as a secondary panel: you can create as many Minecraft servers as your resources allow within one container. Examples: 2 Paper servers, a proxy + Paper server, a proxy + NanoLimbo, or any combination of forks.
+
+One `server.jar` that Pterodactyl launches. It starts the configured children you can create Paper, Purpur, Velocity or whatever you want, prefixes their output into the panel console, routes console commands to the right one, and stops everything gracefully. It also runs a built-in **web panel** with login, live console, file manager, config editor, Paper/Modrinth installers and per-user access control.
 
 ## First-run checklist
 
@@ -29,10 +28,6 @@ You can still pre-seed a password with `java -jar server.jar --hash-password` an
 - Dashboard with per-server RAM/CPU, players, uptime; live console over SSE; file manager with
   upload/download-free editing, zip, rename, mkdir, delete; PaperMC and Modrinth installers;
   config quick-editor (`server.properties` and friends).
-- **Change Version**: switch Paper, Purpur, Vanilla, Fabric, Quilt, Folia, Velocity, Waterfall,
-  Travertine, BungeeCord or NanoLimbo from the panel, with a per-server Java runtime (detected JVMs or
-  an admin-downloaded Temurin JDK) and an update badge. The old jar is backed up automatically; Forge,
-  NeoForge, Spigot and Arclight are shown as manual cards.
 - **Delete Server** (admin only, three-step warning): removes the server from the panel and config.
   It does **not** delete any files: the folder stays on disk and inside the Pterodactyl panel's files.
 - Users: admins can create subusers and grant per-server access; non-admins only see their servers.
@@ -42,8 +37,8 @@ You can still pre-seed a password with `java -jar server.jar --hash-password` an
 | You type | What happens |
 |---|---|
 | `velocity plist` | sends `plist` to Velocity (any `<id> <command>` works) |
-| `velocity.start` / .stop / .restart | controls one child (same for any server id) |
-| `velocity.mute` / .unmute | mutes or unmutes that child's log lines on the main console; the web panel still shows them |
+| velocity.start / .stop / .restart | controls one child (same for any server id) |
+| velocity.mute / .unmute | mutes or unmutes that child's log lines on the main console; the web panel still shows them |
 | `status` | shows every child's state, pid and uptime |
 | `stop` | stops ALL children gracefully, then exits the root |
 | `help` | lists these |
@@ -81,11 +76,4 @@ so you can edit `index.html` and restart to apply changes without rebuilding.
 `scripts/m1-accept.sh` runs the real jar against dummy servers (config rejection, prefixes, routing,
 start/stop order, SIGTERM, the SIGKILL path and crash backoff; about 3 minutes).
 
-## Deviations from the original spec
-
-1. **No SnakeYAML.** `config/MiniYaml.java` is a small built-in parser for exactly the syntax config.yml uses.
-   It is used only by `ConfigLoader`, so switching to SnakeYAML is a one-class change.
-2. **No Maven run, no JUnit.** `build.sh` is the tested build; `pom.xml` is provided but untested. Unit tests
-   are a dependency-free runner (`ChecksMain`).
-3. The panel UI is a single-file vanilla-JS `index.html` (no framework, no build step).
-4. Paper installs use the fill.papermc.io v3 API; Modrinth uses the public v2 API.
+# TLDR; Create many minecraft servers from 1 jar file if you're limited to 1 server. The only requirements are multiple ports you need per server.
