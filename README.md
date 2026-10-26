@@ -1,79 +1,167 @@
-# Root jar (supervisor + web panel)
+# Rootjar
 
-**This is a root server jar** - it runs inside a single Pterodactyl container and manages an entire Minecraft network. The main objective is to act as a secondary panel: you can create as many Minecraft servers as your resources allow within one container. Examples: 2 Paper servers, a proxy + Paper server, a proxy + NanoLimbo, or any combination of forks.
+**One Java jar that turns a single server slot into a panel for many servers.**
 
-One `server.jar` that Pterodactyl launches. It starts the configured children you can create Paper, Purpur, Velocity or whatever you want, prefixes their output into the panel console, routes console commands to the right one, and stops everything gracefully. It also runs a built-in **web panel** with login, live console, file manager, config editor, Paper/Modrinth installers and per-user access control.
+Rootjar is for hosts that only let you run one jar, such as a Pterodactyl egg with `SERVER_JARFILE=server.jar`.
 
-## First-run checklist
+```text
+java -jar server.jar
+```
 
-1. In the Pterodactyl panel set `SERVER_JARFILE=server.jar`. Leave the startup command as it is (needs Java 17+).
-2. Set the egg's **stop command** to `stop` (the root console command for "stop everything").
-3. Upload `server.jar` to the server's root folder. On first start it generates `config.yml` and a random
-   admin password in `ADMIN_PASSWORD.txt` (delete that file after logging in).
-4. Create two folders next to it: `velocity/` and `nanolimbo/`. Put `velocity.jar` and `NanoLimbo.jar` inside
-   (or change `jar:` in config.yml to match your file names).
-5. Configure the children themselves (the root does not touch these files):
-   - `velocity/velocity.toml`: `bind = "0.0.0.0:25565"`
-   - NanoLimbo settings: port `25566`, bind address `127.0.0.1`
-6. Start the server, log into the web panel (port `25568` by default) with the credentials from
-   `ADMIN_PASSWORD.txt`, then delete that file.
+It runs a web panel and supervises as many child servers as the machine's CPU, RAM, disk, and ports allow. Players connect directly to the child that hosts their server.
 
-You can still pre-seed a password with `java -jar server.jar --hash-password` and paste it into
-`config.yml` as `password_hash:`; a `placeholder` value now triggers the random-password flow.
+## What it is for
 
-## Web panel
+Use it when one allowed server process needs to run several Minecraft servers, a proxy, a limbo server, a Discord bot, or a small website.
 
-- Login sessions are cookie-based (HttpOnly, SameSite=Strict), expire after `session_ttl_seconds`,
-  and `/api/login` is rate limited + failure-locked per IP per `server:` config.
-- Dashboard with per-server RAM/CPU, players, uptime; live console over SSE; file manager with
-  upload/download-free editing, zip, rename, mkdir, delete; PaperMC and Modrinth installers;
-  config quick-editor (`server.properties` and friends).
-- **Delete Server** (admin only, three-step warning): removes the server from the panel and config.
-  It does **not** delete any files: the folder stays on disk and inside the Pterodactyl panel's files.
-- Users: admins can create subusers and grant per-server access; non-admins only see their servers.
+- A Velocity proxy plus several Paper servers
+- Two independent Paper servers
+- A proxy plus NanoLimbo
+- A Minecraft server plus a JDA Discord bot
+- A simple HTML site
 
-## Console commands (type them in the server console)
+Each child has its own folder, jar, port, memory limit, and console.
 
-| You type | What happens |
+## How it works
+
+1. The host launches `server.jar` with Java 17 or newer.
+2. On first start, Rootjar creates `config.yml` and a random admin password in `ADMIN_PASSWORD.txt`.
+3. The web panel opens on its configured port. The usual port is `25568`.
+4. You create a child in the panel. Rootjar downloads its server jar when one is available, creates its folder, and adds it to `config.yml`.
+5. Rootjar starts each child as its own Java process, in `start_order`.
+6. The panel controls the selected child's power, console, commands, and files.
+7. A crashed child can restart after 5, 10, 30, 60, and then 300 seconds. A manual stop does not restart it.
+8. Stopping Rootjar shuts down every child in `stop_order`, waits for its timeout, and force-stops anything that refuses to exit.
+
+## First start
+
+1. Set the host's jar file to `server.jar` and keep its Java 17+ startup command.
+2. Set the host's stop command to `stop`.
+3. Upload `server.jar` and start it once.
+4. Read the username and password in `ADMIN_PASSWORD.txt`.
+5. Open the panel, log in, and delete `ADMIN_PASSWORD.txt`.
+6. Create servers from the panel. Each server needs its own free port.
+
+To choose the password before first startup:
+
+```text
+java -jar server.jar --hash-password
+```
+
+Put the printed hash in `config.yml` as `password_hash`. A value of `placeholder` makes Rootjar generate a random password instead.
+
+## Panel
+
+### Dashboard
+
+- Lists every server the signed-in user is allowed to see.
+- Shows status, software type, port, uptime, players, CPU, RAM, disk, and network use.
+- Refreshes live resource numbers about every 2 seconds.
+- Reads CPU, RAM, and network data from `/proc` and `/sys` on Linux.
+
+### Server creation
+
+- Guided choices for server type, software, version, name, port, and memory.
+- Supports Paper, Purpur, Velocity, Waterfall, BungeeCord, Travertine, NanoLimbo, JDA Discord bots, and a simple HTML site.
+- Downloads the selected server jar automatically when an upstream source is available.
+- Shows a preview before creating the server.
+
+### Power and console
+
+- Start, stop, and restart one server without affecting the others.
+- Stream its console live and send commands from the panel.
+- Search and copy console output.
+- Mute a noisy child in the host console while keeping it visible in the panel.
+- Keep the latest 10,000 console lines, with each line capped at 2,048 characters.
+
+### Files
+
+- Browse each server's own folder.
+- Open, edit, save, rename, move, copy, and delete files.
+- Create folders, upload files, and import a file directly.
+- Zip and download files or folders.
+- Search file names and file contents.
+- Move files to Trash, restore them, or empty the trash.
+- Prevent file requests from escaping that server's folder.
+
+### Backups
+
+- Create, list, download, upload, restore, and delete backups.
+- Keep live and older snapshots separate.
+- Retain from 1 to 50 backups.
+- Create a pre-restore backup before restoring one.
+
+### Plugins, mods, and versions
+
+- Search Modrinth and install a selected version.
+- View installed plugins or mods and check for updates.
+- Enable, disable, or delete an installed addon.
+- Back up the addons folder before making changes.
+- Read plugin and mod metadata and compare supported Minecraft versions.
+- Change a server's software version while backing up its old jar.
+- Download and manage extra Java runtimes for servers that need another Java version.
+
+### Configuration
+
+- Edit `server.properties` and the server's other config files in the browser.
+- Use a structured editor where Rootjar recognizes the file format.
+- Change memory, jar, flags, port, and startup settings.
+- Mark a server when its changed settings need a restart.
+
+### Players, activity, and access
+
+- Show the player count and send normal moderation commands.
+- Record who changed a server and what they changed.
+- Show CPU, RAM, and player history.
+- Download logs.
+- Create subusers and assign them to individual servers.
+- Use Viewer, Operator, Owner, and Admin access.
+- Hide panel IPs or console IPs per user.
+- View and close signed-in sessions.
+- Rate-limit and temporarily lock repeated failed logins.
+- Use an HttpOnly, SameSite=Strict session cookie and CSRF checks.
+- Optionally publish a read-only public status page.
+
+### Schedules, notifications, and appearance
+
+- Save timed restart or console-command tasks.
+- Send notifications to a Discord-compatible HTTPS webhook.
+- Switch the panel color theme.
+- Toggle the Minecraft-style font.
+
+## Host console
+
+| Command | Action |
 |---|---|
-| `velocity plist` | sends `plist` to Velocity (any `<id> <command>` works) |
-| velocity.start / .stop / .restart | controls one child (same for any server id) |
-| velocity.mute / .unmute | mutes or unmutes that child's log lines on the main console; the web panel still shows them |
-| `status` | shows every child's state, pid and uptime |
-| `stop` | stops ALL children gracefully, then exits the root |
-| `help` | lists these |
-| anything else | goes to the first child with `console_enabled: true` |
+| `status` | Show every child's state, process ID, and uptime |
+| `help` | Show the command list |
+| `stop` | Stop every child, then stop Rootjar |
+| `velocity plist` | Send `plist` to the child named `velocity` |
+| `paper1.start` | Start one child |
+| `paper1.stop` | Stop one child |
+| `paper1.restart` | Restart one child |
+| `paper1.mute` | Hide that child in the host console |
+| `paper1.unmute` | Show that child in the host console again |
 
-Child ids are re-read on every line, so servers created in the web panel are console-routable immediately.
+Unrecognized text goes to the first child whose console is enabled. Child names are reread for every command, so a server created in the panel can be controlled immediately.
 
-## Shutdown timing (important)
+## Previous and Next Node buttons
 
-Order: by `stop_order` (Velocity first in the default config). Each child is asked to stop per its
-`stop_strategy`, given `stop_timeout_seconds`, then killed, then up to 5 s for the OS to reap it.
-Worst case with defaults, if both ignore every stop request: (30 + 5) + (15 + 5) = **55 s**. Keep the
-panel's stop timeout above that, or lower the timeouts in config.yml.
+The panel can show two optional links:
 
-The same shutdown runs for the `stop` command, SIGTERM/SIGINT, and any JVM exit; the root exits with code 0.
+- **Previous Node**, fixed at the bottom left.
+- **Next Node**, fixed at the bottom right.
 
-## Things to know
+An admin pastes each destination into Settings and enables its checkbox. Clicking a button opens that saved `http` or `https` address. These are navigation links only. Their settings are stored in `node-buttons.properties` beside `config.yml`.
 
-- A child counts as `running` once it has stayed alive for 5 s.
-- Crashed children restart with backoff `5, 10, 30, 60, 300` s (last value repeats). After 10 minutes of stable
-  running, or any manual start/restart, the backoff starts over. `stop`/`<id>.stop` never restarts.
-- Child heap below 256M is rejected *when Aikar flags are on* (the JVM itself refuses to start); turn off
-  `use_aikar_flags` or raise the heap.
-- The last 10,000 lines (max 2,048 characters each) of every child are kept in memory for the live console.
-- Duplicate ids / ports / start-stop orders in config.yml are auto-fixed and re-saved on boot.
-- RAM/CPU/network stats are read from `/proc` and `/sys` (Linux containers, the intended deployment).
+## Building
 
-## Building and testing (needs only a JDK 17+)
+Build with JDK 17 or newer:
 
-`./build.sh` compiles, builds `build/server.jar` (with the panel UI bundled), runs the unit checks, and
-builds the dummy test server. On Windows, `make.bat` does compile + package. The panel UI lives in the
-repo-root `index.html`; it is copied into the jar at build time and written out next to the jar on first run,
-so you can edit `index.html` and restart to apply changes without rebuilding.
+```bash
+./build.sh
+```
 
-`scripts/m1-accept.sh` runs the real jar against dummy servers (config rejection, prefixes, routing,
-start/stop order, SIGTERM, the SIGKILL path and crash backoff; about 3 minutes).
+The panel page is the root `index.html`. The build copies it into the jar, and the first run writes it beside `server.jar` when it is missing.
 
-# TLDR; Create many Minecraft Servers, Discord Bots or anything from 1 jar file if you're limited to 1 server. The only requirements are multiple ports you need per server.
+`scripts/m1-accept.sh` runs the packaged jar against disposable test servers. It checks configuration rejection, console routing, start and stop order, signals, forced shutdown, and crash restart behavior.

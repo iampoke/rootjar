@@ -66,6 +66,11 @@ public class WebServer {
     private final Map<String, java.util.ArrayDeque<long[]>> metrics = new ConcurrentHashMap<>();
     private final Supervisor supervisor;
     private final Path configPath;
+
+    /** Optional previous/next panel links shown as fixed buttons in the UI. */
+    private record NodeButtons(String previousUrl, String nextUrl, boolean showPrevious, boolean showNext) {}
+    private volatile NodeButtons nodeButtons;
+    private final Path nodeButtonsPath;
     
     private final Map<Long, Long> lastCpuTime = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastWallTime = new ConcurrentHashMap<>();
@@ -123,6 +128,8 @@ public class WebServer {
         this.tasks = new TaskScheduler(supervisor, config.baseDir().resolve("tasks.yml"));
         this.supervisor = supervisor;
         this.configPath = configPath;
+        this.nodeButtonsPath = config.baseDir().resolve("node-buttons.properties");
+        this.nodeButtons = loadNodeButtons(this.nodeButtonsPath);
         // httpClient is a field initializer, so both dependencies exist here.
         this.registry = new SoftwareRegistry(httpClient);
         this.javaRuntimes = new JavaRuntimes(config.baseDir(), httpClient);
@@ -668,7 +675,12 @@ public class WebServer {
           .append(",\"netRx\":").append(rxSpeed).append(",\"netTx\":").append(txSpeed)
           .append(",\"isAdmin\":").append(admin)
           .append(",\"allowPanelIpView\":").append(canViewPanelIps(ex))
-          .append(",\"allowConsoleIpView\":").append(canViewConsoleIps(ex)).append(",\"servers\":[");
+          .append(",\"allowConsoleIpView\":").append(canViewConsoleIps(ex))
+          .append(",\"nodePreviousUrl\":\"").append(jsonEscape(nodeButtons.previousUrl())).append("\"")
+          .append(",\"nodeNextUrl\":\"").append(jsonEscape(nodeButtons.nextUrl())).append("\"")
+          .append(",\"nodeShowPrevious\":").append(nodeButtons.showPrevious())
+          .append(",\"nodeShowNext\":").append(nodeButtons.showNext())
+          .append(",\"servers\":[");
         boolean first = true;
         for (ChildStats s : stats) {
             ChildProcess c = s.child();
@@ -1693,7 +1705,11 @@ public class WebServer {
         if (ex.getRequestMethod().equals("GET")) {
             ServerConfig server = config.server();
             send(ex, 200, "{\"webhookUrl\":\"" + jsonEscape(server.webhookUrl()) + "\",\"backupRetention\":" + server.backupRetention()
-                    + ",\"publicStatus\":" + server.publicStatus() + ",\"sessionTtl\":" + server.sessionTtlSeconds() + "}");
+                    + ",\"publicStatus\":" + server.publicStatus() + ",\"sessionTtl\":" + server.sessionTtlSeconds()
+                    + ",\"nodePreviousUrl\":\"" + jsonEscape(nodeButtons.previousUrl()) + "\""
+                    + ",\"nodeNextUrl\":\"" + jsonEscape(nodeButtons.nextUrl()) + "\""
+                    + ",\"nodeShowPrevious\":" + nodeButtons.showPrevious()
+                    + ",\"nodeShowNext\":" + nodeButtons.showNext() + "}");
             return;
         }
         String body = new String(ex.getRequestBody().readNBytes(8193), StandardCharsets.UTF_8);
@@ -1702,12 +1718,78 @@ public class WebServer {
         if (!webhook.isBlank() && !webhook.startsWith("https://")) { send(ex, 400, "Webhook must be an HTTPS URL"); return; }
         int retention = Math.max(1, Math.min(50, Integer.parseInt(extractJson(body, "backupRetention"))));
         boolean publicStatus = "true".equals(extractJson(body, "publicStatus"));
+        NodeButtons updatedButtons = null;
+        if (jsonHas(body, "nodePreviousUrl") || jsonHas(body, "nodeNextUrl")
+                || jsonHas(body, "nodeShowPrevious") || jsonHas(body, "nodeShowNext")) {
+            String previousUrl = validNodeLink(extractJson(body, "nodePreviousUrl"));
+            String nextUrl = validNodeLink(extractJson(body, "nodeNextUrl"));
+            if (previousUrl == null || nextUrl == null) {
+                send(ex, 400, "Node links must start with http:// or https://");
+                return;
+            }
+            updatedButtons = new NodeButtons(previousUrl, nextUrl,
+                    "true".equals(extractJson(body, "nodeShowPrevious")),
+                    "true".equals(extractJson(body, "nodeShowNext")));
+        }
         ServerConfig old = config.server();
         saveConfig(new RootConfig(new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(),
                 old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(),
                 old.trustedProxies(), old.diskMaxGb(), retention, webhook, publicStatus, old.users()), config.children(), config.baseDir()));
+        if (updatedButtons != null) {
+            try {
+                saveNodeButtons(updatedButtons);
+            } catch (IOException e) {
+                send(ex, 500, "Could not save node links");
+                return;
+            }
+            nodeButtons = updatedButtons;
+        }
         notifier.send("settings.changed", "Panel settings were updated");
         send(ex, 200, "{\"saved\":true}");
+    }
+
+    private static boolean jsonHas(String json, String key) {
+        return json != null && json.contains("\"" + key + "\"");
+    }
+
+    /** Returns a trimmed link, an empty string, or null when the pasted value is not a safe HTTP(S) URL. */
+    private static String validNodeLink(String raw) {
+        String value = raw == null ? "" : raw.trim();
+        if (value.isEmpty()) return "";
+        if (value.length() > 2048 || value.chars().anyMatch(Character::isWhitespace)) return null;
+        return value.matches("(?i)^https?://.+") ? value : null;
+    }
+
+    private static NodeButtons loadNodeButtons(Path file) {
+        String previousUrl = "", nextUrl = "";
+        boolean showPrevious = true, showNext = true;
+        if (Files.notExists(file)) return new NodeButtons(previousUrl, nextUrl, showPrevious, showNext);
+        try {
+            for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                if (line.isBlank() || line.startsWith("#") || !line.contains("=")) continue;
+                String key = line.substring(0, line.indexOf('=')).trim();
+                String value = line.substring(line.indexOf('=') + 1).trim();
+                switch (key) {
+                    case "previousUrl" -> previousUrl = value;
+                    case "nextUrl" -> nextUrl = value;
+                    case "showPrevious" -> showPrevious = !value.equalsIgnoreCase("false");
+                    case "showNext" -> showNext = !value.equalsIgnoreCase("false");
+                }
+            }
+        } catch (IOException ignored) {}
+        return new NodeButtons(previousUrl, nextUrl, showPrevious, showNext);
+    }
+
+    private void saveNodeButtons(NodeButtons buttons) throws IOException {
+        Path parent = nodeButtonsPath.getParent();
+        if (parent != null) Files.createDirectories(parent);
+        Files.writeString(nodeButtonsPath,
+                "# Rootjar panel previous/next node buttons\n"
+                        + "previousUrl=" + buttons.previousUrl() + "\n"
+                        + "nextUrl=" + buttons.nextUrl() + "\n"
+                        + "showPrevious=" + buttons.showPrevious() + "\n"
+                        + "showNext=" + buttons.showNext() + "\n",
+                StandardCharsets.UTF_8);
     }
 
     private final Map<String, java.util.Deque<Long>> requestRates = new ConcurrentHashMap<>();
