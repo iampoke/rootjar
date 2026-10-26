@@ -47,7 +47,8 @@ public final class ConfigLoader {
                 Map<String, Object> um = asMap(u, "users");
                 users.add(new ServerConfig.UserConfig(
                     str(um, "username", null, "users"), str(um, "password_hash", null, "users"),
-                    str(um, "role", "admin", "users"), strList(um, "allowed_servers", List.of("*"), "users")
+                    str(um, "role", "admin", "users"), strList(um, "allowed_servers", List.of("*"), "users"),
+                    bool(um, "allow_panel_ip_view", true, "users"), bool(um, "allow_console_ip_view", true, "users")
                 ));
             }
         }

@@ -518,6 +518,8 @@
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                         <input type="text" id="u-name" placeholder="Username" style="padding:12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; color:white;">
                         <input type="text" id="u-pass" placeholder="Password" style="padding:12px; background:var(--bg-input); border:1px solid var(--border); border-radius:8px; color:white;">
+                        <label class="settings-check"><input id="u-panel-ip" type="checkbox"> Allow panel IP view</label>
+                        <label class="settings-check"><input id="u-console-ip" type="checkbox"> Allow console IP view</label>
                     </div>
                     <button class="btn" style="margin-top:16px; width:100%;" onclick="createUser()">Create User</button>
                 </div>
@@ -525,7 +527,7 @@
                 <h2 style="margin-bottom: 16px;">Existing Users</h2>
                 <div style="border-radius: 8px; border: 1px solid var(--border); overflow: hidden; max-width: 800px;">
                     <table class="fm-table">
-                        <thead><tr><th>Username</th><th>Role</th><th>Allowed Servers</th></tr></thead>
+                        <thead><tr><th>Username</th><th>Role</th><th>Panel / Console IPs</th></tr></thead>
                         <tbody id="users-tbody"></tbody>
                     </table>
                 </div>
@@ -1397,10 +1399,13 @@
             return ok;
         }
 
+        let allowPanelIpView = true;
+        function displayAddress(port) { return allowPanelIpView ? currentPublicIp + ':' + port : 'Hidden'; }
+
         async function copyIp() {
             const el = document.getElementById('sidebar-ip');
             const ip = el ? el.innerText.trim() : '';
-            if (!ip || ip === '-' || ip === 'Loading...') return showToast("IP not available yet", "error");
+            if (!allowPanelIpView || !ip || ip === '-' || ip === 'Loading...' || ip === 'Hidden') return showToast("IP not available", "error");
             const ok = await copyText(ip);
             showToast(ok ? "IP copied to clipboard!" : "Failed to copy IP", ok ? "success" : "error");
         }
@@ -1479,6 +1484,7 @@
             isAdmin = data.isAdmin;
             window.csrfToken = data.csrfToken || '';
             currentServersList = data.servers;
+            allowPanelIpView = data.allowPanelIpView !== false;
             currentPublicIp = data.publicIp || "127.0.0.1";
             cpuMaxPct = data.cpuMax || 300;
             const storageMax = data.storageMax || 0;
@@ -1554,7 +1560,7 @@
                                 Uptime: ${s.uptime}
                             </div>
                             <div style="display:flex; gap:8px;">
-                                ${s.type === 'website' ? `<a class="btn btn-outline" href="http://${escapeHtml(currentPublicIp)}:${s.port}/" target="_blank" rel="noopener">Open Website</a>` : ''}
+                                ${s.type === 'website' && allowPanelIpView ? `<a class="btn btn-outline" href="http://${escapeHtml(currentPublicIp)}:${s.port}/" target="_blank" rel="noopener">Open Website</a>` : ''}
                                 ${isAdmin ? `<button class="btn btn-outline" style="border-color:var(--danger); color:var(--danger);" onclick="openDeleteModal('${s.id}')">Delete</button>` : ''}
                                 <button class="btn" onclick="openServer('${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')">Manage</button>
                             </div>
@@ -1624,7 +1630,7 @@
                 tbody.innerHTML += `<tr>
                     <td><strong>${u.username}</strong></td>
                     <td>${u.role}</td>
-                    <td>${u.servers}</td>
+                    <td>${u.allowPanelIpView ? 'Allowed' : 'Hidden'} / ${u.allowConsoleIpView ? 'Allowed' : 'Hidden'}</td>
                 </tr>`;
             });
         }
@@ -1658,9 +1664,11 @@
         async function createUser() {
             const user = document.getElementById('u-name').value;
             const pass = document.getElementById('u-pass').value;
+            const allowPanelIpView = document.getElementById('u-panel-ip').checked;
+            const allowConsoleIpView = document.getElementById('u-console-ip').checked;
             if (!user || !pass) return showToast("Fill all fields", "error");
             
-            const res = await fetch('/api/users/create', { method: 'POST', body: JSON.stringify({user, pass}) });
+            const res = await fetch('/api/users/create', { method: 'POST', body: JSON.stringify({user, pass, allowPanelIpView, allowConsoleIpView}) });
             if (res.ok) {
                 showToast("User created!", "success");
                 document.getElementById('u-name').value = '';
@@ -1737,7 +1745,7 @@
             document.getElementById('console-server-type').innerHTML = typeBadge(type);
             updateServerTabs();
             updateServerIdentity();
-            document.getElementById('sidebar-ip').innerText = currentPublicIp + ":" + port;
+            document.getElementById('sidebar-ip').innerText = displayAddress(port);
             document.getElementById('console-output').innerHTML = '';
             switchView('console'); switchTab('console');
             reconnectConsole();

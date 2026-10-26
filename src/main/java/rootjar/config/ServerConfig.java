@@ -19,5 +19,6 @@ public record ServerConfig(
         boolean publicStatus,
         List<UserConfig> users) {
 
-    public record UserConfig(String username, String passwordHash, String role, List<String> allowedServers) {}
+    public record UserConfig(String username, String passwordHash, String role, List<String> allowedServers,
+                             boolean allowPanelIpView, boolean allowConsoleIpView) {}
 }

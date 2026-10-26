@@ -273,6 +273,17 @@ public class WebServer {
         return s != null && token.equals(s.csrf());
     }
 
+    private boolean userAllows(HttpExchange ex, boolean panel) {
+        if (isAdmin(ex)) return true;
+        String user = getSessionUser(ex);
+        return config.server().users().stream().filter(u -> u.username().equals(user)).findFirst()
+                .map(u -> panel ? u.allowPanelIpView() : u.allowConsoleIpView()).orElse(false);
+    }
+    private boolean canViewPanelIps(HttpExchange ex) { return userAllows(ex, true); }
+    private boolean canViewConsoleIps(HttpExchange ex) { return userAllows(ex, false); }
+    private static final java.util.regex.Pattern IP_ADDRESS = java.util.regex.Pattern.compile("\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b|(?:[A-Fa-f0-9]{0,4}:){2,7}[A-Fa-f0-9]{0,4}");
+    private String filterConsoleIps(HttpExchange ex, String line) { return canViewConsoleIps(ex) ? line : IP_ADDRESS.matcher(line).replaceAll("[hidden ip]"); }
+
     private boolean isAdmin(HttpExchange ex) {
         String user = getSessionUser(ex);
         if (user == null) return false;
@@ -635,7 +646,9 @@ public class WebServer {
           .append(",\"storageUsed\":").append(totalDisk)
           .append(",\"storageMax\":").append((long) config.server().diskMaxGb() << 30)
           .append(",\"netRx\":").append(rxSpeed).append(",\"netTx\":").append(txSpeed)
-          .append(",\"isAdmin\":").append(admin).append(",\"servers\":[");
+          .append(",\"isAdmin\":").append(admin)
+          .append(",\"allowPanelIpView\":").append(canViewPanelIps(ex))
+          .append(",\"allowConsoleIpView\":").append(canViewConsoleIps(ex)).append(",\"servers\":[");
         boolean first = true;
         for (ChildStats s : stats) {
             ChildProcess c = s.child();
@@ -1218,7 +1231,7 @@ public class WebServer {
             while (true) {
                 var logs = child.log().since(lastSeq);
                 for (var entry : logs) {
-                    os.write(("data: " + entry.line().replace("\r", "").replace("\n", "") + "\n\n").getBytes(StandardCharsets.UTF_8));
+                    os.write(("data: " + filterConsoleIps(ex, entry.line()).replace("\r", "").replace("\n", "") + "\n\n").getBytes(StandardCharsets.UTF_8));
                     os.flush(); lastSeq = entry.seq();
                 }
                 if (!logs.isEmpty()) {
@@ -1240,7 +1253,7 @@ public class WebServer {
         ChildProcess child = id == null ? null : supervisor.child(id).orElse(null);
         if (child == null || !canAccessServer(ex, id)) { send(ex, 404, "Not found"); return; }
         StringBuilder sb = new StringBuilder();
-        for (var entry : child.log().since(0)) sb.append(entry.line()).append("\r\n");
+        for (var entry : child.log().since(0)) sb.append(filterConsoleIps(ex, entry.line())).append("\r\n");
         byte[] bytes = sb.toString().getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
         ex.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + id.replaceAll("[^A-Za-z0-9._-]", "_") + "-console.log\"");
@@ -3606,7 +3619,7 @@ public class WebServer {
         boolean first = true;
         for (ServerConfig.UserConfig u : config.server().users()) {
             if (!first) sb.append(","); first = false;
-            sb.append("{\"username\":\"").append(u.username()).append("\",\"role\":\"").append(u.role()).append("\",\"servers\":\"").append(String.join(",", u.allowedServers())).append("\"}");
+            sb.append("{\"username\":\"").append(jsonEscape(u.username())).append("\",\"role\":\"").append(jsonEscape(u.role())).append("\",\"servers\":\"").append(jsonEscape(String.join(",", u.allowedServers()))).append("\",\"allowPanelIpView\":").append(u.allowPanelIpView()).append(",\"allowConsoleIpView\":").append(u.allowConsoleIpView()).append("}");
         }
         sb.append("]");
         send(ex, 200, sb.toString());
@@ -3625,7 +3638,9 @@ public class WebServer {
 
         List<String> allowed = new ArrayList<>();
         List<ServerConfig.UserConfig> newUsers = new ArrayList<>(config.server().users());
-        newUsers.add(new ServerConfig.UserConfig(user, hash, "user", allowed));
+        boolean allowPanel = !"false".equals(extractJson(body, "allowPanelIpView"));
+        boolean allowConsole = !"false".equals(extractJson(body, "allowConsoleIpView"));
+        newUsers.add(new ServerConfig.UserConfig(user, hash, "user", allowed, allowPanel, allowConsole));
 
         ServerConfig old = config.server();
         ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), old.webhookUrl(), old.publicStatus(), newUsers);
@@ -3651,7 +3666,7 @@ public class WebServer {
                 } else if (action.equals("remove")) {
                     newAllowed.remove(targetServer);
                 }
-                newUsers.add(new ServerConfig.UserConfig(u.username(), u.passwordHash(), u.role(), newAllowed));
+                newUsers.add(new ServerConfig.UserConfig(u.username(), u.passwordHash(), u.role(), newAllowed, u.allowPanelIpView(), u.allowConsoleIpView()));
             } else {
                 newUsers.add(u);
             }
