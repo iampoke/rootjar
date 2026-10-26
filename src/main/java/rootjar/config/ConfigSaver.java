@@ -26,6 +26,7 @@ public class ConfigSaver {
         }
         sb.append("]\n\n");
         sb.append("  disk_max_gb: ").append(s.diskMaxGb()).append("\n"); // 0 = unknown quota (storage shown without a max)
+        if (s.backupRetention() != 5) sb.append("  backup_retention: ").append(s.backupRetention()).append("\n");
         if (!s.users().isEmpty()) {
             sb.append("  users:\n");
             for (ServerConfig.UserConfig u : s.users()) {

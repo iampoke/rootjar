@@ -688,6 +688,9 @@
                     <div class="nav-item" id="tab-btn-files" onclick="switchTab('files')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg> Files
                     </div>
+                    <div class="nav-item" id="tab-btn-backups" onclick="switchTab('backups')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Backups
+                    </div>
                     <div class="nav-item" id="tab-btn-plugins" onclick="switchTab('plugins')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg> Plugins
                     </div>
@@ -759,6 +762,13 @@
                             <input type="file" id="fm-file-input" multiple hidden onchange="fmUploadFiles(this.files)">
                             <input type="file" id="fm-folder-input" webkitdirectory directory multiple hidden onchange="fmUploadFiles(this.files)">
                             <input type="file" id="fm-import-input" accept=".zip,application/zip" hidden onchange="fmImportZip(this.files[0])">
+                        </div>
+                    </div>
+                    <div id="tab-backups" class="tab-container">
+                        <div class="fm-page">
+                            <div class="fm-toolbar"><h2>Backups</h2><div class="fm-spacer"></div><button class="fm-btn fm-btn-accent" onclick="createBackup()">Create Backup</button></div>
+                            <p class="version-note" id="backup-retention">The newest backups are kept automatically.</p>
+                            <div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Name</th><th>Size</th><th>Created</th><th></th></tr></thead><tbody id="backup-tbody"></tbody></table></div>
                         </div>
                     </div>
                     <div id="tab-plugins" class="tab-container">
@@ -1383,6 +1393,7 @@
             document.getElementById('tab-' + t).classList.add('active');
             
             if (t === 'files') loadFileList('.');
+            if (t === 'backups') loadBackups();
             if (t === 'config') loadConfigFiles();
             if (t === 'users') loadServerUsers();
             if (t === 'plugins') loadAddons('plugin');
@@ -1491,7 +1502,7 @@
                                 Uptime: ${s.uptime}
                             </div>
                             <div style="display:flex; gap:8px;">
-                                ${s.type === 'website' ? `<a class="btn btn-outline" href="http://${escapeHtml(currentPublicIp)}:${s.port}/" target="_blank" rel="noopener">Open Site</a>` : ''}
+                                ${s.type === 'website' ? `<a class="btn btn-outline" href="http://${escapeHtml(currentPublicIp)}:${s.port}/" target="_blank" rel="noopener">Open Website</a>` : ''}
                                 ${isAdmin ? `<button class="btn btn-outline" style="border-color:var(--danger); color:var(--danger);" onclick="openDeleteModal('${s.id}')">Delete</button>` : ''}
                                 <button class="btn" onclick="openServer('${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')">Manage</button>
                             </div>
@@ -1673,6 +1684,7 @@
             document.getElementById('console-server-name').innerText = id;
             document.getElementById('console-server-type').innerHTML = typeBadge(type);
             updateServerTabs();
+            updateServerIdentity();
             document.getElementById('sidebar-ip').innerText = currentPublicIp + ":" + port;
             document.getElementById('console-output').innerHTML = '';
             switchView('console'); switchTab('console');
@@ -2003,6 +2015,34 @@
                 createBtn.disabled = false;
                 createBtn.innerText = 'Create Server';
             }
+        }
+
+        async function loadBackups() {
+            if (!currentServer) return;
+            const response = await fetch('/api/backups/list?server=' + encodeURIComponent(currentServer.id));
+            if (!response.ok) return;
+            const data = await response.json();
+            document.getElementById('backup-retention').textContent = 'Retention: newest ' + data.retention + ' backups are kept.';
+            const body = document.getElementById('backup-tbody');
+            body.innerHTML = (data.backups || []).map(backup => `<tr><td>${escapeHtml(backup.name)}</td><td>${fmtBytes(backup.size)}</td><td>${new Date(backup.created).toLocaleString()}</td><td><button class="fm-btn" onclick="downloadBackup('${escapeHtml(backup.name)}')">Download</button> <button class="fm-btn" onclick="restoreBackup('${escapeHtml(backup.name)}')">Restore</button> <button class="fm-btn" onclick="deleteBackup('${escapeHtml(backup.name)}')">Delete</button></td></tr>`).join('') || '<tr><td colspan="4">No backups yet.</td></tr>';
+        }
+        async function createBackup() {
+            const label = prompt('Backup label (optional):', '') || '';
+            const response = await fetch(`/api/backups/create?server=${encodeURIComponent(currentServer.id)}&label=${encodeURIComponent(label)}&include_logs=1&force=1`, {method:'POST'});
+            if (!response.ok) return showToast(await response.text(), 'error');
+            showToast('Backup created', 'success'); loadBackups();
+        }
+        function downloadBackup(name) { window.open(`/api/backups/download?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}`); }
+        async function restoreBackup(name) {
+            const typed = prompt('Type the server name to restore this backup. Existing files may be overwritten.');
+            if (typed !== currentServer.id) return;
+            const response = await fetch(`/api/backups/restore?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}&confirm=${encodeURIComponent(typed)}`, {method:'POST'});
+            showToast(response.ok ? 'Backup restored' : await response.text(), response.ok ? 'success' : 'error'); loadBackups();
+        }
+        async function deleteBackup(name) {
+            if (!confirm('Delete backup ' + name + '?')) return;
+            await fetch(`/api/backups/delete?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}`, {method:'DELETE'});
+            loadBackups();
         }
 
         async function loadFileList(path) {
@@ -2835,8 +2875,21 @@
             if (applyBtn) applyBtn.style.display = '';
         }
 
+        function updateServerIdentity() {
+            const button = document.getElementById('console-change-version-btn');
+            const website = currentServer && currentServer.type === 'website';
+            if (!button) return;
+            button.textContent = website ? 'Open Website' : 'Change Version';
+            button.title = website ? 'Open this website in a new tab' : 'Change the server software or version';
+            button.style.display = website || currentServer.canChange !== false ? '' : 'none';
+        }
+
         function goChangeVersion() {
             if (!currentServer) return showToast('Open a server first', 'error');
+            if (currentServer.type === 'website') {
+                window.open('http://' + currentPublicIp + ':' + currentServer.port + '/', '_blank', 'noopener');
+                return;
+            }
             if (currentServer.canChange === false) return showToast('You do not have permission to change this server', 'error');
             switchTab('version');
         }
@@ -2934,7 +2987,8 @@
 
         function updateVersionControls() {
             const btn = document.getElementById('console-change-version-btn');
-            if (btn) btn.style.display = (currentServer && currentServer.canChange === false) ? 'none' : '';
+            if (btn) btn.style.display = (currentServer && currentServer.type !== 'website' && currentServer.canChange === false) ? 'none' : '';
+            updateServerIdentity();
             if (versionCatalog.length) renderSoftwareGrid();
             if (javaRuntimes || versionInfo) renderJavaRuntimes();
             updatePickerConfirm();

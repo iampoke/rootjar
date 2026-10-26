@@ -17,6 +17,7 @@ import rootjar.console.StdinRouter.Kind;
 import rootjar.supervisor.BackoffPolicy;
 import rootjar.supervisor.ChildProcess;
 import rootjar.supervisor.CommandLineBuilder;
+import rootjar.backup.BackupManager;
 import rootjar.files.FileOps;
 import rootjar.website.StaticSiteServer;
 
@@ -67,6 +68,7 @@ public final class ChecksMain {
         addons();
         staticWebsite();
         fileOps();
+        backups();
         System.out.println("unit checks: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
@@ -129,6 +131,26 @@ public final class ChecksMain {
         check(found.size() == 1 && found.get(0).endsWith("logo.txt"), "file ops finds nested names");
         FileOps.copyRecursive(nested, root.resolve("copy"));
         check(Files.readString(root.resolve("copy/logo.txt")).equals("logo"), "file ops copies directories");
+    }
+
+    private static void backups() throws Exception {
+        Path root = Files.createTempDirectory("backup-check");
+        Files.writeString(root.resolve("world.txt"), "safe");
+        ChildConfig child = new ChildConfig("paper1", "paper", root, "server.jar", "1024M", true, 25565, "127.0.0.1",
+                StopStrategy.STDIN, "stop", 30, 1, 1, false, List.of(5), List.of(), true, false, false, "", true);
+        BackupManager.BackupInfo created = BackupManager.create(child, "manual", false, 5);
+        check(BackupManager.NAME.matcher(created.name()).matches(), "backup name is safe");
+        Files.writeString(root.resolve("world.txt"), "changed");
+        BackupManager.restore(child, created.name());
+        check(Files.readString(root.resolve("world.txt")).equals("safe"), "backup restore replaces changed file");
+        Path evil = root.resolve("evil.zip");
+        try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(evil))) {
+            zip.putNextEntry(new ZipEntry("../outside.txt")); zip.write("bad".getBytes(StandardCharsets.UTF_8)); zip.closeEntry();
+        }
+        Files.copy(evil, BackupManager.directory(child).resolve("evil-import.zip"));
+        boolean rejected = false;
+        try { BackupManager.restore(child, "evil-import.zip"); } catch (IOException e) { rejected = true; }
+        check(rejected && Files.notExists(root.getParent().resolve("outside.txt")), "backup restore rejects zip slip");
     }
 
     private static void router() {

@@ -14,6 +14,7 @@ public record ServerConfig(
         String passwordHash,
         List<String> trustedProxies,
         int diskMaxGb,
+        int backupRetention,
         List<UserConfig> users) {
 
     public record UserConfig(String username, String passwordHash, String role, List<String> allowedServers) {}

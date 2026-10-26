@@ -14,6 +14,7 @@ import rootjar.config.RootConfig;
 import rootjar.config.ServerConfig;
 import rootjar.config.SoftwareRegistry;
 import rootjar.config.StopStrategy;
+import rootjar.backup.BackupManager;
 import rootjar.console.ConsoleOutput;
 import rootjar.files.FileOps;
 import rootjar.supervisor.ChildProcess;
@@ -195,6 +196,12 @@ public class WebServer {
         route("/api/files/restore/", this::handleFileRestore);
         route("/api/files/empty-trash/", this::handleFileEmptyTrash);
         route("/api/files/import/", this::handleFileImport);
+        route("/api/backups/list", this::handleBackupList);
+        route("/api/backups/create", this::handleBackupCreate);
+        route("/api/backups/download", this::handleBackupDownload);
+        route("/api/backups/restore", this::handleBackupRestore);
+        route("/api/backups/delete", this::handleBackupDelete);
+        route("/api/backups/upload", this::handleBackupUpload);
 
         route("/api/logs/download", this::handleLogsDownload);
 
@@ -1574,6 +1581,77 @@ public class WebServer {
             }
         }
         send(ex, 200, "Trash emptied");
+    }
+
+    private void handleBackupList(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireServer(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        StringBuilder json = new StringBuilder("{\"retention\":").append(config.server().backupRetention()).append(",\"backups\":[");
+        boolean first = true;
+        for (BackupManager.BackupInfo info : BackupManager.list(child.config())) {
+            if (!first) json.append(',');
+            first = false;
+            json.append("{\"name\":\"").append(jsonEscape(info.name())).append("\",\"size\":").append(info.bytes())
+                .append(",\"created\":").append(info.createdAt()).append('}');
+        }
+        send(ex, 200, json.append("]}").toString());
+    }
+
+    private void handleBackupCreate(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireOperator(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        if (child.isAlive() && !param(ex, "force", "").equals("1")) { send(ex, 409, "Server is running"); return; }
+        BackupManager.BackupInfo info = BackupManager.create(child.config(), param(ex, "label", ""), param(ex, "include_logs", "1").equals("1"), config.server().backupRetention());
+        send(ex, 200, "{\"name\":\"" + jsonEscape(info.name()) + "\",\"size\":" + info.bytes() + "}");
+    }
+
+    private void handleBackupDownload(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireServer(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        Path file = BackupManager.resolve(child.config(), param(ex, "name", ""));
+        ex.getResponseHeaders().set("Content-Type", "application/zip");
+        ex.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + file.getFileName() + "\"");
+        ex.sendResponseHeaders(200, Files.size(file));
+        try (OutputStream out = ex.getResponseBody()) { Files.copy(file, out); }
+    }
+
+    private void handleBackupRestore(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireOwner(ex, server)) return;
+        if (!param(ex, "confirm", "").equals(server)) { send(ex, 400, "Type the server name to confirm"); return; }
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        if (child.isAlive()) child.stop();
+        if (child.isAlive()) { send(ex, 409, "Could not stop server"); return; }
+        BackupManager.create(child.config(), "pre-restore", true, config.server().backupRetention());
+        BackupManager.restore(child.config(), param(ex, "name", ""));
+        send(ex, 200, "Restored");
+    }
+
+    private void handleBackupDelete(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireOwner(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        BackupManager.delete(child.config(), param(ex, "name", ""));
+        send(ex, 200, "Deleted");
+    }
+
+    private void handleBackupUpload(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireOperator(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        String name = "import-" + System.currentTimeMillis() + ".zip";
+        Path target = BackupManager.directory(child.config()).resolve(name);
+        try (InputStream in = ex.getRequestBody()) { Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING); }
+        send(ex, 200, "{\"name\":\"" + name + "\"}");
     }
 
     private void handleFileImport(HttpExchange ex) throws IOException {
@@ -3508,7 +3586,7 @@ public class WebServer {
         newUsers.add(new ServerConfig.UserConfig(user, hash, "user", allowed));
 
         ServerConfig old = config.server();
-        ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), newUsers);
+        ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), newUsers);
         saveConfig(new RootConfig(updated, config.children(), config.baseDir()));
         send(ex, 200, "Created");
     }
@@ -3538,7 +3616,7 @@ public class WebServer {
         }
 
         ServerConfig old = config.server();
-        ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), newUsers);
+        ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), newUsers);
         saveConfig(new RootConfig(updated, config.children(), config.baseDir()));
         send(ex, 200, "Assigned");
     }
