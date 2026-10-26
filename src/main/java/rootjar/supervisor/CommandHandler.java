@@ -48,6 +48,12 @@ public final class CommandHandler {
             }
         } else {
             supervisor.requestLifecycle(cmd.childId(), verb);
+            if (verb.equals("start") || verb.equals("stop") || verb.equals("restart")) {
+                supervisor.child(cmd.childId()).ifPresent(c -> {
+                    supervisor.setChildConfig(cmd.childId(), c.config().withAutoStart(!verb.equals("stop")));
+                    persist.run();
+                });
+            }
         }
     }
 

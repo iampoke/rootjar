@@ -254,7 +254,7 @@ public final class Main {
                 c = new ChildConfig(newId, c.type(), newDir, c.jar(), c.heap(), c.xmsEqualXmx(),
                     newPort, c.bind(), c.stopStrategy(), c.stopCommand(), c.stopTimeoutSeconds(),
                     newStart, newStop, c.restartOnCrash(), c.restartBackoffSeconds(),
-                    c.extraFlags(), c.consoleEnabled(), c.useAikarFlags(), c.silent(), c.javaPath());
+                    c.extraFlags(), c.consoleEnabled(), c.useAikarFlags(), c.silent(), c.javaPath(), c.autoStart());
             }
             fixedChildren.add(c);
         }

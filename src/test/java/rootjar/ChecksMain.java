@@ -52,6 +52,7 @@ public final class ChecksMain {
         passwords();
         commandLine();
         javaPathConfig();
+        autoStartConfig();
         softwareRegistryParsers();
         versionOrdering();
         bungeeArtifactUrl();
@@ -205,6 +206,28 @@ public final class ChecksMain {
                 "windows java path saved unquoted");
         check(ConfigLoader.load(winSaved).children().get(0).javaPath().equals(windows),
                 "windows java path survives save/load byte-for-byte");
+    }
+
+    private static void autoStartConfig() throws Exception {
+        Path dir = Files.createTempDirectory("auto-start");
+        RootConfig base = loadConfig(dir, PasswordHasher.hash("password1".toCharArray()),
+                25568, "127.0.0.1", 25566, 25565, true);
+        check(base.children().get(0).autoStart(), "auto_start defaults to true");
+
+        ChildConfig stopped = base.children().get(0).withAutoStart(false);
+        Path saved = dir.resolve("stopped.yml");
+        ConfigSaver.save(saved, new RootConfig(base.server(), List.of(stopped), base.baseDir()));
+        check(Files.readString(saved).contains("auto_start: false"), "auto_start false is written");
+        check(!ConfigLoader.load(saved).children().get(0).autoStart(),
+                "auto_start false survives save/load");
+
+        ChildConfig running = base.children().get(0).withAutoStart(true);
+        Path runningSaved = dir.resolve("running.yml");
+        ConfigSaver.save(runningSaved, new RootConfig(base.server(), List.of(running), base.baseDir()));
+        check(!Files.readString(runningSaved).contains("auto_start:"),
+                "default auto_start is omitted so old configs stay unchanged");
+        check(ConfigLoader.load(runningSaved).children().get(0).autoStart(),
+                "an omitted auto_start loads as true");
     }
 
     // ---- Phase 3: SoftwareRegistry pure parsers against inline fixtures ----------------------

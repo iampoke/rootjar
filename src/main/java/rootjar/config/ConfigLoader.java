@@ -77,7 +77,8 @@ public final class ConfigLoader {
                 bool(m, "restart_on_crash", true, w), backoff, strList(m, "extra_flags", List.of(), w),
                 bool(m, "console_enabled", true, w), bool(m, "use_aikar_flags", true, w),
                 bool(m, "silent", false, w), // NEW
-                str(m, "java", "", w) // NEW: "" means the panel's own JVM
+                str(m, "java", "", w), // NEW: "" means the panel's own JVM
+                bool(m, "auto_start", true, w) // NEW: old configs keep starting on boot
         );
     }
 

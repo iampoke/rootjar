@@ -873,7 +873,7 @@ public class WebServer {
             String type = website ? "website" : (serverType != null && !serverType.isBlank() && !serverType.equals("minecraft") ? serverType : (fork != null ? fork : "paper"));
 
             ChildConfig newChild = new ChildConfig(name, type, dir, jar, ram + "M", true, port, "0.0.0.0",
-                website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, "");
+                website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, "", true);
             supervisor.addChild(newChild);
 
             saveConfig(new RootConfig(config.server(),
@@ -940,7 +940,7 @@ public class WebServer {
             ChildConfig updated = new ChildConfig(name, old.type(), newDir, old.jar(), ram + "M", old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(), old.startOrder(),
                 old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(), old.extraFlags(),
-                old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath());
+                old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart());
             List<ChildConfig> children = supervisor.children().stream()
                 .map(c -> c.id().equals(id) ? updated : c.config()).toList();
             try { ConfigValidator.validate(new RootConfig(config.server(), children, config.baseDir())); }
@@ -1016,6 +1016,11 @@ public class WebServer {
         String action = new String(ex.getRequestBody().readAllBytes());
         if (action.equals("kill")) supervisor.child(id).ifPresent(ChildProcess::kill);
         else supervisor.requestLifecycle(id, action);
+        if (Set.of("start", "stop", "restart", "kill").contains(action)) {
+            boolean shouldRun = action.equals("start") || action.equals("restart");
+            supervisor.child(id).ifPresent(c -> supervisor.setChildConfig(id, c.config().withAutoStart(shouldRun)));
+            persistConfig();
+        }
         send(ex, 200, "OK");
     }
 
@@ -1248,7 +1253,7 @@ public class WebServer {
             ChildConfig newCfg = new ChildConfig(old.id(), old.type(), old.dir(), jar, heap, old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(),
                 old.startOrder(), old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(),
-                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath());
+                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart());
             supervisor.updateChildConfig(id, newCfg);
             saveConfig(new RootConfig(config.server(),
                     supervisor.children().stream().map(ChildProcess::config).toList(), config.baseDir()));
@@ -2530,7 +2535,7 @@ public class WebServer {
                         liveCfg.stopStrategy(), liveCfg.stopCommand(), liveCfg.stopTimeoutSeconds(),
                         liveCfg.startOrder(), liveCfg.stopOrder(), liveCfg.restartOnCrash(),
                         liveCfg.restartBackoffSeconds(), liveCfg.extraFlags(), liveCfg.consoleEnabled(),
-                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath());
+                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath(), liveCfg.autoStart());
                 supervisor.updateChildConfig(serverId, newCfg);
                 owner[0] = supervisor.child(serverId).orElse(null); // updateChildConfig installs a new instance
                 persistConfig();

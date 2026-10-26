@@ -115,10 +115,16 @@ public final class Supervisor implements ChildProcess.ExitListener {
 
     public void startAll() {
         List<ChildProcess> order = sortedBy(ChildConfig::startOrder);
-        for (int i = 0; i < order.size(); i++) {
+        ChildProcess last = null;
+        for (ChildProcess c : order) {
             if (shuttingDown.get()) return;
-            startNow(order.get(i), true);
-            if (i < order.size() - 1 && awaitShutdownSignal(START_GAP_MS)) return;
+            if (!c.config().autoStart()) {
+                ConsoleOutput.root("not starting " + c.id() + ": it was stopped before the panel restarted (auto_start: false)");
+                continue;
+            }
+            if (last != null && awaitShutdownSignal(START_GAP_MS)) return;
+            startNow(c, true);
+            last = c;
         }
     }
 

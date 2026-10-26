@@ -67,6 +67,7 @@ public class ConfigSaver {
             // rejects values that cannot round-trip as a plain scalar (newlines, control chars, " #").
             String javaPath = c.javaPath() == null ? "" : c.javaPath().replace("\r", "").replace("\n", "").trim();
             if (!javaPath.isEmpty()) sb.append("    java: ").append(javaPath).append("\n"); // NEW
+            if (!c.autoStart()) sb.append("    auto_start: false\n"); // only written when the operator stopped it
         }
         Files.writeString(file, sb.toString());
     }
