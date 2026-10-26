@@ -1000,6 +1000,23 @@
         </div>
     </div>
 
+    <div class="fm-modal" id="prompt-modal">
+        <div class="fm-modal-content" style="height: auto; max-width: 460px;">
+            <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                <span id="prompt-title" style="font-weight:700;">Prompt</span>
+                <button class="btn btn-outline" onclick="closePrompt(null)">X</button>
+            </div>
+            <div style="padding:20px;">
+                <label id="prompt-label" for="prompt-input" style="display:block; font-size:13px; color:var(--text-muted); margin-bottom:8px;"></label>
+                <input id="prompt-input" type="text" autocomplete="off" style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-main);" onkeydown="if(event.key==='Enter'){event.preventDefault();closePrompt(document.getElementById('prompt-input').value)} else if(event.key==='Escape'){event.preventDefault();closePrompt(null)}">
+                <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:20px;">
+                    <button class="btn btn-outline" onclick="closePrompt(null)">Cancel</button>
+                    <button class="btn" id="prompt-ok" onclick="closePrompt(document.getElementById('prompt-input').value)">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="fm-modal" id="confirm-modal">
         <div class="fm-modal-content" style="height: auto; max-width: 460px;">
             <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
@@ -2027,7 +2044,8 @@
             body.innerHTML = (data.backups || []).map(backup => `<tr><td>${escapeHtml(backup.name)}</td><td>${fmtBytes(backup.size)}</td><td>${new Date(backup.created).toLocaleString()}</td><td><button class="fm-btn" onclick="downloadBackup('${escapeHtml(backup.name)}')">Download</button> <button class="fm-btn" onclick="restoreBackup('${escapeHtml(backup.name)}')">Restore</button> <button class="fm-btn" onclick="deleteBackup('${escapeHtml(backup.name)}')">Delete</button></td></tr>`).join('') || '<tr><td colspan="4">No backups yet.</td></tr>';
         }
         async function createBackup() {
-            const label = prompt('Backup label (optional):', '') || '';
+            const label = await promptModal({ title: 'Create Backup', label: 'Backup label (optional)', placeholder: 'manual', confirmText: 'Create Backup' });
+            if (label === null) return;
             const response = await fetch(`/api/backups/create?server=${encodeURIComponent(currentServer.id)}&label=${encodeURIComponent(label)}&include_logs=1&force=1`, {method:'POST'});
             if (!response.ok) return showToast(await response.text(), 'error');
             showToast('Backup created', 'success'); loadBackups();
@@ -2506,6 +2524,29 @@
             ok.innerText = confirmText || 'Confirm';
             ok.style.background = danger ? 'var(--danger)' : 'var(--accent)';
             document.getElementById('confirm-modal').classList.add('active');
+        }
+
+        let promptResolve = null;
+
+        function promptModal({ title, label, value, placeholder, confirmText }) {
+            return new Promise(resolve => {
+                promptResolve = resolve;
+                document.getElementById('prompt-title').innerText = title || 'Enter a value';
+                document.getElementById('prompt-label').innerText = label || '';
+                const input = document.getElementById('prompt-input');
+                input.value = value || '';
+                input.placeholder = placeholder || '';
+                document.getElementById('prompt-ok').innerText = confirmText || 'OK';
+                document.getElementById('prompt-modal').classList.add('active');
+                setTimeout(() => { input.focus(); input.select(); }, 0);
+            });
+        }
+
+        function closePrompt(value) {
+            document.getElementById('prompt-modal').classList.remove('active');
+            const resolve = promptResolve;
+            promptResolve = null;
+            if (resolve) resolve(value);
         }
 
         function closeConfirm() {
