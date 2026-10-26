@@ -140,6 +140,14 @@ public final class ChecksMain {
                 StopStrategy.STDIN, "stop", 30, 1, 1, false, List.of(5), List.of(), true, false, false, "", true);
         BackupManager.BackupInfo created = BackupManager.create(child, "manual", false, 5);
         check(BackupManager.NAME.matcher(created.name()).matches(), "backup name is safe");
+        BackupManager.BackupInfo second = BackupManager.create(child, "manual", false, 5);
+        check(!second.name().equals(created.name()), "backups created in the same second have distinct names");
+        try (var archive = new java.util.zip.ZipFile(BackupManager.resolve(child, second.name()).toFile())) {
+            check(archive.getEntry("backup.json") != null, "backup includes metadata");
+            check(archive.getEntry("world.txt") != null, "backup includes server files");
+            check(archive.stream().noneMatch(entry -> entry.getName().startsWith("backups/")),
+                    "new backup excludes earlier backups");
+        }
         Files.writeString(root.resolve("world.txt"), "changed");
         BackupManager.restore(child, created.name());
         check(Files.readString(root.resolve("world.txt")).equals("safe"), "backup restore replaces changed file");

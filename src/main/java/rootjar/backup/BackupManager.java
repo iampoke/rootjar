@@ -1,18 +1,22 @@
 package rootjar.backup;
 
 import rootjar.config.ChildConfig;
-import rootjar.files.FileOps;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+import rootjar.files.FileOps;
 
 /** Creates, lists, restores, and retains full server backup archives. */
 public final class BackupManager {
@@ -31,16 +35,39 @@ public final class BackupManager {
 
     public static BackupInfo create(ChildConfig child, String label, boolean includeLogs, int retention) throws IOException {
         String safeLabel = label == null ? "" : label.replaceAll("[^A-Za-z0-9._-]", "");
-        String name = child.id() + "-" + LocalDateTime.now().format(STAMP) + (safeLabel.isBlank() ? "" : "-" + safeLabel) + ".zip";
+        String prefix = child.id() + "-" + LocalDateTime.now().format(STAMP) + (safeLabel.isBlank() ? "" : "-" + safeLabel);
+        String name = prefix + ".zip";
+        for (int suffix = 1; Files.exists(directory(child).resolve(name)); suffix++) name = prefix + "-" + suffix + ".zip";
         Path destination = directory(child).resolve(name);
         Path temp = destination.resolveSibling(name + ".part");
-        try (var out = Files.newOutputStream(temp)) {
-            FileOps.zip(child.dir(), out);
+        try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(temp))) {
+            out.putNextEntry(new ZipEntry("backup.json"));
+            out.write(("{\"server\":\"" + child.id() + "\",\"type\":\"" + child.type()
+                    + "\",\"includeLogs\":" + includeLogs + "}").getBytes(StandardCharsets.UTF_8));
+            out.closeEntry();
+            Path root = child.dir();
+            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                @Override public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    if (dir.equals(root)) return FileVisitResult.CONTINUE;
+                    String folder = dir.getFileName().toString();
+                    if (Files.isSymbolicLink(dir) || folder.equals("backups") || folder.equals(".trash")
+                            || folder.startsWith(".restore-") || folder.startsWith(".import-")
+                            || (!includeLogs && folder.equals("logs"))) return FileVisitResult.SKIP_SUBTREE;
+                    return FileVisitResult.CONTINUE;
+                }
+                @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    if (Files.isSymbolicLink(file) || file.getFileName().toString().equals("backup.json")) return FileVisitResult.CONTINUE;
+                    out.putNextEntry(new ZipEntry(root.relativize(file).toString().replace('\\', '/')));
+                    Files.copy(file, out);
+                    out.closeEntry();
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException e) {
+            Files.deleteIfExists(temp);
+            throw e;
         }
         Files.move(temp, destination, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        Files.writeString(destination.resolveSibling(name + ".json"),
-                "{\"server\":\"" + child.id() + "\",\"type\":\"" + child.type() + "\",\"includeLogs\":" + includeLogs + "}",
-                StandardCharsets.UTF_8);
         applyRetention(child, retention, destination);
         return new BackupInfo(name, Files.size(destination), Files.getLastModifiedTime(destination).toMillis());
     }
@@ -66,7 +93,6 @@ public final class BackupManager {
     public static void delete(ChildConfig child, String name) throws IOException {
         Path file = resolve(child, name);
         Files.deleteIfExists(file);
-        Files.deleteIfExists(file.resolveSibling(name + ".json"));
     }
 
     public static void restore(ChildConfig child, String name) throws IOException {

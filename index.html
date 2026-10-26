@@ -1655,7 +1655,7 @@
         }
 
         async function removeUserFromServer(user) {
-            if (!confirm(`Remove ${user} from this server?`)) return;
+            if (!await confirmPromise({ title: 'Remove User', body: `Remove ${user} from this server?`, confirmText: 'Remove', danger: true })) return;
 
             const res = await fetch('/api/users/assign', {
                 method: 'POST',
@@ -2052,13 +2052,14 @@
         }
         function downloadBackup(name) { window.open(`/api/backups/download?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}`); }
         async function restoreBackup(name) {
-            const typed = prompt('Type the server name to restore this backup. Existing files may be overwritten.');
-            if (typed !== currentServer.id) return;
+            const typed = await promptModal({ title: 'Restore Backup', label: 'Existing files may be overwritten. Type the server name to confirm:', placeholder: currentServer.id, confirmText: 'Restore' });
+            if (typed === null) return;
+            if (typed !== currentServer.id) return showToast('Server name does not match', 'error');
             const response = await fetch(`/api/backups/restore?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}&confirm=${encodeURIComponent(typed)}`, {method:'POST'});
             showToast(response.ok ? 'Backup restored' : await response.text(), response.ok ? 'success' : 'error'); loadBackups();
         }
         async function deleteBackup(name) {
-            if (!confirm('Delete backup ' + name + '?')) return;
+            if (!await confirmPromise({ title: 'Delete Backup', body: 'Delete backup ' + name + '? This cannot be undone.', confirmText: 'Delete', danger: true })) return;
             await fetch(`/api/backups/delete?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}`, {method:'DELETE'});
             loadBackups();
         }
@@ -2190,10 +2191,18 @@
         function fmClearSearch() { document.getElementById('fm-search-input').value = ''; loadFileList(currentPath); }
         function downloadFile(path, directory) { window.open(`/api/files/${directory ? 'download-zip' : 'download'}/${currentServer.id}?path=${encodeURIComponent(path)}`); }
         async function createNewFile() {
-            const name = prompt('New file name:');
+            const name = await promptModal({ title: 'New File', label: 'File name', placeholder: 'index.html', confirmText: 'Create' });
             if (!name || !/^[A-Za-z0-9._ -]+$/.test(name)) return;
             const path = currentPath === '.' ? name : currentPath + '/' + name;
             await fetch(`/api/files/write/${currentServer.id}?path=${encodeURIComponent(path)}`, {method:'POST', body:''});
+            loadFileList(currentPath);
+        }
+
+        async function promptMkdir() {
+            const name = await promptModal({ title: 'Create Folder', label: 'Folder name', placeholder: 'assets', confirmText: 'Create' });
+            if (!name || !/^[A-Za-z0-9._ -]+$/.test(name)) return;
+            const path = currentPath === '.' ? name : currentPath + '/' + name;
+            await fetch(`/api/files/mkdir/${currentServer.id}?path=${encodeURIComponent(path)}`, {method:'POST'});
             loadFileList(currentPath);
         }
 
@@ -2209,13 +2218,13 @@
             const path = ctxTarget.path;
             if (action === 'download') downloadFile(path, false);
             if (action === 'rename') {
-                const name = prompt('New name:', ctxTarget.name);
-                if (name) await fetch(`/api/files/rename/${currentServer.id}?old=${encodeURIComponent(path)}&new=${encodeURIComponent(path.replace(/[^/]+$/, name))}`, {method:'POST'});
+                const name = await promptModal({ title: 'Rename', label: 'New name', value: ctxTarget.name, confirmText: 'Rename' });
+                if (name && /^[A-Za-z0-9._ -]+$/.test(name)) await fetch(`/api/files/rename/${currentServer.id}?old=${encodeURIComponent(path)}&new=${encodeURIComponent(path.replace(/[^/]+$/, name))}`, {method:'POST'});
             }
             if (action === 'copy') await fetch(`/api/files/copy/${currentServer.id}?from=${encodeURIComponent(path)}&to=${encodeURIComponent(path + '.copy')}`, {method:'POST'});
             if (action === 'extract') await fetch(`/api/files/extract/${currentServer.id}?path=${encodeURIComponent(path)}`, {method:'POST'});
             if (action === 'zip') await fetch(`/api/files/zip/${currentServer.id}?path=${encodeURIComponent(path)}`, {method:'POST'});
-            if (action === 'trash' && confirm('Move ' + ctxTarget.name + ' to Trash?')) await fetch(`/api/files/trash/${currentServer.id}?path=${encodeURIComponent(path)}`, {method:'POST'});
+            if (action === 'trash' && await confirmPromise({ title: 'Move to Trash', body: 'Move ' + ctxTarget.name + ' to Trash?', confirmText: 'Move to Trash', danger: true })) await fetch(`/api/files/trash/${currentServer.id}?path=${encodeURIComponent(path)}`, {method:'POST'});
             loadFileList(currentPath);
         }
 
@@ -2526,7 +2535,14 @@
             document.getElementById('confirm-modal').classList.add('active');
         }
 
-        let promptResolve = null;
+        let promptResolve = null, confirmResolve = null;
+
+        function confirmPromise({ title, body, confirmText, danger }) {
+            return new Promise(resolve => {
+                confirmResolve = resolve;
+                confirmModal({ title, body, confirmText, danger });
+            });
+        }
 
         function promptModal({ title, label, value, placeholder, confirmText }) {
             return new Promise(resolve => {
@@ -2549,14 +2565,17 @@
             if (resolve) resolve(value);
         }
 
-        function closeConfirm() {
+        function closeConfirm(confirmed = false) {
             confirmAction = null;
             document.getElementById('confirm-modal').classList.remove('active');
+            const resolve = confirmResolve;
+            confirmResolve = null;
+            if (resolve) resolve(confirmed);
         }
 
         async function runConfirm() {
             const action = confirmAction;
-            closeConfirm();
+            closeConfirm(true);
             if (action) await action();
         }
 
@@ -2728,16 +2747,16 @@
             });
         }
 
-        function toggleConfigRaw() {
+        async function toggleConfigRaw() {
             if (!configFileExists) return;
             if (configRawMode) {
                 if (!configEntries.length) { showToast('This file can only be edited as raw text.', 'info'); return; }
-                if (configDirty && !confirm('Discard unsaved raw changes and switch to the visual editor?')) return;
+                if (configDirty && !await confirmPromise({ title: 'Discard Changes', body: 'Discard unsaved raw changes and switch to the visual editor?', confirmText: 'Discard', danger: true })) return;
                 configRawMode = false;
                 document.getElementById('config-raw-btn').classList.remove('active');
                 renderConfigEntries();
             } else {
-                if (configDirty && !confirm('Discard unsaved changes and switch to raw mode?')) return;
+                if (configDirty && !await confirmPromise({ title: 'Discard Changes', body: 'Discard unsaved changes and switch to raw mode?', confirmText: 'Discard', danger: true })) return;
                 configRawMode = true;
                 document.getElementById('config-raw-btn').classList.add('active');
                 configShowRaw();
