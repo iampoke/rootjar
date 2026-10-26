@@ -28,13 +28,31 @@ public final class StaticSiteServer {
     private StaticSiteServer() {}
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 3) throw new IllegalArgumentException("Usage: StaticSiteServer <bind> <port> <site-directory>");
+        if (args.length < 3) throw new IllegalArgumentException("Usage: StaticSiteServer <bind> <port> <site-directory> [display-host]");
         Path root = Path.of(args[2]).toRealPath();
-        HttpServer server = HttpServer.create(new InetSocketAddress(args[0], Integer.parseInt(args[1])), 0);
+        String bind = args[0];
+        int port = Integer.parseInt(args[1]);
+        HttpServer server = HttpServer.create(new InetSocketAddress(bind, port), 0);
         server.createContext("/", ex -> serve(ex, root));
         server.setExecutor(Executors.newCachedThreadPool());
         server.start();
-        System.out.println("Static website listening on http://" + args[0] + ":" + args[1]);
+        System.out.println("Static website listening on http://" + displayHost(bind, args.length > 3 ? args[3] : "") + ":" + port
+                + (isWildcard(bind) ? " (all interfaces)" : ""));
+    }
+
+    /** Prefer the panel's detected public IP for wildcard binds; loopback stays loopback. */
+    private static String displayHost(String bind, String detected) {
+        if (bind.equals("127.0.0.1") || bind.equals("localhost") || bind.equals("::1")) return bind;
+        if (detected != null && !detected.isBlank() && !isWildcard(detected)) return detected;
+        try {
+            String local = java.net.InetAddress.getLocalHost().getHostAddress();
+            if (local != null && !local.isBlank() && !isWildcard(local)) return local;
+        } catch (Exception ignored) {}
+        return bind;
+    }
+
+    private static boolean isWildcard(String host) {
+        return host.equals("0.0.0.0") || host.equals("::") || host.equals("[::]");
     }
 
     private static void serve(HttpExchange ex, Path root) throws IOException {

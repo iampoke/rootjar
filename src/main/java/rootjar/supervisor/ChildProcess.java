@@ -109,7 +109,8 @@ public final class ChildProcess {
             try { codeSource = Paths.get(Main.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toString(); }
             catch (Exception e) { ConsoleOutput.root("could not locate website server code: " + e.getMessage()); state = ChildState.CRASHED; return false; }
             cmd = List.of(javaFor(cfg), "-cp", codeSource, "rootjar.website.StaticSiteServer",
-                    cfg.bind(), String.valueOf(cfg.port()), cfg.dir().toAbsolutePath().toString());
+                    cfg.bind(), String.valueOf(cfg.port()), cfg.dir().toAbsolutePath().toString(),
+                    System.getProperty("rootjar.publicIp", ""));
         } else {
             cmd = CommandLineBuilder.build(cfg, javaFor(cfg));
         }

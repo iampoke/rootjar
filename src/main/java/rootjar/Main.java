@@ -119,6 +119,7 @@ public final class Main {
         
         String detectedIp = fetchPublicIp();
         if (detectedIp != null) {
+            System.setProperty("rootjar.publicIp", detectedIp);
             ServerConfig old = config.server();
             ServerConfig updated = new ServerConfig(
                 old.bind(), detectedIp, old.port(), old.sessionTtlSeconds(),
