@@ -17,7 +17,9 @@ import rootjar.config.StopStrategy;
 import rootjar.backup.BackupManager;
 import rootjar.console.ConsoleOutput;
 import rootjar.files.FileOps;
+import rootjar.notify.Notifier;
 import rootjar.supervisor.ChildProcess;
+import rootjar.tasks.TaskScheduler;
 import rootjar.supervisor.ChildState;
 import rootjar.supervisor.Supervisor;
 
@@ -57,6 +59,9 @@ public class WebServer {
 
     // Updated whenever the config is edited through the panel so user/password changes apply without a restart.
     private volatile RootConfig config;
+    private final Notifier notifier = new Notifier(() -> config.server());
+    private final TaskScheduler tasks;
+    private final java.util.Set<String> configRestartRequired = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Supervisor supervisor;
     private final Path configPath;
     
@@ -113,6 +118,7 @@ public class WebServer {
 
     public WebServer(RootConfig config, Supervisor supervisor, Path configPath) throws IOException {
         this.config = config;
+        this.tasks = new TaskScheduler(supervisor, config.baseDir().resolve("tasks.yml"));
         this.supervisor = supervisor;
         this.configPath = configPath;
         // httpClient is a field initializer, so both dependencies exist here.
@@ -202,6 +208,8 @@ public class WebServer {
         route("/api/backups/restore", this::handleBackupRestore);
         route("/api/backups/delete", this::handleBackupDelete);
         route("/api/backups/upload", this::handleBackupUpload);
+        route("/api/settings", this::handleSettings);
+        route("/api/tasks", this::handleTasks);
 
         route("/api/logs/download", this::handleLogsDownload);
 
@@ -643,6 +651,7 @@ public class WebServer {
               .append("\"players\":").append(c.playerCount()).append(",")
               .append("\"ramUsed\":").append(s.ramMb()).append(",\"ramMax\":").append(parseRam(k.heap()))
               .append(",\"diskUsed\":").append(s.diskBytes())
+              .append(",\"restartRequired\":").append(configRestartRequired.contains(c.id()))
               .append(",\"cpuUsed\":").append(s.cpuPct()).append("}");
         }
         sb.append("]}");
@@ -1036,6 +1045,7 @@ public class WebServer {
         if (action.equals("kill")) supervisor.child(id).ifPresent(ChildProcess::kill);
         else supervisor.requestLifecycle(id, action);
         if (Set.of("start", "stop", "restart", "kill").contains(action)) {
+            if (action.equals("start") || action.equals("restart")) configRestartRequired.remove(id);
             boolean shouldRun = action.equals("start") || action.equals("restart");
             supervisor.child(id).ifPresent(c -> supervisor.setChildConfig(id, c.config().withAutoStart(shouldRun)));
             persistConfig();
@@ -1641,6 +1651,37 @@ public class WebServer {
         if (child == null) { send(ex, 404, "Not found"); return; }
         BackupManager.delete(child.config(), param(ex, "name", ""));
         send(ex, 200, "Deleted");
+    }
+
+    private void handleSettings(HttpExchange ex) throws IOException {
+        if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
+        if (ex.getRequestMethod().equals("GET")) {
+            ServerConfig server = config.server();
+            send(ex, 200, "{\"webhookUrl\":\"" + jsonEscape(server.webhookUrl()) + "\",\"backupRetention\":" + server.backupRetention()
+                    + ",\"publicStatus\":" + server.publicStatus() + ",\"sessionTtl\":" + server.sessionTtlSeconds() + "}");
+            return;
+        }
+        String body = new String(ex.getRequestBody().readNBytes(8193), StandardCharsets.UTF_8);
+        if (body.length() > 8192) { send(ex, 413, "Request too large"); return; }
+        String webhook = extractJson(body, "webhookUrl");
+        if (!webhook.isBlank() && !webhook.startsWith("https://")) { send(ex, 400, "Webhook must be an HTTPS URL"); return; }
+        int retention = Math.max(1, Math.min(50, Integer.parseInt(extractJson(body, "backupRetention"))));
+        boolean publicStatus = "true".equals(extractJson(body, "publicStatus"));
+        ServerConfig old = config.server();
+        saveConfig(new RootConfig(new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(),
+                old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(),
+                old.trustedProxies(), old.diskMaxGb(), retention, webhook, publicStatus, old.users()), config.children(), config.baseDir()));
+        notifier.send("settings.changed", "Panel settings were updated");
+        send(ex, 200, "{\"saved\":true}");
+    }
+
+    private void handleTasks(HttpExchange ex) throws IOException {
+        if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
+        if (ex.getRequestMethod().equals("GET")) { send(ex, 200, tasks.read()); return; }
+        String body = new String(ex.getRequestBody().readNBytes(65537), StandardCharsets.UTF_8);
+        if (body.length() > 65536) { send(ex, 413, "tasks.yml is too large"); return; }
+        try { tasks.save(body); send(ex, 200, "Saved"); }
+        catch (ConfigException | IOException e) { send(ex, 400, e.getMessage()); }
     }
 
     private void handleBackupUpload(HttpExchange ex) throws IOException {
@@ -3536,7 +3577,8 @@ public class WebServer {
         try {
             if (raw != null) {
                 Files.writeString(target, body, StandardCharsets.UTF_8);
-                send(ex, 200, "{\"saved\":true,\"mode\":\"raw\"}");
+                configRestartRequired.add(serverId);
+                send(ex, 200, "{\"saved\":true,\"mode\":\"raw\",\"restartRequired\":true}");
                 return;
             }
             Map<String, String> updates = new LinkedHashMap<>();
@@ -3586,7 +3628,7 @@ public class WebServer {
         newUsers.add(new ServerConfig.UserConfig(user, hash, "user", allowed));
 
         ServerConfig old = config.server();
-        ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), newUsers);
+        ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), old.webhookUrl(), old.publicStatus(), newUsers);
         saveConfig(new RootConfig(updated, config.children(), config.baseDir()));
         send(ex, 200, "Created");
     }
@@ -3616,7 +3658,7 @@ public class WebServer {
         }
 
         ServerConfig old = config.server();
-        ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), newUsers);
+        ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), old.webhookUrl(), old.publicStatus(), newUsers);
         saveConfig(new RootConfig(updated, config.children(), config.baseDir()));
         send(ex, 200, "Assigned");
     }

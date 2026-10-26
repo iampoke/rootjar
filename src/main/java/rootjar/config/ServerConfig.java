@@ -15,6 +15,8 @@ public record ServerConfig(
         List<String> trustedProxies,
         int diskMaxGb,
         int backupRetention,
+        String webhookUrl,
+        boolean publicStatus,
         List<UserConfig> users) {
 
     public record UserConfig(String username, String passwordHash, String role, List<String> allowedServers) {}

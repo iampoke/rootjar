@@ -63,7 +63,7 @@ public final class Main {
 
         if (Files.notExists(configPath)) {
             ServerConfig defaultServer = new ServerConfig(
-                "0.0.0.0", "127.0.0.1", 12035, 86400, 5, 10, 300, "placeholder", List.of("*"), 0, 5, List.of()
+                "0.0.0.0", "127.0.0.1", 12035, 86400, 5, 10, 300, "placeholder", List.of("*"), 0, 5, "", false, List.of()
             );
             RootConfig defaultConfig = new RootConfig(defaultServer, List.of(), configPath.toAbsolutePath().getParent());
             try {
@@ -90,7 +90,7 @@ public final class Main {
                 ServerConfig newServer = new ServerConfig(
                     oldServer.bind(), oldServer.publicIp(), oldServer.port(), oldServer.sessionTtlSeconds(),
                     oldServer.loginRateLimitPerIpPerMinute(), oldServer.loginLockoutAfterFailures(),
-                    oldServer.loginLockoutSeconds(), newHash, oldServer.trustedProxies(), oldServer.diskMaxGb(), oldServer.backupRetention(), oldServer.users()
+                    oldServer.loginLockoutSeconds(), newHash, oldServer.trustedProxies(), oldServer.diskMaxGb(), oldServer.backupRetention(), oldServer.webhookUrl(), oldServer.publicStatus(), oldServer.users()
                 );
                 
                 config = new RootConfig(newServer, config.children(), config.baseDir());
@@ -124,7 +124,7 @@ public final class Main {
             ServerConfig updated = new ServerConfig(
                 old.bind(), detectedIp, old.port(), old.sessionTtlSeconds(),
                 old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(),
-                old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), old.users()
+                old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), old.webhookUrl(), old.publicStatus(), old.users()
             );
             config = new RootConfig(updated, config.children(), config.baseDir());
             ConsoleOutput.root("Detected public IP: " + detectedIp);

@@ -430,7 +430,15 @@
         .fm-search-row input { flex:1; min-width:180px; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-main); }
         .fm-progress { font-size:12px; color:var(--text-muted); }
         .fm-table-wrap { flex:1; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:10px; }
-        .fm-row-drop { outline:1px solid var(--accent); }
+        .settings-grid { display:grid; gap:14px; max-width:680px; margin-bottom:28px; }
+        .settings-grid label { display:grid; gap:6px; color:var(--text-muted); font-size:13px; }
+        .settings-grid input { padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-main); }
+        .settings-check { display:flex !important; align-items:center; gap:8px; }
+        .settings-tasks { width:min(860px,100%); min-height:220px; margin:12px 0; padding:14px; border-radius:10px; border:1px solid var(--border); background:#111827; color:#d1d5db; font-family:var(--font-mono); }
+        .restart-banner { display:none; margin-bottom:12px; padding:12px 14px; border-radius:10px; background:hsla(40,90%,60%,.15); color:var(--warning); }
+        .fm-check { width:42px; text-align:center; }
+        .fm-check input, .fm-row-check { width:16px; height:16px; accent-color:var(--accent); cursor:pointer; }
+        .fm-selected { background:hsla(215,80%,60%,.12); }
     </style>
 </head>
 <body class="mc-font">
@@ -487,6 +495,7 @@
                     <h1>Your Servers</h1>
                     <div style="display:flex; gap:10px;">
                         <button class="btn btn-outline" onclick="switchView('users')" id="admin-users-btn">Manage Users</button>
+                        <button class="btn btn-outline" onclick="switchView('settings')" id="admin-settings-btn">Settings</button>
                         <button class="btn" onclick="switchView('manage')" id="create-btn">Manage Server</button>
                     </div>
                 </div>
@@ -520,6 +529,22 @@
                         <tbody id="users-tbody"></tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        <div id="view-settings" class="view-wrapper">
+            <div class="dashboard-content">
+                <div class="dashboard-header"><h1>Settings</h1></div>
+                <div class="settings-grid">
+                    <label>Webhook URL<input id="settings-webhook" type="url" placeholder="https://discord.com/api/webhooks/..."></label>
+                    <label>Backup retention<input id="settings-retention" type="number" min="1" max="50"></label>
+                    <label class="settings-check"><input id="settings-public" type="checkbox"> Enable public status page</label>
+                    <div><button class="btn" onclick="saveSettings()">Save Settings</button></div>
+                </div>
+                <h2>Schedules</h2>
+                <p class="version-note">Edit tasks.yml. Each task needs server, type (`restart` or `command`), and time (`HH:mm`).</p>
+                <textarea id="settings-tasks" class="settings-tasks" spellcheck="false"></textarea>
+                <button class="btn" onclick="saveTasks()">Save Schedules</button>
             </div>
         </div>
 
@@ -753,9 +778,16 @@
                                 <button class="btn btn-outline" onclick="fmClearSearch()">Clear</button>
                             </div>
                             <div id="fm-progress" class="fm-progress" style="display:none"></div>
+                            <div class="fm-toolbar" id="fm-selection-bar" style="display:none">
+                                <strong id="fm-selection-count">0 selected</strong>
+                                <button class="fm-btn" onclick="bulkArchive()">Archive</button>
+                                <button class="fm-btn" onclick="bulkMove()">Move</button>
+                                <button class="fm-btn" onclick="bulkTrash()">Move to Trash</button>
+                                <button class="btn btn-outline" onclick="clearFileSelection()">Clear</button>
+                            </div>
                             <div class="fm-table-wrap">
                                 <table class="fm-table">
-                                    <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
+                                    <thead><tr><th class="fm-check"><input id="fm-select-all" type="checkbox" onclick="toggleAllFiles(this.checked)" aria-label="Select all files"></th><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
                                     <tbody id="fm-tbody"></tbody>
                                 </table>
                             </div>
@@ -792,6 +824,7 @@
                                 <button class="btn btn-outline config-raw-btn" id="config-raw-btn" onclick="toggleConfigRaw()">Raw</button>
                             </div>
                             <div id="config-hint" class="config-hint"></div>
+                            <div id="config-restart-banner" class="restart-banner">Restart required for these config changes. <button class="btn" onclick="powerAction('restart')">Restart</button></div>
                             <div class="config-editor-body">
                                 <div id="config-editor" class="config-grid"></div>
                                 <textarea id="config-raw" class="config-raw" spellcheck="false" oninput="configMarkDirty()"></textarea>
@@ -1398,7 +1431,7 @@
         function switchView(v) {
             document.querySelectorAll('.view-wrapper').forEach(e => e.classList.remove('active'));
             document.getElementById('view-' + v).classList.add('active');
-            if (v === 'dashboard') document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span>`;
+            if (v === 'settings') loadSettings();
             if (v === 'manage') { document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span> / <span>Manage</span>`; renderManageList(); }
             if (v === 'users') { document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span> / <span>Users</span>`; loadGlobalUsers(); }
         }
@@ -1411,7 +1444,7 @@
             
             if (t === 'files') loadFileList('.');
             if (t === 'backups') loadBackups();
-            if (t === 'config') loadConfigFiles();
+            if (t === 'config') { loadConfigFiles(); updateRestartBanner(); }
             if (t === 'users') loadServerUsers();
             if (t === 'plugins') loadAddons('plugin');
             if (t === 'mods') loadAddons('mod');
@@ -1450,9 +1483,10 @@
             const storageMax = data.storageMax || 0;
             document.getElementById('create-btn').style.display = isAdmin ? 'block' : 'none';
             document.getElementById('admin-users-btn').style.display = isAdmin ? 'block' : 'none';
+            document.getElementById('admin-settings-btn').style.display = isAdmin ? 'block' : 'none';
 
             document.getElementById('global-ram-txt').innerText = data.ramUsed + " / " + data.ramMax + " MB";
-            const allocatedRam = data.servers.reduce((total, server) => total + (Number(server.ramMax) || 0), 0);
+            const allocatedRam = (data.servers || []).reduce((total, server) => total + (Number(server.ramMax) || 0), 0);
             document.getElementById('m-used-ram').innerText = data.ramUsed + ' MB';
             document.getElementById('m-alloc-ram').innerText = allocatedRam + ' MB';
             document.getElementById('m-free-ram').innerText = isAdmin ? 'Across all servers' : 'Across accessible servers';
@@ -2069,6 +2103,7 @@
             renderBreadcrumb();
             const response = await fetch(`/api/files/list/${currentServer.id}?path=${encodeURIComponent(currentPath)}`);
             if (!response.ok) return showToast('Could not read this folder', 'error');
+            clearFileSelection();
             renderFileRows(await response.json(), false);
             setupFileDrop();
         }
@@ -2094,7 +2129,8 @@
                 row.draggable = !searchResults;
                 row.dataset.path = relative;
                 row.dataset.dir = file.dir ? '1' : '0';
-                row.innerHTML = `<td>${file.dir ? '📁' : '📄'} ${escapeHtml(file.name)}</td><td>${file.dir ? '-' : fmtBytes(file.size || 0)}</td><td>${file.modified ? new Date(file.modified).toLocaleString() : ''}</td><td><button class="fm-btn" onclick="downloadFile('${escapeHtml(relative)}', ${file.dir})">Download</button></td>`;
+                row.innerHTML = `<td class="fm-check"><input class="fm-row-check" type="checkbox" data-path="${escapeHtml(relative)}" aria-label="Select ${escapeHtml(file.name)}"></td><td>${file.dir ? '📁' : '📄'} ${escapeHtml(file.name)}</td><td>${file.dir ? '-' : fmtBytes(file.size || 0)}</td><td>${file.modified ? new Date(file.modified).toLocaleString() : ''}</td><td><button class="fm-btn" onclick="downloadFile('${escapeHtml(relative)}', ${file.dir})">Download</button></td>`;
+                row.querySelector('.fm-row-check').onchange = event => toggleFileSelection(relative, event.target.checked);
                 row.querySelector('td').onclick = () => file.dir && !searchResults ? loadFileList(relative) : (!file.dir && openFile(relative));
                 row.oncontextmenu = event => showCtx(event, relative);
                 row.ondragstart = event => event.dataTransfer.setData('text/panel-path', relative);
@@ -2189,6 +2225,17 @@
             if (response.ok) renderFileRows(await response.json(), true);
         }
         function fmClearSearch() { document.getElementById('fm-search-input').value = ''; loadFileList(currentPath); }
+        let fileSelection = new Set();
+        function toggleFileSelection(path, checked) { if (checked) fileSelection.add(path); else fileSelection.delete(path); const row = document.querySelector('#fm-tbody tr[data-path="' + CSS.escape(path) + '"]'); if (row) row.classList.toggle('fm-selected', checked); const count = fileSelection.size; document.getElementById('fm-selection-bar').style.display = count ? 'flex' : 'none'; document.getElementById('fm-selection-count').textContent = count + ' selected'; const boxes = [...document.querySelectorAll('.fm-row-check')]; document.getElementById('fm-select-all').checked = boxes.length > 0 && boxes.every(box => box.checked); }
+        function toggleAllFiles(checked) { fileSelection.clear(); document.querySelectorAll('.fm-row-check').forEach(box => { box.checked = checked; if (checked) fileSelection.add(box.dataset.path); box.closest('tr').classList.toggle('fm-selected', checked); }); document.getElementById('fm-selection-bar').style.display = fileSelection.size ? 'flex' : 'none'; document.getElementById('fm-selection-count').textContent = fileSelection.size + ' selected'; }
+        function clearFileSelection() { fileSelection.clear(); const all = document.getElementById('fm-select-all'); if (all) all.checked = false; const bar = document.getElementById('fm-selection-bar'); if (bar) bar.style.display = 'none'; }
+        async function bulkArchive() { for (const path of [...fileSelection]) await fetch('/api/files/zip/' + currentServer.id + '?path=' + encodeURIComponent(path), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
+        async function bulkMove() { const destination = await promptModal({title:'Move Selected', label:'Destination folder', value:currentPath, confirmText:'Move'}); if (!destination) return; for (const path of [...fileSelection]) await fetch('/api/files/move/' + currentServer.id + '?old=' + encodeURIComponent(path) + '&new=' + encodeURIComponent(destination.replace(/\/$/, '') + '/' + path.split('/').pop()), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
+        async function bulkTrash() { if (!await confirmPromise({title:'Move to Trash', body:'Move ' + fileSelection.size + ' selected item(s) to Trash?', confirmText:'Move to Trash', danger:true})) return; for (const path of [...fileSelection]) await fetch('/api/files/trash/' + currentServer.id + '?path=' + encodeURIComponent(path), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
+        function updateRestartBanner() { const banner = document.getElementById('config-restart-banner'); const server = currentServersList.find(item => currentServer && item.id === currentServer.id); if (banner) banner.style.display = server && server.restartRequired ? 'block' : 'none'; }
+        async function loadSettings() { const response = await fetch('/api/settings'); if (!response.ok) return; const data = await response.json(); document.getElementById('settings-webhook').value = data.webhookUrl || ''; document.getElementById('settings-retention').value = data.backupRetention || 5; document.getElementById('settings-public').checked = data.publicStatus === true; document.getElementById('settings-tasks').value = await (await fetch('/api/tasks')).text(); }
+        async function saveSettings() { const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({webhookUrl:document.getElementById('settings-webhook').value, backupRetention:document.getElementById('settings-retention').value, publicStatus:document.getElementById('settings-public').checked})}); showToast(response.ok ? 'Settings saved' : await response.text(), response.ok ? 'success' : 'error'); }
+        async function saveTasks() { const response = await fetch('/api/tasks', {method:'POST', body:document.getElementById('settings-tasks').value}); showToast(response.ok ? 'Schedules saved' : await response.text(), response.ok ? 'success' : 'error'); }
         function downloadFile(path, directory) { window.open(`/api/files/${directory ? 'download-zip' : 'download'}/${currentServer.id}?path=${encodeURIComponent(path)}`); }
         async function createNewFile() {
             const name = await promptModal({ title: 'New File', label: 'File name', placeholder: 'index.html', confirmText: 'Create' });

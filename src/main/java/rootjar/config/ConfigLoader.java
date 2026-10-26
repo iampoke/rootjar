@@ -56,7 +56,8 @@ public final class ConfigLoader {
                 num(m, "login_rate_limit_per_ip_per_minute", 5, w), num(m, "login_lockout_after_failures", 10, w),
                 num(m, "login_lockout_seconds", 300, w), str(m, "password_hash", "placeholder", w),
                 strList(m, "trusted_proxies", List.of("*"), w), num(m, "disk_max_gb", 0, w),
-                Math.max(1, Math.min(50, num(m, "backup_retention", 5, w))), users);
+                Math.max(1, Math.min(50, num(m, "backup_retention", 5, w))),
+                str(m, "webhook_url", "", w), bool(m, "public_status", false, w), users);
     }
 
     private static ChildConfig readChild(Map<String, Object> m, int index, Path baseDir) throws ConfigException {
