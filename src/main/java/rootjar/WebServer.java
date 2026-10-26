@@ -62,7 +62,8 @@ public class WebServer {
     private volatile RootConfig config;
     private final Notifier notifier = new Notifier(() -> config.server());
     private final TaskScheduler tasks;
-    private final java.util.Set<String> configRestartRequired = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Set<String> configRestartRequired = ConcurrentHashMap.newKeySet();
+    private final Map<String, java.util.ArrayDeque<long[]>> metrics = new ConcurrentHashMap<>();
     private final Supervisor supervisor;
     private final Path configPath;
     
@@ -213,6 +214,10 @@ public class WebServer {
         route("/api/tasks", this::handleTasks);
         route("/api/sessions", this::handleSessions);
         route("/api/activity", this::handleActivity);
+        route("/api/players", this::handlePlayers);
+        route("/api/metrics", this::handleMetrics);
+        route("/api/files/grep", this::handleFileGrep);
+        server.createContext("/status", this::handlePublicStatus);
 
         route("/api/logs/download", this::handleLogsDownload);
 
@@ -642,6 +647,11 @@ public class WebServer {
             totalUsedCpu += cpuRounded;
             totalDisk += diskBytes;
             stats.add(new ChildStats(c, ramMb, cpuRounded, diskBytes));
+            java.util.ArrayDeque<long[]> samples = metrics.computeIfAbsent(c.id(), ignored -> new java.util.ArrayDeque<>());
+            synchronized (samples) {
+                samples.addLast(new long[]{System.currentTimeMillis(), cpuRounded, ramMb, c.playerCount()});
+                while (samples.size() > 900) samples.removeFirst();
+            }
         }
         totalUsedCpu = Math.min(totalUsedCpu, cpuMax);
 
@@ -801,7 +811,7 @@ public class WebServer {
                 }
                 Collections.reverse(versions); // upstream is oldest-first; newest-first like the others
             } else {
-                // [{"version":"1.21.4","stable":true}, ...] — skip snapshots and pre-releases
+                // [{"version":"1.21.4","stable":true}, ...] - skip snapshots and pre-releases
                 Matcher m = Pattern.compile("\"version\":\\s*\"([^\"]+)\",\\s*\"stable\":\\s*(true|false)").matcher(body);
                 while (m.find()) { if (m.group(2).equals("true")) versions.add(m.group(1)); }
             }
@@ -1738,6 +1748,97 @@ public class WebServer {
         Session target = sessions.get(token);
         if (target != null && (isAdmin(ex) || target.user().equals(getSessionUser(ex)))) sessions.remove(token);
         send(ex, 200, "Revoked");
+    }
+
+    private void handlePlayers(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (ex.getRequestMethod().equals("GET")) {
+            if (!requireServer(ex, server)) return;
+            ChildProcess child = supervisor.child(server).orElse(null);
+            if (child == null) { send(ex, 404, "Not found"); return; }
+            if (child.isAlive()) child.sendLine("list");
+            send(ex, 200, "{\"count\":" + child.playerCount() + ",\"players\":[]}");
+            return;
+        }
+        if (!requireOperator(ex, server)) return;
+        if (!rateAllows(ex, "players", 20)) { send(ex, 429, "Too many player actions"); return; }
+        String body = new String(ex.getRequestBody().readNBytes(1024), StandardCharsets.UTF_8);
+        String action = extractJson(body, "action"), player = extractJson(body, "player");
+        if (!player.matches("[A-Za-z0-9_]{1,16}")) { send(ex, 400, "Invalid player name"); return; }
+        String command = switch (action) {
+            case "kick" -> "kick " + player;
+            case "ban" -> "ban " + player;
+            case "pardon" -> "pardon " + player;
+            case "op" -> "op " + player;
+            case "deop" -> "deop " + player;
+            case "whitelist_add" -> "whitelist add " + player;
+            case "whitelist_remove" -> "whitelist remove " + player;
+            default -> "";
+        };
+        if (command.isBlank()) { send(ex, 400, "Invalid player action"); return; }
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null || !child.sendLine(command)) { send(ex, 409, "Server is not running"); return; }
+        activity(server, ex, "player." + action, player);
+        send(ex, 200, "Sent");
+    }
+
+    private void handleMetrics(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireServer(ex, server)) return;
+        java.util.ArrayDeque<long[]> samples = metrics.getOrDefault(server, new java.util.ArrayDeque<>());
+        StringBuilder json = new StringBuilder("[");
+        synchronized (samples) {
+            boolean first = true;
+            for (long[] sample : samples) {
+                if (!first) json.append(',');
+                first = false;
+                json.append("{\"time\":").append(sample[0]).append(",\"cpu\":").append(sample[1]).append(",\"ram\":").append(sample[2]).append(",\"players\":").append(sample[3]).append('}');
+            }
+        }
+        send(ex, 200, json.append(']').toString());
+    }
+
+    private void handleFileGrep(HttpExchange ex) throws IOException {
+        ChildProcess child = fileChild(ex, false);
+        if (child == null) return;
+        String query = param(ex, "q", "");
+        if (query.length() < 2 || query.length() > 200) { send(ex, 400, "Query must be 2-200 characters"); return; }
+        Path root = FileOps.resolve(child.config().dir(), param(ex, "path", "."));
+        StringBuilder json = new StringBuilder("[");
+        int matches = 0;
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+        try (java.util.stream.Stream<Path> files = Files.walk(root, FileOps.MAX_SEARCH_DEPTH)) {
+            for (Path file : files.filter(Files::isRegularFile).toList()) {
+                if (matches >= 100 || System.nanoTime() > deadline) break;
+                String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (!name.matches(".*\\.(ya?ml|json|properties|txt|log|toml|conf|cfg|md)$") || Files.size(file) > 2_097_152) continue;
+                int lineNumber = 0;
+                for (String line : Files.readAllLines(file)) {
+                    lineNumber++;
+                    if (!line.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT))) continue;
+                    if (matches++ > 0) json.append(',');
+                    json.append("{\"file\":\"").append(jsonEscape(child.config().dir().relativize(file).toString().replace('\\', '/')))
+                        .append("\",\"line\":").append(lineNumber).append(",\"text\":\"").append(jsonEscape(line)).append("\"}");
+                    if (matches >= 100) break;
+                }
+            }
+        }
+        send(ex, 200, json.append(']').toString());
+    }
+
+    private void handlePublicStatus(HttpExchange ex) throws IOException {
+        if (!config.server().publicStatus()) { send(ex, 404, "Not found"); return; }
+        StringBuilder rows = new StringBuilder();
+        for (ChildProcess child : supervisor.children()) {
+            rows.append("<tr><td>").append(jsonEscape(child.id())).append("</td><td>").append(jsonEscape(child.config().type()))
+                .append("</td><td>").append(jsonEscape(child.state().name())).append("</td><td>").append(child.playerCount()).append("</td></tr>");
+        }
+        byte[] body = ("<!doctype html><meta http-equiv=\"refresh\" content=\"15\"><title>Server Status</title><table><tr><th>Server</th><th>Type</th><th>Status</th><th>Players</th></tr>" + rows + "</table>").getBytes(StandardCharsets.UTF_8);
+        ex.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+        ex.getResponseHeaders().set("Cache-Control", "public, max-age=5");
+        ex.sendResponseHeaders(200, body.length);
+        ex.getResponseBody().write(body);
+        ex.close();
     }
 
     private void handleActivity(HttpExchange ex) throws IOException {

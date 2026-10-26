@@ -45,7 +45,7 @@ import java.util.zip.ZipInputStream;
  * Discovery, download and deletion of Java runtimes used by children.
  *
  * <p>Detected runtimes are never modified. Managed runtimes live under {@code <baseDir>/java/<id>} and are
- * described in {@code <baseDir>/java/runtimes.json}; that file is only a cache — the directory scan is the
+ * described in {@code <baseDir>/java/runtimes.json}; that file is only a cache - the directory scan is the
  * source of truth, so a missing or corrupt file never breaks boot. All paths handed to a child must be an
  * absolute path to a {@code java}/{@code java.exe} executable (or the literal {@code "java"} for PATH).</p>
  *
@@ -440,7 +440,7 @@ public final class JavaRuntimes {
 
     /**
      * Deletes a managed runtime. Refuses (IOException) when the panel or any child would lose the java it
-     * actually resolves to — both the configured path and {@link ChildProcess#javaFor(ChildConfig)} are
+     * actually resolves to - both the configured path and {@link ChildProcess#javaFor(ChildConfig)} are
      * checked, so a server on the panel default blocks deletion of the panel's JVM. Returns false for an
      * unknown id.
      */

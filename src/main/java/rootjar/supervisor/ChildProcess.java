@@ -273,6 +273,8 @@ public final class ChildProcess {
         // Track players
         if (line.contains(" joined the game")) playerCount++;
         if (line.contains(" left the game")) playerCount = Math.max(0, playerCount - 1);
+        java.util.regex.Matcher listed = java.util.regex.Pattern.compile("There are (\\d+) of a max of (\\d+) players online").matcher(line);
+        if (listed.find()) playerCount = Integer.parseInt(listed.group(1));
 
         if (!silent) {
             ConsoleOutput.line(id(), line);

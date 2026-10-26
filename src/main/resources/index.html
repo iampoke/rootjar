@@ -729,7 +729,9 @@
                     </div>
                     
                     <!-- NEW SERVER USERS TAB -->
-                    <div class="nav-item" id="tab-btn-activity" onclick="switchTab('activity')">
+                    <div class="nav-item" id="tab-btn-players" onclick="switchTab('players')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg> Players
+                    </div>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg> Activity
                     </div>
                     <div class="nav-item" id="tab-btn-users" onclick="switchTab('users')">
@@ -779,6 +781,7 @@
                             <div class="fm-breadcrumb" id="fm-breadcrumb"></div>
                             <div class="fm-search-row" id="fm-search-row" style="display:none">
                                 <input id="fm-search-input" placeholder="Search files..." onkeydown="if(event.key==='Enter')fmSearch()">
+                                <label class="settings-check"><input id="fm-search-contents" type="checkbox"> Contents</label>
                                 <button class="btn" onclick="fmSearch()">Search</button>
                                 <button class="btn btn-outline" onclick="fmClearSearch()">Clear</button>
                             </div>
@@ -838,7 +841,7 @@
                     </div>
                     
                     <!-- NEW SERVER USERS TAB CONTENT -->
-                    <div id="tab-activity" class="tab-container"><div class="fm-page"><h2>Activity</h2><div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody id="activity-tbody"></tbody></table></div></div></div>
+                    <div id="tab-players" class="tab-container"><div class="fm-page"><div class="fm-toolbar"><h2>Players</h2><span id="player-count"></span><div class="fm-spacer"></div><button class="fm-btn" onclick="loadPlayers()">Refresh</button></div><p class="version-note">Player actions send normal Minecraft commands and work only while the server is running.</p><div class="fm-toolbar"><input id="player-name" placeholder="Player name"><button class="fm-btn" onclick="playerAction('kick')">Kick</button><button class="fm-btn" onclick="playerAction('ban')">Ban</button><button class="fm-btn" onclick="playerAction('pardon')">Pardon</button><button class="fm-btn" onclick="playerAction('op')">Op</button><button class="fm-btn" onclick="playerAction('deop')">Deop</button></div></div></div><div class="fm-page"><h2>Activity</h2><div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody id="activity-tbody"></tbody></table></div></div></div>
                     <div id="tab-users" class="tab-container">
                         <div class="fm-container" style="padding:20px;">
                             <h3>Users with access to this server</h3>
@@ -1457,6 +1460,7 @@
             if (t === 'config') { loadConfigFiles(); updateRestartBanner(); }
             if (t === 'users') loadServerUsers();
             if (t === 'activity') loadActivity();
+            if (t === 'players') loadPlayers();
             if (t === 'plugins') loadAddons('plugin');
             if (t === 'mods') loadAddons('mod');
             if (t === 'version') loadVersionTab();
@@ -2237,7 +2241,18 @@
         }
 
         function fmToggleSearch() { const row = document.getElementById('fm-search-row'); row.style.display = row.style.display === 'none' ? 'flex' : 'none'; }
+        async function loadPlayers() { if (!currentServer) return; const response = await fetch('/api/players?server=' + encodeURIComponent(currentServer.id)); if (!response.ok) return; const data = await response.json(); document.getElementById('player-count').textContent = data.count + ' online'; }
+        async function playerAction(action) { const player = document.getElementById('player-name').value.trim(); if (!/^[A-Za-z0-9_]{1,16}$/.test(player)) return showToast('Enter a valid Minecraft player name', 'error'); const response = await fetch('/api/players?server=' + encodeURIComponent(currentServer.id), {method:'POST', body:JSON.stringify({action, player})}); showToast(response.ok ? 'Command sent' : await response.text(), response.ok ? 'success' : 'error'); }
         async function fmSearch() {
+            const query = document.getElementById('fm-search-input').value;
+            const contents = document.getElementById('fm-search-contents').checked;
+            const endpoint = contents ? '/api/files/grep' : '/api/files/search/' + currentServer.id;
+            const response = await fetch(endpoint + '?server=' + encodeURIComponent(currentServer.id) + '&path=' + encodeURIComponent(currentPath) + '&q=' + encodeURIComponent(query));
+            if (!response.ok) return showToast(await response.text(), 'error');
+            const results = await response.json();
+            if (contents) { document.getElementById('fm-tbody').innerHTML = results.map(result => `<tr><td></td><td>${escapeHtml(result.file)}:${result.line}</td><td colspan="3">${escapeHtml(result.text)}</td></tr>`).join('') || '<tr><td colspan="5">No matches.</td></tr>'; return; }
+            renderFileRows(results, true);
+        }
             const query = document.getElementById('fm-search-input').value;
             const response = await fetch(`/api/files/search/${currentServer.id}?path=${encodeURIComponent(currentPath)}&q=${encodeURIComponent(query)}`);
             if (response.ok) renderFileRows(await response.json(), true);
@@ -2392,7 +2407,7 @@
             if (warn) {
                 if (!data.supported) {
                     warn.style.display = 'block';
-                    warn.innerHTML = `<strong>${escapeHtml((currentServer && currentServer.type) || 'This server')}</strong> does not load ${key === 'mod' ? 'mods' : 'plugins'}. Installing anyway may do nothing — choose <em>Install anyway</em> when prompted.`;
+                    warn.innerHTML = `<strong>${escapeHtml((currentServer && currentServer.type) || 'This server')}</strong> does not load ${key === 'mod' ? 'mods' : 'plugins'}. Installing anyway may do nothing - choose <em>Install anyway</em> when prompted.`;
                 } else if (!data.hasFolder) {
                     warn.style.display = 'block';
                     warn.innerText = `No ${data.folder}/ folder yet. It is created the first time you install something.`;
@@ -2515,7 +2530,7 @@
                 const file = (v.files || []).find(f => f.primary) || (v.files || [])[0];
                 const opt = document.createElement('option');
                 opt.value = v.id;
-                opt.innerText = `${v.version_number} — ${(v.game_versions || []).slice(-1)[0] || '?'}${file ? ' · ' + fmtBytes(file.size) : ''}`;
+                opt.innerText = `${v.version_number} - ${(v.game_versions || []).slice(-1)[0] || '?'}${file ? ' · ' + fmtBytes(file.size) : ''}`;
                 sel.appendChild(opt);
             });
         }
@@ -2794,7 +2809,7 @@
             raw.style.display = 'block';
             document.getElementById('config-editor').style.display = 'none';
             document.getElementById('config-search').disabled = true;
-            configSetMessage('Raw editing mode — the file is written exactly as shown.');
+            configSetMessage('Raw editing mode - the file is written exactly as shown.');
             configClearDirty();
         }
 
@@ -3577,7 +3592,7 @@
             const msgs = [];
             if (!p.supported) msgs.push('This software is not supported: ' + (p.reason || 'unknown reason') + '. Pick another software.');
             if (versionInfo && versionInfo.running) msgs.push('The server is running. It will be stopped, the old jar will be backed up, and it will be started again automatically.');
-            if (p.selected && isVersionDowngrade(p.selected)) msgs.push('Downgrading can corrupt worlds. Only the old jar is backed up automatically — make a full backup first.');
+            if (p.selected && isVersionDowngrade(p.selected)) msgs.push('Downgrading can corrupt worlds. Only the old jar is backed up automatically - make a full backup first.');
             const check = p.check;
             if (check && check.loading) msgs.push('Checking installed add-ons for compatibility…');
             if (check && check.error) msgs.push('Compatibility check failed (offline or the Modrinth API is unavailable). You can still continue.');
@@ -3588,7 +3603,7 @@
                         const title = String(item.title || item.file || 'add-on');
                         const file = String(item.file || '');
                         const reason = String(item.reason || '');
-                        msgs.push('Not compatible: ' + title + (file && file !== title ? ' (' + file + ')' : '') + (reason ? ' — ' + reason : ''));
+                        msgs.push('Not compatible: ' + title + (file && file !== title ? ' (' + file + ')' : '') + (reason ? ' - ' + reason : ''));
                     } else if (item) {
                         msgs.push('Not compatible: ' + String(item));
                     }
@@ -3824,7 +3839,7 @@
                 const def = data && data.default ? data.default : null;
                 const defOpt = document.createElement('option');
                 defOpt.value = '';
-                defOpt.textContent = 'Panel default' + (def && def.version ? ' (Java ' + def.version + ')' : '') + (def && def.path ? ' — ' + def.path : '');
+                defOpt.textContent = 'Panel default' + (def && def.version ? ' (Java ' + def.version + ')' : '') + (def && def.path ? ' - ' + def.path : '');
                 sel.appendChild(defOpt);
                 const addGroup = (label, list, prefix) => {
                     (Array.isArray(list) ? list : []).forEach(rt => {
@@ -3833,7 +3848,7 @@
                         if (!path) return;
                         const opt = document.createElement('option');
                         opt.value = path;
-                        opt.textContent = prefix + ' · Java ' + String(rt.version || '?') + ' — ' + path;
+                        opt.textContent = prefix + ' · Java ' + String(rt.version || '?') + ' - ' + path;
                         opt.title = String(rt.source || label);
                         sel.appendChild(opt);
                     });
@@ -3925,8 +3940,8 @@
                 await refreshVersionInfo(true);
                 await loadJavaRuntimes(true);
                 const shown = data.version ? 'Java ' + String(data.version) : 'the selected runtime';
-                setJavaStatus('Saved. This server uses ' + shown + (data.restartRequired ? ' — restart the server to apply it.' : '.'), data.restartRequired ? 'warn' : 'info');
-                showToast('Java runtime saved' + (data.restartRequired ? ' — restart to apply' : ''), 'success');
+                setJavaStatus('Saved. This server uses ' + shown + (data.restartRequired ? ' - restart the server to apply it.' : '.'), data.restartRequired ? 'warn' : 'info');
+                showToast('Java runtime saved' + (data.restartRequired ? ' - restart to apply' : ''), 'success');
             } catch (e) {
                 setJavaStatus('Could not save the Java runtime: ' + e.message, 'error');
                 showToast('Could not save the Java runtime', 'error');
