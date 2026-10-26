@@ -7,6 +7,8 @@ import rootjar.addons.Addons;
 import rootjar.config.ChildConfig;
 import rootjar.config.ConfigEditor;
 import rootjar.config.ConfigSaver;
+import rootjar.config.ConfigValidator;
+import rootjar.config.ConfigException;
 import rootjar.config.JavaRuntimes;
 import rootjar.config.RootConfig;
 import rootjar.config.ServerConfig;
@@ -129,6 +131,7 @@ public class WebServer {
         route("/api/create/versions", this::handleCreateVersions);
         route("/api/create/preview", this::handleCreatePreviewJar);
         route("/api/create/server", this::handleCreateServer);
+        route("/api/server/edit", this::handleEditServer);
 
         // Server management endpoints
         route("/api/servers/", this::handleServerRoute);
@@ -687,6 +690,7 @@ public class WebServer {
         if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
         send(ex, 200, "[{\"id\":\"minecraft\",\"name\":\"Minecraft Server\",\"description\":\"Java Minecraft servers\"},"
                 + "{\"id\":\"discord_bot\",\"name\":\"Discord Bot\",\"description\":\"Java-based Discord bots\"},"
+                + "{\"id\":\"website\",\"name\":\"Website\",\"description\":\"Static HTML, CSS and JavaScript sites\"},"
                 + "{\"id\":\"custom\",\"name\":\"Custom\",\"description\":\"Manually configured server\"}]");
     }
 
@@ -702,6 +706,10 @@ public class WebServer {
         } else if (type.equals("discord_bot")) {
             send(ex, 200, "[{\"id\":\"jda\",\"name\":\"JDA (Java Discord API)\",\"ram_recommended\":512},"
                 + "{\"id\":\"discord4j\",\"name\":\"Discord4J\",\"ram_recommended\":512}]");
+        } else if (type.equals("website")) {
+            send(ex, 200, "[{\"id\":\"html\",\"name\":\"HTML starter\",\"ram_recommended\":128},"
+                + "{\"id\":\"css\",\"name\":\"CSS starter\",\"ram_recommended\":128},"
+                + "{\"id\":\"js\",\"name\":\"JavaScript starter\",\"ram_recommended\":128}]");
         } else {
             send(ex, 200, "[]");
         }
@@ -819,7 +827,11 @@ public class WebServer {
         if (!name.matches("^[a-zA-Z0-9_-]+$") || Set.of("status", "help", "stop").contains(name.toLowerCase(java.util.Locale.ROOT))) {
             send(ex, 400, "Invalid name."); return;
         }
-        if (supervisor.child(name).isPresent()) { send(ex, 400, "A server with this name already exists."); return; }
+        if (supervisor.child(name).isPresent() || Files.exists(config.baseDir().resolve(name))) {
+            send(ex, 400, "A server or folder with this name already exists."); return;
+        }
+        boolean website = "website".equals(serverType);
+        if (website && !Set.of("html", "css", "js").contains(fork)) { send(ex, 400, "Invalid website starter"); return; }
         if (jar == null || jar.isEmpty()) { jar = "server.jar"; }
         jar = Paths.get(jar.replace('\\', '/')).getFileName().toString();
         if (jar.equals(".") || jar.equals("..") || !jar.toLowerCase(java.util.Locale.ROOT).endsWith(".jar")) {
@@ -837,20 +849,31 @@ public class WebServer {
         for (ChildProcess c : supervisor.children()) {
             if (c.config().port() == port) { send(ex, 400, "Port in use"); return; }
         }
-        if (ram < 128) { send(ex, 400, "RAM must be at least 128 MB"); return; }
+        if (ram < 128 || ram > 1048576) { send(ex, 400, "RAM must be between 128 and 1048576 MB"); return; }
 
         try {
             Path dir = config.baseDir().resolve(name);
             Files.createDirectories(dir);
-            Files.writeString(dir.resolve("eula.txt"), "eula=true");
-            generateServerProperties(dir.resolve("server.properties"), port);
+            if (website) {
+                Path site = dir.resolve("public");
+                Files.createDirectories(site);
+                String html = "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n  <title>My Website</title>\n  <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n  <h1>Welcome to your website!</h1>\n  <p>Edit these files in the panel's Files tab.</p>\n  <script src=\"script.js\" defer></script>\n</body>\n</html>\n";
+                if (fork.equals("css")) html = html.replace("<h1>Welcome to your website!</h1>", "<h1>Style your website!</h1>");
+                if (fork.equals("js")) html = html.replace("<h1>Welcome to your website!</h1>", "<h1 id=\"message\">Build something interactive!</h1>");
+                Files.writeString(site.resolve("index.html"), html);
+                Files.writeString(site.resolve("style.css"), "body { font-family: system-ui, sans-serif; max-width: 700px; margin: 80px auto; padding: 20px; background: #111827; color: #f9fafb; }\nh1 { color: #60a5fa; }\n");
+                Files.writeString(site.resolve("script.js"), fork.equals("js") ? "document.querySelector('#message').addEventListener('click', () => alert('Hello from your website!'));\n" : "// Your website's JavaScript goes here.\n");
+            } else {
+                Files.writeString(dir.resolve("eula.txt"), "eula=true");
+                generateServerProperties(dir.resolve("server.properties"), port);
+            }
 
             int startOrder = supervisor.children().stream().mapToInt(c -> c.config().startOrder()).max().orElse(0) + 1;
             int stopOrder = supervisor.children().stream().mapToInt(c -> c.config().stopOrder()).max().orElse(0) + 1;
-            String type = serverType != null ? serverType : (fork != null ? fork : "paper");
+            String type = website ? "website" : (serverType != null && !serverType.isBlank() && !serverType.equals("minecraft") ? serverType : (fork != null ? fork : "paper"));
 
             ChildConfig newChild = new ChildConfig(name, type, dir, jar, ram + "M", true, port, "0.0.0.0",
-                StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, true, false, "");
+                website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, "");
             supervisor.addChild(newChild);
 
             saveConfig(new RootConfig(config.server(),
@@ -861,7 +884,7 @@ public class WebServer {
             Path jarPath = dir.resolve(jar);
             boolean downloaded = false;
             String warning = null;
-            if (downloadUrl != null && !downloadUrl.isBlank() && !Files.exists(jarPath)) {
+            if (!website && downloadUrl != null && !downloadUrl.isBlank() && !Files.exists(jarPath)) {
                 try {
                     downloadServerJar(jarPath, downloadUrl);
                     downloaded = true;
@@ -878,6 +901,66 @@ public class WebServer {
             if (warning != null) response.append(",\"warning\":\"").append(jsonEscape(warning)).append("\"");
             send(ex, 200, response.append("}").toString());
         } catch (IOException e) { send(ex, 500, e.getMessage()); }
+    }
+
+    /** Change allocation or rename a stopped server without touching its world/site files. */
+    private void handleEditServer(HttpExchange ex) throws IOException {
+        if (!ex.getRequestMethod().equals("POST")) { send(ex, 405, "Method not allowed"); return; }
+        if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
+        String body = new String(ex.getRequestBody().readNBytes(8193), StandardCharsets.UTF_8);
+        if (body.length() > 8192) { send(ex, 413, "Request too large"); return; }
+        String id = extractJson(body, "id"), name = extractJson(body, "name");
+        if (!id.matches("[A-Za-z0-9_-]+") || !name.matches("[A-Za-z0-9_-]+")
+                || Set.of("status", "help", "stop").contains(name.toLowerCase(java.util.Locale.ROOT))) {
+            send(ex, 400, "Invalid server name"); return;
+        }
+        int port, ram;
+        try { port = Integer.parseInt(extractJson(body, "port")); ram = Integer.parseInt(extractJson(body, "ram")); }
+        catch (NumberFormatException e) { send(ex, 400, "Invalid port or RAM"); return; }
+        if (port < 1 || port > 65535 || port == config.server().port() || ram < 128 || ram > 1048576) {
+            send(ex, 400, "Port or RAM outside allowed range"); return;
+        }
+        synchronized (supervisor) {
+            ChildProcess child = supervisor.child(id).orElse(null);
+            if (child == null) { send(ex, 404, "Server not found"); return; }
+            if (child.isAlive() || child.state() == ChildState.STARTING || child.state() == ChildState.STOPPING
+                    || child.state() == ChildState.RESTARTING) {
+                send(ex, 409, "Stop the server before editing its name, port or RAM"); return;
+            }
+            if (!name.equals(id) && supervisor.child(name).isPresent()) { send(ex, 409, "Name is already in use"); return; }
+            for (ChildProcess other : supervisor.children()) {
+                if (!other.id().equals(id) && other.config().port() == port) { send(ex, 409, "Port is already in use"); return; }
+            }
+            ChildConfig old = child.config();
+            Path oldDir = old.dir();
+            Path newDir = name.equals(id) ? oldDir : config.baseDir().resolve(name).normalize();
+            if (!name.equals(id) && (Files.exists(newDir) || !oldDir.toAbsolutePath().normalize().getParent().equals(newDir.toAbsolutePath().normalize().getParent()))) {
+                send(ex, 409, "Destination folder already exists or is outside the server directory"); return;
+            }
+            ChildConfig updated = new ChildConfig(name, old.type(), newDir, old.jar(), ram + "M", old.xmsEqualXmx(),
+                port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(), old.startOrder(),
+                old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(), old.extraFlags(),
+                old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath());
+            List<ChildConfig> children = supervisor.children().stream()
+                .map(c -> c.id().equals(id) ? updated : c.config()).toList();
+            try { ConfigValidator.validate(new RootConfig(config.server(), children, config.baseDir())); }
+            catch (ConfigException e) { send(ex, 400, String.join("; ", e.problems())); return; }
+            if (!old.type().equals("website") && port != old.port() && Files.exists(oldDir.resolve("server.properties"))) {
+                send(ex, 409, "Edit server.properties server-port first, then change the allocation"); return;
+            }
+            boolean moved = false;
+            try {
+                if (!name.equals(id)) { Files.move(oldDir, newDir); moved = true; }
+                saveConfig(new RootConfig(config.server(), children, config.baseDir()));
+            } catch (IOException e) {
+                if (moved) try { Files.move(newDir, oldDir); } catch (IOException ignored) {}
+                send(ex, 500, "Could not save server settings: " + e.getMessage()); return;
+            }
+            if (name.equals(id)) supervisor.updateChildConfig(id, updated);
+            else { supervisor.removeChild(id); supervisor.addChild(updated); }
+            diskUsage.remove(id);
+            send(ex, 200, "{\"id\":\"" + jsonEscape(name) + "\",\"port\":" + port + ",\"ram\":" + ram + "}");
+        }
     }
 
     /** Downloads a server jar from the official Paper/Purpur/Fabric/Quilt endpoints (host whitelist prevents SSRF). */

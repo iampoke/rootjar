@@ -1,6 +1,7 @@
 package rootjar.supervisor;
 
 import rootjar.config.ChildConfig;
+import rootjar.Main;
 import rootjar.console.ConsoleOutput;
 import rootjar.console.LogRingBuffer;
 
@@ -102,7 +103,16 @@ public final class ChildProcess {
         if (startDisabled) return false;
         if (process != null && process.isAlive()) return false;
 
-        List<String> cmd = CommandLineBuilder.build(cfg, javaFor(cfg));
+        List<String> cmd;
+        if (cfg.type().equals("website")) {
+            String codeSource;
+            try { codeSource = Paths.get(Main.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toString(); }
+            catch (Exception e) { ConsoleOutput.root("could not locate website server code: " + e.getMessage()); state = ChildState.CRASHED; return false; }
+            cmd = List.of(javaFor(cfg), "-cp", codeSource, "rootjar.website.StaticSiteServer",
+                    cfg.bind(), String.valueOf(cfg.port()), cfg.dir().toAbsolutePath().toString());
+        } else {
+            cmd = CommandLineBuilder.build(cfg, javaFor(cfg));
+        }
         ConsoleOutput.root("starting " + id() + " in " + cfg.dir() + ": " + String.join(" ", cmd));
         Process p;
         try {

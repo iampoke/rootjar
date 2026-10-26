@@ -17,8 +17,12 @@ import rootjar.console.StdinRouter.Kind;
 import rootjar.supervisor.BackoffPolicy;
 import rootjar.supervisor.ChildProcess;
 import rootjar.supervisor.CommandLineBuilder;
+import rootjar.website.StaticSiteServer;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,8 +62,48 @@ public final class ChecksMain {
         configLoadsTemplateShape();
         validation();
         addons();
+        staticWebsite();
         System.out.println("unit checks: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
+    }
+
+    private static void staticWebsite() throws Exception {
+        Path root = Files.createTempDirectory("website-check");
+        Files.writeString(root.resolve("index.html"), "<h1 id='ok'>ready</h1>");
+        Path outside = Files.createTempFile("website-secret", ".txt");
+        Files.writeString(outside, "secret");
+        boolean symlinkCreated = false;
+        try {
+            Files.createSymbolicLink(root.resolve("escape"), outside);
+            symlinkCreated = true;
+        } catch (IOException ignored) {}
+        String port = "12091";
+        Process process = new ProcessBuilder(System.getProperty("java.home") + java.io.File.separator
+                + "bin" + java.io.File.separator + "java", "-cp", System.getProperty("java.class.path"),
+                StaticSiteServer.class.getName(), "127.0.0.1", port, root.toString()).start();
+        try {
+            String body = "";
+            for (int i = 0; i < 30 && body.isEmpty(); i++) {
+                Thread.sleep(100);
+                try (InputStream in = URI.create("http://127.0.0.1:" + port + "/").toURL().openStream()) {
+                    body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                } catch (IOException ignored) {}
+            }
+            check(body.contains("id='ok'"), "website serves index");
+            if (symlinkCreated) {
+                HttpURLConnection denied = (HttpURLConnection) URI.create("http://127.0.0.1:" + port + "/escape").toURL().openConnection();
+                check(denied.getResponseCode() == 403, "website rejects symlink escape");
+            }
+            HttpURLConnection traversal = (HttpURLConnection) URI.create("http://127.0.0.1:" + port + "/%2e%2e/secret.txt").toURL().openConnection();
+            check(traversal.getResponseCode() == 403, "website rejects traversal");
+        } finally {
+            process.destroyForcibly();
+            process.waitFor();
+            Files.deleteIfExists(root.resolve("escape"));
+            Files.deleteIfExists(root.resolve("index.html"));
+            Files.deleteIfExists(root);
+            Files.deleteIfExists(outside);
+        }
     }
 
     private static void router() {
