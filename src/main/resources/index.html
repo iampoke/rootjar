@@ -928,8 +928,8 @@
                                     <span class="res-pct" id="res-disk-pct">4%</span>
                                 </div>
                                 <div class="res-bottom">
-                                    <span class="res-val" id="res-disk-val">1.68 GB</span>
-                                    <span class="res-max">/ 40 GB</span>
+                                    <span class="res-val" id="res-disk-val">0 B</span>
+                                    <span class="res-max" id="res-disk-max">/ 40 GB</span>
                                 </div>
                                 <div class="res-bar-bg"><div class="res-bar-fill" id="res-disk-bar" style="width: 4%; background: #8b5cf6; box-shadow: 0 0 10px #8b5cf6;"></div></div>
                             </div>
@@ -1476,6 +1476,12 @@
                     document.getElementById('res-ram-val').innerText = s.ramUsed + ' MB';
                     document.getElementById('res-ram-max').innerText = '/ ' + s.ramMax + ' MB';
                     document.getElementById('res-ram-bar').style.width = ramPct + '%';
+
+                    const diskPct = storageMax > 0 ? Math.min((s.diskUsed / storageMax) * 100, 100) : 0;
+                    document.getElementById('res-disk-pct').innerText = Math.round(diskPct) + '%';
+                    document.getElementById('res-disk-val').innerText = fmtBytes(s.diskUsed);
+                    document.getElementById('res-disk-max').innerText = storageMax > 0 ? '/ ' + fmtBytes(storageMax) : 'used';
+                    document.getElementById('res-disk-bar').style.width = diskPct + '%';
 
                     document.getElementById('net-down-txt').innerText = '↓ ' + data.netRx + ' KiB/s';
                     document.getElementById('net-up-txt').innerText = '↑ ' + data.netTx + ' KiB/s';
