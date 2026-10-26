@@ -732,6 +732,7 @@
                     <div class="nav-item" id="tab-btn-players" onclick="switchTab('players')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg> Players
                     </div>
+                    <div class="nav-item" id="tab-btn-activity" onclick="switchTab('activity')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg> Activity
                     </div>
                     <div class="nav-item" id="tab-btn-users" onclick="switchTab('users')">
@@ -841,7 +842,8 @@
                     </div>
                     
                     <!-- NEW SERVER USERS TAB CONTENT -->
-                    <div id="tab-players" class="tab-container"><div class="fm-page"><div class="fm-toolbar"><h2>Players</h2><span id="player-count"></span><div class="fm-spacer"></div><button class="fm-btn" onclick="loadPlayers()">Refresh</button></div><p class="version-note">Player actions send normal Minecraft commands and work only while the server is running.</p><div class="fm-toolbar"><input id="player-name" placeholder="Player name"><button class="fm-btn" onclick="playerAction('kick')">Kick</button><button class="fm-btn" onclick="playerAction('ban')">Ban</button><button class="fm-btn" onclick="playerAction('pardon')">Pardon</button><button class="fm-btn" onclick="playerAction('op')">Op</button><button class="fm-btn" onclick="playerAction('deop')">Deop</button></div></div></div><div class="fm-page"><h2>Activity</h2><div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody id="activity-tbody"></tbody></table></div></div></div>
+                    <div id="tab-players" class="tab-container"><div class="fm-page"><div class="fm-toolbar"><h2>Players</h2><span id="player-count"></span><div class="fm-spacer"></div><button class="fm-btn" onclick="loadPlayers()">Refresh</button></div><p class="version-note">Player actions send normal Minecraft commands and work only while the server is running.</p><div class="fm-toolbar"><input id="player-name" placeholder="Player name"><button class="fm-btn" onclick="playerAction('kick')">Kick</button><button class="fm-btn" onclick="playerAction('ban')">Ban</button><button class="fm-btn" onclick="playerAction('pardon')">Pardon</button><button class="fm-btn" onclick="playerAction('op')">Op</button><button class="fm-btn" onclick="playerAction('deop')">Deop</button></div></div></div>
+                    <div id="tab-activity" class="tab-container"><div class="fm-page"><h2>Activity</h2><div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody id="activity-tbody"></tbody></table></div></div></div>
                     <div id="tab-users" class="tab-container">
                         <div class="fm-container" style="padding:20px;">
                             <h3>Users with access to this server</h3>
