@@ -28,9 +28,13 @@ public final class BackupManager {
     public record BackupInfo(String name, long bytes, long createdAt) {}
 
     public static Path directory(ChildConfig child) throws IOException {
-        Path dir = child.dir().resolve("backups");
+        Path dir = child.dir().resolve("backup-live");
         Files.createDirectories(dir);
         return dir;
+    }
+
+    private static boolean isBackupStorage(String name) {
+        return name.equals("backup-live") || name.equals("backup-old") || name.equals("backups");
     }
 
     public static BackupInfo create(ChildConfig child, String label, boolean includeLogs, int retention) throws IOException {
@@ -50,7 +54,7 @@ public final class BackupManager {
                 @Override public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
                     if (dir.equals(root)) return FileVisitResult.CONTINUE;
                     String folder = dir.getFileName().toString();
-                    if (Files.isSymbolicLink(dir) || folder.equals("backups") || folder.equals(".trash")
+                    if (Files.isSymbolicLink(dir) || isBackupStorage(folder) || folder.equals(".trash")
                             || folder.startsWith(".restore-") || folder.startsWith(".import-")
                             || (!includeLogs && folder.equals("logs"))) return FileVisitResult.SKIP_SUBTREE;
                     return FileVisitResult.CONTINUE;
@@ -73,7 +77,14 @@ public final class BackupManager {
     }
 
     public static List<BackupInfo> list(ChildConfig child) throws IOException {
-        Path dir = directory(child);
+        List<BackupInfo> all = new java.util.ArrayList<>();
+        for (String folder : List.of("backup-live", "backups")) all.addAll(listFolder(child.dir().resolve(folder)));
+        all.sort(Comparator.comparingLong(BackupInfo::createdAt).reversed());
+        return all;
+    }
+
+    private static List<BackupInfo> listFolder(Path dir) throws IOException {
+        if (!Files.isDirectory(dir)) return List.of();
         try (Stream<Path> entries = Files.list(dir)) {
             return entries.filter(path -> NAME.matcher(path.getFileName().toString()).matches())
                     .map(path -> {
@@ -85,9 +96,11 @@ public final class BackupManager {
 
     public static Path resolve(ChildConfig child, String name) throws IOException {
         if (name == null || !NAME.matcher(name).matches()) throw new IOException("Invalid backup name");
-        Path file = directory(child).resolve(name).normalize();
-        if (!file.startsWith(directory(child)) || !Files.isRegularFile(file)) throw new IOException("Backup not found");
-        return file;
+        for (String folder : List.of("backup-live", "backups")) {
+            Path file = child.dir().resolve(folder).resolve(name).normalize();
+            if (file.startsWith(child.dir().resolve(folder)) && Files.isRegularFile(file)) return file;
+        }
+        throw new IOException("Backup not found");
     }
 
     public static void delete(ChildConfig child, String name) throws IOException {
@@ -96,23 +109,47 @@ public final class BackupManager {
     }
 
     public static void restore(ChildConfig child, String name) throws IOException {
+        Path source = resolve(child, name);
         Path staging = child.dir().resolve(".restore-" + System.currentTimeMillis());
+        Path old = child.dir().resolve("backup-old");
+        Path previousOld = child.dir().resolve(".backup-old-previous");
+        boolean movedOld = false;
         try {
-            FileOps.extract(resolve(child, name), staging);
-            try (Stream<Path> entries = Files.list(staging)) {
-                for (Path entry : entries.toList()) {
-                    if (entry.getFileName().toString().equals("backups")) continue;
-                    Path target = child.dir().resolve(entry.getFileName());
-                    if (Files.isDirectory(entry)) FileOps.copyRecursive(entry, target);
-                    else Files.copy(entry, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            FileOps.extract(source, staging);
+            if (Files.exists(old)) Files.move(old, previousOld);
+            Files.createDirectories(old);
+            movedOld = true;
+            try (Stream<Path> current = Files.list(child.dir())) {
+                for (Path entry : current.toList()) {
+                    String entryName = entry.getFileName().toString();
+                    if (isBackupStorage(entryName) || entry.equals(staging)) continue;
+                    Files.move(entry, old.resolve(entryName));
                 }
             }
+            try (Stream<Path> restored = Files.list(staging)) {
+                for (Path entry : restored.toList()) {
+                    if (isBackupStorage(entry.getFileName().toString())) continue;
+                    Files.move(entry, child.dir().resolve(entry.getFileName()));
+                }
+            }
+            deleteTree(previousOld);
+        } catch (IOException e) {
+            if (movedOld && Files.isDirectory(old)) {
+                try (Stream<Path> saved = Files.list(old)) {
+                    for (Path entry : saved.toList()) Files.move(entry, child.dir().resolve(entry.getFileName()), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+            if (Files.exists(previousOld)) Files.move(previousOld, old, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            throw e;
         } finally {
-            if (Files.exists(staging)) {
-                try (Stream<Path> walk = Files.walk(staging)) {
-                    walk.sorted(Comparator.reverseOrder()).forEach(path -> { try { Files.deleteIfExists(path); } catch (IOException ignored) {} });
-                }
-            }
+            deleteTree(staging);
+        }
+    }
+
+    private static void deleteTree(Path root) throws IOException {
+        if (!Files.exists(root)) return;
+        try (Stream<Path> walk = Files.walk(root)) {
+            for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
         }
     }
 

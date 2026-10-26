@@ -151,6 +151,10 @@ public final class ChecksMain {
         Files.writeString(root.resolve("world.txt"), "changed");
         BackupManager.restore(child, created.name());
         check(Files.readString(root.resolve("world.txt")).equals("safe"), "backup restore replaces changed file");
+        check(Files.readString(root.resolve("backup-old/world.txt")).equals("changed"), "restore keeps current files in backup-old");
+        Files.writeString(root.resolve("world.txt"), "newer");
+        BackupManager.restore(child, created.name());
+        check(Files.readString(root.resolve("backup-old/world.txt")).equals("newer"), "another restore replaces backup-old");
         Path evil = root.resolve("evil.zip");
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(evil))) {
             zip.putNextEntry(new ZipEntry("../outside.txt")); zip.write("bad".getBytes(StandardCharsets.UTF_8)); zip.closeEntry();
