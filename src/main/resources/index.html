@@ -1523,10 +1523,11 @@
                     grid.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding:40px; color:var(--text-muted);">No servers running.</div>`;
                     return;
                 }
+                const largestDisk = Math.max(...data.servers.map(server => Number(server.diskUsed) || 0), 1);
                 data.servers.forEach(s => {
                     const ramPct = Math.min((s.ramUsed / s.ramMax) * 100, 100);
                     const cpuPct = Math.min((s.cpuUsed / cpuMaxPct) * 100, 100);
-                    const diskPct = storageMax > 0 ? Math.min((s.diskUsed / storageMax) * 100, 100) : 0;
+                    const diskPct = Math.min((s.diskUsed / largestDisk) * 100, 100);
                     
                     grid.innerHTML += `<div class="server-card">
                         <div class="sc-header">
@@ -1561,7 +1562,7 @@
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
                                     Storage
                                 </div>
-                                <div class="sc-stat-values"><span>${fmtBytes(s.diskUsed)}</span> <span>${storageMax > 0 ? "/ " + fmtBytes(storageMax) : "used"}</span></div>
+                                <div class="sc-stat-values"><span>${fmtBytes(s.diskUsed)}</span> <span>used</span></div>
                                 <div class="sc-bar-bg"><div class="sc-bar-fill" style="width: ${diskPct}%; background: #8b5cf6;"></div></div>
                             </div>
                         </div>
@@ -1599,10 +1600,11 @@
                     document.getElementById('res-ram-max').innerText = '/ ' + s.ramMax + ' MB';
                     document.getElementById('res-ram-bar').style.width = ramPct + '%';
 
-                    const diskPct = storageMax > 0 ? Math.min((s.diskUsed / storageMax) * 100, 100) : 0;
-                    document.getElementById('res-disk-pct').innerText = Math.round(diskPct) + '%';
+                    const largestDisk = Math.max(...data.servers.map(server => Number(server.diskUsed) || 0), 1);
+                    const diskPct = Math.min((s.diskUsed / largestDisk) * 100, 100);
+                    document.getElementById('res-disk-pct').innerText = fmtBytes(s.diskUsed);
                     document.getElementById('res-disk-val').innerText = fmtBytes(s.diskUsed);
-                    document.getElementById('res-disk-max').innerText = storageMax > 0 ? '/ ' + fmtBytes(storageMax) : 'used';
+                    document.getElementById('res-disk-max').innerText = 'used';
                     document.getElementById('res-disk-bar').style.width = diskPct + '%';
 
                     document.getElementById('net-down-txt').innerText = '↓ ' + data.netRx + ' KiB/s';
