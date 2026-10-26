@@ -18,6 +18,7 @@ import rootjar.backup.BackupManager;
 import rootjar.console.ConsoleOutput;
 import rootjar.files.FileOps;
 import rootjar.notify.Notifier;
+import rootjar.security.ActivityLog;
 import rootjar.supervisor.ChildProcess;
 import rootjar.tasks.TaskScheduler;
 import rootjar.supervisor.ChildState;
@@ -47,7 +48,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 public class WebServer {
-    private record Session(String user, long createdAt, String csrf) {}
+    private record Session(String token, String user, long createdAt, String csrf, String ip, String userAgent, long lastSeen) {}
 
     private final HttpServer server;
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
@@ -210,6 +211,8 @@ public class WebServer {
         route("/api/backups/upload", this::handleBackupUpload);
         route("/api/settings", this::handleSettings);
         route("/api/tasks", this::handleTasks);
+        route("/api/sessions", this::handleSessions);
+        route("/api/activity", this::handleActivity);
 
         route("/api/logs/download", this::handleLogsDownload);
 
@@ -308,10 +311,17 @@ public class WebServer {
         String user = getSessionUser(ex);
         if (user == null) return null;
         if (user.equals("admin") || isAdmin(ex)) return Role.ADMIN;
-        boolean allowed = config.server().users().stream()
-                .filter(u -> u.username().equals(user))
-                .anyMatch(u -> u.allowedServers().contains("*") || u.allowedServers().contains(serverId));
-        return allowed ? Role.OPERATOR : null;
+        return config.server().users().stream().filter(u -> u.username().equals(user)).findFirst().map(u -> {
+            boolean allowed = u.allowedServers().contains("*") || u.allowedServers().contains(serverId);
+            if (!allowed) return null;
+            String configured = u.serverRoles().get(serverId);
+            if (configured == null && u.allowedServers().contains("*")) configured = u.serverRoles().get("*");
+            return switch (configured == null ? "operator" : configured) {
+                case "viewer" -> Role.VIEWER;
+                case "owner" -> Role.OWNER;
+                default -> Role.OPERATOR;
+            };
+        }).orElse(null);
     }
 
     private boolean requireServer(HttpExchange ex, String serverId) throws IOException {
@@ -332,7 +342,7 @@ public class WebServer {
     private boolean requireOwner(HttpExchange ex, String serverId) throws IOException {
         // TODO(Phase 7: server_roles)
         Role role = roleFor(ex, serverId);
-        if (role != Role.ADMIN && role != Role.OPERATOR) {
+        if (role != Role.ADMIN && role != Role.OWNER) {
             sendError(ex, 403, "resolve", "No permission");
             return false;
         }
@@ -489,7 +499,7 @@ public class WebServer {
         if (valid) {
             loginFailures.remove(ip);
             String token = UUID.randomUUID().toString();
-            sessions.put(token, new Session(user, now, UUID.randomUUID().toString()));
+            sessions.put(token, new Session(token, user, now, UUID.randomUUID().toString(), clientIp(ex), ex.getRequestHeaders().getFirst("User-Agent"), now));
             ex.getResponseHeaders().add("Set-Cookie", "session=" + token + "; HttpOnly; SameSite=Strict; Path=/");
             send(ex, 200, "OK");
         } else {
@@ -1053,8 +1063,10 @@ public class WebServer {
     private void handleAction(HttpExchange ex) throws IOException {
         if (!isAuthed(ex)) { send(ex, 401, "Unauthorized"); return; }
         String id = ex.getRequestURI().getPath().substring(ex.getRequestURI().getPath().lastIndexOf('/') + 1);
-        if (!canAccessServer(ex, id)) { send(ex, 403, "No permission"); return; }
+        if (!requireOperator(ex, id)) return;
+        if (!rateAllows(ex, "power", 30)) { send(ex, 429, "Too many actions"); return; }
         String action = new String(ex.getRequestBody().readAllBytes());
+        activity(id, ex, "server." + action, "");
         if (action.equals("kill")) supervisor.child(id).ifPresent(ChildProcess::kill);
         else supervisor.requestLifecycle(id, action);
         if (Set.of("start", "stop", "restart", "kill").contains(action)) {
@@ -1686,6 +1698,54 @@ public class WebServer {
                 old.trustedProxies(), old.diskMaxGb(), retention, webhook, publicStatus, old.users()), config.children(), config.baseDir()));
         notifier.send("settings.changed", "Panel settings were updated");
         send(ex, 200, "{\"saved\":true}");
+    }
+
+    private final Map<String, java.util.Deque<Long>> requestRates = new ConcurrentHashMap<>();
+    private boolean rateAllows(HttpExchange ex, String action, int limit) {
+        String key = getSessionUser(ex) + "|" + action;
+        java.util.Deque<Long> times = requestRates.computeIfAbsent(key, ignored -> new java.util.ArrayDeque<>());
+        long now = System.currentTimeMillis();
+        synchronized (times) {
+            while (!times.isEmpty() && now - times.peekFirst() > 60_000) times.removeFirst();
+            if (times.size() >= limit) return false;
+            times.addLast(now);
+        }
+        return true;
+    }
+
+    private void activity(String serverId, HttpExchange ex, String action, String details) {
+        supervisor.child(serverId).ifPresent(child -> {
+            try { ActivityLog.append(child.config().dir(), getSessionUser(ex), action, details); }
+            catch (IOException ignored) {}
+        });
+    }
+
+    private void handleSessions(HttpExchange ex) throws IOException {
+        if (!isAuthed(ex)) { send(ex, 401, "Unauthorized"); return; }
+        if (ex.getRequestMethod().equals("GET")) {
+            StringBuilder json = new StringBuilder("[");
+            boolean first = true;
+            for (Session session : sessions.values()) {
+                if (!isAdmin(ex) && !session.user().equals(getSessionUser(ex))) continue;
+                if (!first) json.append(',');
+                first = false;
+                json.append("{\"token\":\"").append(jsonEscape(session.token())).append("\",\"user\":\"").append(jsonEscape(session.user())).append("\",\"ip\":\"").append(jsonEscape(canViewPanelIps(ex) ? session.ip() : "Hidden")).append("\",\"lastSeen\":").append(session.lastSeen()).append('}');
+            }
+            send(ex, 200, json.append(']').toString());
+            return;
+        }
+        String token = extractJson(new String(ex.getRequestBody().readNBytes(4096), StandardCharsets.UTF_8), "token");
+        Session target = sessions.get(token);
+        if (target != null && (isAdmin(ex) || target.user().equals(getSessionUser(ex)))) sessions.remove(token);
+        send(ex, 200, "Revoked");
+    }
+
+    private void handleActivity(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireServer(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        send(ex, 200, ActivityLog.recent(child.config().dir(), 100));
     }
 
     private void handleTasks(HttpExchange ex) throws IOException {
@@ -3640,7 +3700,7 @@ public class WebServer {
         List<ServerConfig.UserConfig> newUsers = new ArrayList<>(config.server().users());
         boolean allowPanel = !"false".equals(extractJson(body, "allowPanelIpView"));
         boolean allowConsole = !"false".equals(extractJson(body, "allowConsoleIpView"));
-        newUsers.add(new ServerConfig.UserConfig(user, hash, "user", allowed, allowPanel, allowConsole));
+        newUsers.add(new ServerConfig.UserConfig(user, hash, "user", allowed, java.util.Map.of(), allowPanel, allowConsole));
 
         ServerConfig old = config.server();
         ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), old.webhookUrl(), old.publicStatus(), newUsers);
@@ -3666,7 +3726,11 @@ public class WebServer {
                 } else if (action.equals("remove")) {
                     newAllowed.remove(targetServer);
                 }
-                newUsers.add(new ServerConfig.UserConfig(u.username(), u.passwordHash(), u.role(), newAllowed, u.allowPanelIpView(), u.allowConsoleIpView()));
+        String role = extractJson(body, "role");
+        if (!Set.of("viewer", "operator", "owner").contains(role)) role = "operator";
+        Map<String, String> roles = new java.util.LinkedHashMap<>();
+        if (!targetServer.isBlank()) roles.put(targetServer, role);
+        newUsers.add(new ServerConfig.UserConfig(u.username(), u.passwordHash(), u.role(), newAllowed, roles, u.allowPanelIpView(), u.allowConsoleIpView()));
             } else {
                 newUsers.add(u);
             }

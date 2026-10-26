@@ -41,7 +41,10 @@ public class ConfigSaver {
                     if (i < u.allowedServers().size() - 1) sb.append(", ");
                 }
                 sb.append("]\n");
-                if (!u.allowPanelIpView()) sb.append("      allow_panel_ip_view: false\n");
+                if (!u.serverRoles().isEmpty()) {
+                    sb.append("      server_roles:\n");
+                    u.serverRoles().forEach((server, role) -> sb.append("        ").append(server).append(": ").append(role).append("\n"));
+                }
                 if (!u.allowConsoleIpView()) sb.append("      allow_console_ip_view: false\n");
             }
             sb.append("\n");

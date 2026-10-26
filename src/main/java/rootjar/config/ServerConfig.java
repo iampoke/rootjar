@@ -20,5 +20,5 @@ public record ServerConfig(
         List<UserConfig> users) {
 
     public record UserConfig(String username, String passwordHash, String role, List<String> allowedServers,
-                             boolean allowPanelIpView, boolean allowConsoleIpView) {}
+                             Map<String, String> serverRoles, boolean allowPanelIpView, boolean allowConsoleIpView) {}
 }

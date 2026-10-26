@@ -45,9 +45,12 @@ public final class ConfigLoader {
         if (rawUsers instanceof List) {
             for (Object u : (List<?>) rawUsers) {
                 Map<String, Object> um = asMap(u, "users");
+                Map<String, String> roles = new java.util.LinkedHashMap<>();
+                Object rawRoles = um.get("server_roles");
+                if (rawRoles instanceof Map<?, ?> roleMap) roleMap.forEach((key, value) -> roles.put(String.valueOf(key), String.valueOf(value)));
                 users.add(new ServerConfig.UserConfig(
                     str(um, "username", null, "users"), str(um, "password_hash", null, "users"),
-                    str(um, "role", "admin", "users"), strList(um, "allowed_servers", List.of("*"), "users"),
+                    str(um, "role", "admin", "users"), strList(um, "allowed_servers", List.of("*"), "users"), roles,
                     bool(um, "allow_panel_ip_view", true, "users"), bool(um, "allow_console_ip_view", true, "users")
                 ));
             }
