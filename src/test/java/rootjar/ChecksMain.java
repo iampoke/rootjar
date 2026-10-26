@@ -17,6 +17,7 @@ import rootjar.console.StdinRouter.Kind;
 import rootjar.supervisor.BackoffPolicy;
 import rootjar.supervisor.ChildProcess;
 import rootjar.supervisor.CommandLineBuilder;
+import rootjar.files.FileOps;
 import rootjar.website.StaticSiteServer;
 
 import java.io.IOException;
@@ -30,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
 /** Dependency-free unit checks (JUnit is not available offline). Exits 1 if anything fails. */
@@ -64,6 +66,7 @@ public final class ChecksMain {
         validation();
         addons();
         staticWebsite();
+        fileOps();
         System.out.println("unit checks: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
@@ -105,6 +108,27 @@ public final class ChecksMain {
             Files.deleteIfExists(root);
             Files.deleteIfExists(outside);
         }
+    }
+
+    private static void fileOps() throws Exception {
+        Path root = Files.createTempDirectory("file-ops");
+        Files.writeString(root.resolve("index.html"), "home");
+        Path nested = Files.createDirectories(root.resolve("public/assets"));
+        Files.writeString(nested.resolve("logo.txt"), "logo");
+        boolean rejected = false;
+        try { FileOps.resolve(root, "../secret.txt"); } catch (IOException e) { rejected = true; }
+        check(rejected, "file ops rejects traversal");
+        Path zip = root.resolve("site.zip");
+        try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zip))) {
+            out.putNextEntry(new ZipEntry("../evil.txt")); out.write("bad".getBytes(StandardCharsets.UTF_8)); out.closeEntry();
+        }
+        boolean zipRejected = false;
+        try { FileOps.extract(zip, root.resolve("extracted")); } catch (IOException e) { zipRejected = true; }
+        check(zipRejected && Files.notExists(root.resolve("evil.txt")), "file ops rejects zip slip");
+        List<Path> found = FileOps.searchNames(root, "logo", 10);
+        check(found.size() == 1 && found.get(0).endsWith("logo.txt"), "file ops finds nested names");
+        FileOps.copyRecursive(nested, root.resolve("copy"));
+        check(Files.readString(root.resolve("copy/logo.txt")).equals("logo"), "file ops copies directories");
     }
 
     private static void router() {

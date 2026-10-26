@@ -419,15 +419,29 @@
         .picker-tag { flex-shrink: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--success); background: hsla(150,70%,50%,.12); border-radius: 4px; padding: 3px 7px; }
         .picker-foot { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .picker-stage { font-size: 12px; color: var(--accent); margin-right: auto; min-width: 0; }
-        .picker-count { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-right: auto; }
+        .fm-page { flex:1; min-height:0; display:flex; flex-direction:column; gap:12px; padding:16px; }
+        .fm-page.drag-over { outline:2px dashed var(--accent); outline-offset:-8px; }
+        .fm-toolbar, .fm-search-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+        .fm-btn { background:var(--bg-panel); color:var(--text-main); border:1px solid var(--border); border-radius:8px; padding:8px 12px; cursor:pointer; }
+        .fm-btn-accent { background:var(--accent); color:var(--bg-body); border-color:transparent; }
+        .fm-spacer { flex:1; }
+        .fm-breadcrumb { display:flex; gap:6px; color:var(--text-muted); font-size:13px; flex-wrap:wrap; }
+        .fm-breadcrumb button { background:none; border:0; color:var(--accent); cursor:pointer; font:inherit; }
+        .fm-search-row input { flex:1; min-width:180px; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-main); }
+        .fm-progress { font-size:12px; color:var(--text-muted); }
+        .fm-table-wrap { flex:1; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:10px; }
+        .fm-row-drop { outline:1px solid var(--accent); }
     </style>
 </head>
 <body class="mc-font">
     <div id="toast-container"></div>
     <div id="ctx-menu" class="ctx-menu">
+        <div class="ctx-item" onclick="ctxAction('download')">Download</div>
         <div class="ctx-item" onclick="ctxAction('rename')">Rename</div>
+        <div class="ctx-item" onclick="ctxAction('copy')">Copy</div>
+        <div class="ctx-item" onclick="ctxAction('extract')">Extract</div>
         <div class="ctx-item" onclick="ctxAction('zip')">Archive</div>
-        <div class="ctx-item" onclick="ctxAction('delete')">Delete</div>
+        <div class="ctx-item" onclick="ctxAction('trash')">Move to Trash</div>
     </div>
 
     <div id="login-screen">
@@ -719,17 +733,32 @@
                         </div>
                     </div>
                     <div id="tab-files" class="tab-container">
-                        <div class="fm-container">
-                            <div class="fm-header">
-                                <button class="btn btn-outline" onclick="loadFileList('.')">Refresh</button>
-                                <button class="btn" onclick="promptMkdir()">+ Folder</button>
+                        <div class="fm-page" id="fm-drop-target">
+                            <div class="fm-toolbar">
+                                <button class="fm-btn" onclick="fmToggleSearch()">Search</button>
+                                <button class="fm-btn" onclick="document.getElementById('fm-import-input').click()">Import ZIP</button>
+                                <button class="fm-btn" onclick="document.getElementById('fm-file-input').click()">Upload</button>
+                                <button class="fm-btn" onclick="document.getElementById('fm-folder-input').click()">Upload Folder</button>
+                                <div class="fm-spacer"></div>
+                                <button class="fm-btn fm-btn-accent" onclick="promptMkdir()">Create Folder</button>
+                                <button class="fm-btn fm-btn-accent" onclick="createNewFile()">New File</button>
                             </div>
-                            <div style="flex:1; overflow-y:auto;">
+                            <div class="fm-breadcrumb" id="fm-breadcrumb"></div>
+                            <div class="fm-search-row" id="fm-search-row" style="display:none">
+                                <input id="fm-search-input" placeholder="Search files..." onkeydown="if(event.key==='Enter')fmSearch()">
+                                <button class="btn" onclick="fmSearch()">Search</button>
+                                <button class="btn btn-outline" onclick="fmClearSearch()">Clear</button>
+                            </div>
+                            <div id="fm-progress" class="fm-progress" style="display:none"></div>
+                            <div class="fm-table-wrap">
                                 <table class="fm-table">
-                                    <thead><tr><th>Name</th><th>Size</th><th>Modified</th></tr></thead>
+                                    <thead><tr><th>Name</th><th>Size</th><th>Modified</th><th></th></tr></thead>
                                     <tbody id="fm-tbody"></tbody>
                                 </table>
                             </div>
+                            <input type="file" id="fm-file-input" multiple hidden onchange="fmUploadFiles(this.files)">
+                            <input type="file" id="fm-folder-input" webkitdirectory directory multiple hidden onchange="fmUploadFiles(this.files)">
+                            <input type="file" id="fm-import-input" accept=".zip,application/zip" hidden onchange="fmImportZip(this.files[0])">
                         </div>
                     </div>
                     <div id="tab-plugins" class="tab-container">
@@ -1360,6 +1389,17 @@
             if (t === 'mods') loadAddons('mod');
             if (t === 'version') loadVersionTab();
             if (t === 'console') { const input = document.getElementById('console-input'); if (input) input.focus(); }
+            updateServerTabs();
+        }
+
+        function updateServerTabs() {
+            const website = currentServer && currentServer.type === 'website';
+            ['plugins', 'mods', 'version'].forEach(name => {
+                const button = document.getElementById('tab-btn-' + name);
+                if (button) button.style.display = website ? 'none' : '';
+            });
+            const label = document.querySelector('.nav-label');
+            if (label) label.style.display = website ? 'none' : '';
         }
 
         function fmtBytes(b) {
@@ -1451,6 +1491,7 @@
                                 Uptime: ${s.uptime}
                             </div>
                             <div style="display:flex; gap:8px;">
+                                ${s.type === 'website' ? `<a class="btn btn-outline" href="http://${escapeHtml(currentPublicIp)}:${s.port}/" target="_blank" rel="noopener">Open Site</a>` : ''}
                                 ${isAdmin ? `<button class="btn btn-outline" style="border-color:var(--danger); color:var(--danger);" onclick="openDeleteModal('${s.id}')">Delete</button>` : ''}
                                 <button class="btn" onclick="openServer('${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')">Manage</button>
                             </div>
@@ -1631,6 +1672,7 @@
             if (search) search.value = '';
             document.getElementById('console-server-name').innerText = id;
             document.getElementById('console-server-type').innerHTML = typeBadge(type);
+            updateServerTabs();
             document.getElementById('sidebar-ip').innerText = currentPublicIp + ":" + port;
             document.getElementById('console-output').innerHTML = '';
             switchView('console'); switchTab('console');
@@ -1964,64 +2006,167 @@
         }
 
         async function loadFileList(path) {
-            currentPath = path;
-            const res = await fetch(`/api/files/list/${currentServer.id}?path=${encodeURIComponent(path)}`);
-            if (!res.ok) return;
-            const files = await res.json();
-            const tbody = document.getElementById('fm-tbody'); tbody.innerHTML = '';
-            if (path !== '.') tbody.innerHTML += `<tr><td class="fm-dir" onclick="loadFileList('${path.split('/').slice(0,-1).join('/') || '.'}')">📁 ..</td><td>-</td><td>-</td></tr>`;
-            files.forEach(f => {
-                tbody.innerHTML += `<tr oncontextmenu="showCtx(event, '${path}', '${f.name}')">
-                    <td class="${f.dir?'fm-dir':'fm-file'}" onclick="${f.dir?`loadFileList('${path==='.'?f.name:path+'/'+f.name}')`:`openFile('${path}', '${f.name}')`}">
-                        ${f.dir?'📁':'📄'} ${f.name}
-                    </td>
-                    <td>${f.dir?'-':Math.round(f.size/1024)+' KB'}</td>
-                    <td>${new Date(f.modified).toLocaleString()}</td>
-                </tr>`;
+            currentPath = path || '.';
+            renderBreadcrumb();
+            const response = await fetch(`/api/files/list/${currentServer.id}?path=${encodeURIComponent(currentPath)}`);
+            if (!response.ok) return showToast('Could not read this folder', 'error');
+            renderFileRows(await response.json(), false);
+            setupFileDrop();
+        }
+
+        function renderBreadcrumb() {
+            const root = document.getElementById('fm-breadcrumb');
+            const parts = currentPath === '.' ? [] : currentPath.split('/');
+            const items = [`<button onclick="loadFileList('.')">${escapeHtml(currentServer.id)}</button>`];
+            parts.forEach((part, index) => items.push(`<button onclick="loadFileList('${escapeHtml(parts.slice(0, index + 1).join('/'))}')">${escapeHtml(part)}</button>`));
+            root.innerHTML = items.join('<span>/</span>');
+        }
+
+        function renderFileRows(files, searchResults) {
+            const body = document.getElementById('fm-tbody');
+            body.innerHTML = '';
+            if (!searchResults && currentPath !== '.') {
+                const parent = currentPath.split('/').slice(0, -1).join('/') || '.';
+                body.insertAdjacentHTML('beforeend', `<tr><td colspan="4"><button class="fm-btn" onclick="loadFileList('${escapeHtml(parent)}')">..</button></td></tr>`);
+            }
+            files.forEach(file => {
+                const relative = searchResults ? file.path : (currentPath === '.' ? file.name : currentPath + '/' + file.name);
+                const row = document.createElement('tr');
+                row.draggable = !searchResults;
+                row.dataset.path = relative;
+                row.dataset.dir = file.dir ? '1' : '0';
+                row.innerHTML = `<td>${file.dir ? '📁' : '📄'} ${escapeHtml(file.name)}</td><td>${file.dir ? '-' : fmtBytes(file.size || 0)}</td><td>${file.modified ? new Date(file.modified).toLocaleString() : ''}</td><td><button class="fm-btn" onclick="downloadFile('${escapeHtml(relative)}', ${file.dir})">Download</button></td>`;
+                row.querySelector('td').onclick = () => file.dir && !searchResults ? loadFileList(relative) : (!file.dir && openFile(relative));
+                row.oncontextmenu = event => showCtx(event, relative);
+                row.ondragstart = event => event.dataTransfer.setData('text/panel-path', relative);
+                if (file.dir) row.ondragover = event => { event.preventDefault(); row.classList.add('fm-row-drop'); };
+                row.ondragleave = () => row.classList.remove('fm-row-drop');
+                row.ondrop = async event => {
+                    row.classList.remove('fm-row-drop');
+                    const source = event.dataTransfer.getData('text/panel-path');
+                    if (!file.dir || !source) return;
+                    event.preventDefault(); event.stopPropagation();
+                    await fetch(`/api/files/move/${currentServer.id}?old=${encodeURIComponent(source)}&new=${encodeURIComponent(relative + '/' + source.split('/').pop())}`, {method:'POST'});
+                    loadFileList(currentPath);
+                };
+                body.appendChild(row);
             });
         }
 
-        let ctxTarget = { path: '', name: '' };
-        function showCtx(e, path, name) {
-            e.preventDefault();
-            ctxTarget = { path, name };
+        function setupFileDrop() {
+            const target = document.getElementById('fm-drop-target');
+            if (!target || target.dataset.dropReady) return;
+            target.dataset.dropReady = '1';
+            ['dragenter', 'dragover'].forEach(name => target.addEventListener(name, event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); target.classList.add('drag-over'); } }));
+            target.addEventListener('dragleave', event => { if (event.target === target) target.classList.remove('drag-over'); });
+            target.addEventListener('drop', async event => {
+                if (!event.dataTransfer.types.includes('Files')) return;
+                event.preventDefault(); target.classList.remove('drag-over');
+                await uploadDroppedItems(event.dataTransfer.items);
+            });
+        }
+
+        async function uploadDroppedItems(items) {
+            const files = [];
+            const tasks = [...items].filter(item => item.kind === 'file').map(item => item.webkitGetAsEntry && item.webkitGetAsEntry());
+            for (const entry of tasks) await collectDropEntry(entry, '', files);
+            await uploadFileList(files);
+        }
+
+        async function collectDropEntry(entry, prefix, files) {
+            if (!entry) return;
+            if (entry.isFile) files.push(await new Promise(resolve => entry.file(file => { file.panelRelativePath = prefix + file.name; resolve(file); })));
+            if (entry.isDirectory) {
+                const reader = entry.createReader();
+                const children = await new Promise(resolve => reader.readEntries(resolve));
+                for (const child of children) await collectDropEntry(child, prefix + entry.name + '/', files);
+            }
+        }
+
+        async function fmUploadFiles(fileList) {
+            const files = [...fileList].map(file => { file.panelRelativePath = file.webkitRelativePath || file.name; return file; });
+            await uploadFileList(files);
+        }
+
+        async function uploadFileList(files) {
+            const progress = document.getElementById('fm-progress');
+            for (let index = 0; index < files.length; index++) {
+                const file = files[index];
+                const relative = file.panelRelativePath || file.name;
+                const destination = currentPath === '.' ? relative : currentPath + '/' + relative;
+                progress.style.display = 'block';
+                progress.textContent = `Uploading ${index + 1}/${files.length}: ${relative}`;
+                await uploadWithProgress(file, destination);
+            }
+            progress.style.display = 'none';
+            loadFileList(currentPath);
+        }
+
+        function uploadWithProgress(file, destination) {
+            return new Promise(resolve => {
+                const request = new XMLHttpRequest();
+                const parent = destination.includes('/') ? destination.slice(0, destination.lastIndexOf('/')) : '.';
+                const name = destination.split('/').pop();
+                request.open('POST', `/api/files/upload/${currentServer.id}?path=${encodeURIComponent(parent)}&name=${encodeURIComponent(name)}`);
+                request.setRequestHeader('X-CSRF-Token', window.csrfToken || '');
+                request.upload.onprogress = event => { if (event.lengthComputable) document.getElementById('fm-progress').textContent = `${name}: ${Math.round(event.loaded / event.total * 100)}%`; };
+                request.onloadend = () => resolve();
+                request.send(file);
+            });
+        }
+
+        async function fmImportZip(file) {
+            if (!file) return;
+            const destination = currentPath === '.' ? 'public' : currentPath;
+            await fetch(`/api/files/import/${currentServer.id}?path=${encodeURIComponent(destination)}`, {method:'POST', body:file});
+            showToast('Archive imported', 'success');
+            loadFileList(currentPath);
+        }
+
+        function fmToggleSearch() { const row = document.getElementById('fm-search-row'); row.style.display = row.style.display === 'none' ? 'flex' : 'none'; }
+        async function fmSearch() {
+            const query = document.getElementById('fm-search-input').value;
+            const response = await fetch(`/api/files/search/${currentServer.id}?path=${encodeURIComponent(currentPath)}&q=${encodeURIComponent(query)}`);
+            if (response.ok) renderFileRows(await response.json(), true);
+        }
+        function fmClearSearch() { document.getElementById('fm-search-input').value = ''; loadFileList(currentPath); }
+        function downloadFile(path, directory) { window.open(`/api/files/${directory ? 'download-zip' : 'download'}/${currentServer.id}?path=${encodeURIComponent(path)}`); }
+        async function createNewFile() {
+            const name = prompt('New file name:');
+            if (!name || !/^[A-Za-z0-9._ -]+$/.test(name)) return;
+            const path = currentPath === '.' ? name : currentPath + '/' + name;
+            await fetch(`/api/files/write/${currentServer.id}?path=${encodeURIComponent(path)}`, {method:'POST', body:''});
+            loadFileList(currentPath);
+        }
+
+        function showCtx(event, path) {
+            event.preventDefault();
+            ctxTarget = { path, name: path.split('/').pop() };
             const menu = document.getElementById('ctx-menu');
-            menu.style.display = 'flex'; menu.style.left = e.pageX + 'px'; menu.style.top = e.pageY + 'px';
+            menu.style.display = 'flex'; menu.style.left = event.pageX + 'px'; menu.style.top = event.pageY + 'px';
         }
         document.addEventListener('click', () => document.getElementById('ctx-menu').style.display = 'none');
 
         async function ctxAction(action) {
-            const fullPath = ctxTarget.path === '.' ? ctxTarget.name : ctxTarget.path + '/' + ctxTarget.name;
-            if (action === 'delete') {
-                if (!confirm('Delete ' + ctxTarget.name + '?')) return;
-                await fetch(`/api/files/delete/${currentServer.id}?path=${encodeURIComponent(fullPath)}`, { method: 'POST' });
-                loadFileList(currentPath);
-            } else if (action === 'rename') {
-                const newName = prompt('New name:', ctxTarget.name);
-                if (!newName) return;
-                await fetch(`/api/files/rename/${currentServer.id}?old=${encodeURIComponent(fullPath)}&new=${encodeURIComponent(newName)}`, { method: 'POST' });
-                loadFileList(currentPath);
-            } else if (action === 'zip') {
-                await fetch(`/api/files/zip/${currentServer.id}?path=${encodeURIComponent(fullPath)}`, { method: 'POST' });
-                loadFileList(currentPath);
+            const path = ctxTarget.path;
+            if (action === 'download') downloadFile(path, false);
+            if (action === 'rename') {
+                const name = prompt('New name:', ctxTarget.name);
+                if (name) await fetch(`/api/files/rename/${currentServer.id}?old=${encodeURIComponent(path)}&new=${encodeURIComponent(path.replace(/[^/]+$/, name))}`, {method:'POST'});
             }
-        }
-
-        async function promptMkdir() {
-            const name = prompt('Folder name:');
-            if (!name) return;
-            const fullPath = currentPath === '.' ? name : currentPath + '/' + name;
-            await fetch(`/api/files/mkdir/${currentServer.id}?path=${encodeURIComponent(fullPath)}`, { method: 'POST' });
+            if (action === 'copy') await fetch(`/api/files/copy/${currentServer.id}?from=${encodeURIComponent(path)}&to=${encodeURIComponent(path + '.copy')}`, {method:'POST'});
+            if (action === 'extract') await fetch(`/api/files/extract/${currentServer.id}?path=${encodeURIComponent(path)}`, {method:'POST'});
+            if (action === 'zip') await fetch(`/api/files/zip/${currentServer.id}?path=${encodeURIComponent(path)}`, {method:'POST'});
+            if (action === 'trash' && confirm('Move ' + ctxTarget.name + ' to Trash?')) await fetch(`/api/files/trash/${currentServer.id}?path=${encodeURIComponent(path)}`, {method:'POST'});
             loadFileList(currentPath);
         }
 
-        async function openFile(path, name) {
-            const fullPath = path === '.' ? name : path + '/' + name;
-            const res = await fetch(`/api/files/read/${currentServer.id}?path=${encodeURIComponent(fullPath)}`);
-            if (!res.ok) return showToast('Cannot read file', 'error');
-            currentFile = fullPath;
-            document.getElementById('fm-modal-filename').innerText = name;
-            document.getElementById('fm-modal-textarea').value = await res.text();
+        async function openFile(path) {
+            const response = await fetch(`/api/files/read/${currentServer.id}?path=${encodeURIComponent(path)}`);
+            if (!response.ok) return showToast('Cannot read file', 'error');
+            currentFile = path;
+            document.getElementById('fm-modal-filename').textContent = path.split('/').pop();
+            document.getElementById('fm-modal-textarea').value = await response.text();
             document.getElementById('fm-modal').classList.add('active');
         }
         async function saveFile() {

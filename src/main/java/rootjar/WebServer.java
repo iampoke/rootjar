@@ -15,6 +15,7 @@ import rootjar.config.ServerConfig;
 import rootjar.config.SoftwareRegistry;
 import rootjar.config.StopStrategy;
 import rootjar.console.ConsoleOutput;
+import rootjar.files.FileOps;
 import rootjar.supervisor.ChildProcess;
 import rootjar.supervisor.ChildState;
 import rootjar.supervisor.Supervisor;
@@ -183,6 +184,17 @@ public class WebServer {
         route("/api/files/zip/", this::handleFileZip);
         route("/api/files/upload/", this::handleFileUpload);
         route("/api/files/rename/", this::handleFileRename);
+        route("/api/files/download/", this::handleFileDownload);
+        route("/api/files/download-zip/", this::handleFileDownloadZip);
+        route("/api/files/search/", this::handleFileSearch);
+        route("/api/files/stat/", this::handleFileStat);
+        route("/api/files/move/", this::handleFileMove);
+        route("/api/files/copy/", this::handleFileCopy);
+        route("/api/files/extract/", this::handleFileExtract);
+        route("/api/files/trash/", this::handleFileTrash);
+        route("/api/files/restore/", this::handleFileRestore);
+        route("/api/files/empty-trash/", this::handleFileEmptyTrash);
+        route("/api/files/import/", this::handleFileImport);
 
         route("/api/logs/download", this::handleLogsDownload);
 
@@ -1402,6 +1414,180 @@ public class WebServer {
             }
             send(ex, 200, "Uploaded");
         } catch (Exception e) { send(ex, 500, e.getMessage()); }
+    }
+
+    private ChildProcess fileChild(HttpExchange ex, boolean mutate) throws IOException {
+        String id = ex.getRequestURI().getPath().substring(ex.getRequestURI().getPath().lastIndexOf('/') + 1);
+        if (!(mutate ? requireOperator(ex, id) : requireServer(ex, id))) return null;
+        ChildProcess child = supervisor.child(id).orElse(null);
+        if (child == null) send(ex, 404, "Not found");
+        return child;
+    }
+
+    private void handleFileDownload(HttpExchange ex) throws IOException {
+        ChildProcess child = fileChild(ex, false);
+        if (child == null) return;
+        try {
+            Path file = FileOps.resolve(child.config().dir(), param(ex, "path", ""));
+            if (!Files.isRegularFile(file)) { send(ex, 404, "Not found"); return; }
+            String name = file.getFileName().toString();
+            ex.getResponseHeaders().set("Content-Type", "application/octet-stream");
+            ex.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + name.replace("\"", "") + "\"");
+            ex.sendResponseHeaders(200, Files.size(file));
+            try (OutputStream out = ex.getResponseBody()) { Files.copy(file, out); }
+        } catch (Exception e) { send(ex, 403, e.getMessage()); }
+    }
+
+    private void handleFileDownloadZip(HttpExchange ex) throws IOException {
+        ChildProcess child = fileChild(ex, false);
+        if (child == null) return;
+        try {
+            Path source = FileOps.resolve(child.config().dir(), param(ex, "path", "."));
+            ex.getResponseHeaders().set("Content-Type", "application/zip");
+            ex.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + source.getFileName() + ".zip\"");
+            ex.sendResponseHeaders(200, 0);
+            FileOps.zip(source, ex.getResponseBody());
+            ex.close();
+        } catch (Exception e) { send(ex, 403, e.getMessage()); }
+    }
+
+    private void handleFileSearch(HttpExchange ex) throws IOException {
+        ChildProcess child = fileChild(ex, false);
+        if (child == null) return;
+        try {
+            Path root = FileOps.resolve(child.config().dir(), param(ex, "path", "."));
+            int limit = clampInt(param(ex, "limit", "200"), 200, 1, 200);
+            StringBuilder json = new StringBuilder("[");
+            boolean first = true;
+            for (Path match : FileOps.searchNames(root, param(ex, "q", ""), limit)) {
+                if (!first) json.append(',');
+                first = false;
+                json.append("{\"path\":\"").append(jsonEscape(child.config().dir().relativize(match).toString().replace('\\', '/')))
+                    .append("\",\"name\":\"").append(jsonEscape(match.getFileName().toString()))
+                    .append("\",\"dir\":").append(Files.isDirectory(match)).append('}');
+            }
+            send(ex, 200, json.append(']').toString());
+        } catch (Exception e) { send(ex, 403, e.getMessage()); }
+    }
+
+    private void handleFileStat(HttpExchange ex) throws IOException {
+        ChildProcess child = fileChild(ex, false);
+        if (child == null) return;
+        try {
+            Path file = FileOps.resolve(child.config().dir(), param(ex, "path", ""));
+            send(ex, 200, "{\"name\":\"" + jsonEscape(file.getFileName().toString()) + "\",\"dir\":" + Files.isDirectory(file)
+                    + ",\"size\":" + (Files.isDirectory(file) ? 0 : Files.size(file))
+                    + ",\"modified\":" + Files.getLastModifiedTime(file).toMillis() + "}");
+        } catch (Exception e) { send(ex, 403, e.getMessage()); }
+    }
+
+    private void handleFileMove(HttpExchange ex) throws IOException { transferFile(ex, true); }
+    private void handleFileCopy(HttpExchange ex) throws IOException { transferFile(ex, false); }
+
+    private void transferFile(HttpExchange ex, boolean move) throws IOException {
+        ChildProcess child = fileChild(ex, true);
+        if (child == null) return;
+        try {
+            String fromKey = move ? "old" : "from", toKey = move ? "new" : "to";
+            Path source = FileOps.resolve(child.config().dir(), param(ex, fromKey, ""));
+            Path target = FileOps.resolve(child.config().dir(), param(ex, toKey, ""));
+            if (move) Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+            else FileOps.copyRecursive(source, target);
+            send(ex, 200, move ? "Moved" : "Copied");
+        } catch (Exception e) { send(ex, 403, e.getMessage()); }
+    }
+
+    private void handleFileExtract(HttpExchange ex) throws IOException {
+        ChildProcess child = fileChild(ex, true);
+        if (child == null) return;
+        try {
+            Path zip = FileOps.resolve(child.config().dir(), param(ex, "path", ""));
+            String dest = param(ex, "dest", "");
+            if (dest.isBlank()) dest = param(ex, "path", "").replaceAll("(?i)\\.zip$", "");
+            FileOps.extract(zip, FileOps.resolve(child.config().dir(), dest));
+            send(ex, 200, "Extracted");
+        } catch (Exception e) { send(ex, 403, e.getMessage()); }
+    }
+
+    private void handleFileTrash(HttpExchange ex) throws IOException {
+        if (ex.getRequestURI().getPath().endsWith("/list")) { handleTrashList(ex); return; }
+        ChildProcess child = fileChild(ex, true);
+        if (child == null) return;
+        try {
+            Path source = FileOps.resolve(child.config().dir(), param(ex, "path", ""));
+            Path trash = child.config().dir().resolve(".trash");
+            Files.createDirectories(trash);
+            String stamped = System.currentTimeMillis() + "-" + source.getFileName();
+            Files.move(source, trash.resolve(stamped));
+            Files.writeString(trash.resolve(stamped + ".meta"), param(ex, "path", ""));
+            send(ex, 200, "{\"name\":\"" + jsonEscape(stamped) + "\"}");
+        } catch (Exception e) { send(ex, 403, e.getMessage()); }
+    }
+
+    private void handleTrashList(HttpExchange ex) throws IOException {
+        ChildProcess child = fileChild(ex, false);
+        if (child == null) return;
+        Path trash = child.config().dir().resolve(".trash");
+        StringBuilder json = new StringBuilder("[");
+        if (Files.isDirectory(trash)) {
+            boolean first = true;
+            try (Stream<Path> entries = Files.list(trash)) {
+                for (Path entry : entries.filter(p -> !p.getFileName().toString().endsWith(".meta")).toList()) {
+                    if (!first) json.append(',');
+                    first = false;
+                    Path meta = trash.resolve(entry.getFileName() + ".meta");
+                    String original = Files.exists(meta) ? Files.readString(meta).trim() : "";
+                    json.append("{\"name\":\"").append(jsonEscape(entry.getFileName().toString()))
+                        .append("\",\"original\":\"").append(jsonEscape(original)).append("\"}");
+                }
+            }
+        }
+        send(ex, 200, json.append(']').toString());
+    }
+
+    private void handleFileRestore(HttpExchange ex) throws IOException {
+        ChildProcess child = fileChild(ex, true);
+        if (child == null) return;
+        try {
+            String name = FileOps.safeName(param(ex, "name", ""));
+            Path trashed = child.config().dir().resolve(".trash").resolve(name);
+            Path meta = trashed.resolveSibling(name + ".meta");
+            String original = Files.exists(meta) ? Files.readString(meta).trim() : name.replaceFirst("^\\d+-", "");
+            Path target = FileOps.resolve(child.config().dir(), original);
+            if (Files.exists(target)) target = target.resolveSibling(target.getFileName() + ".restored");
+            Files.createDirectories(target.getParent());
+            Files.move(trashed, target);
+            Files.deleteIfExists(meta);
+            send(ex, 200, "Restored");
+        } catch (Exception e) { send(ex, 403, e.getMessage()); }
+    }
+
+    private void handleFileEmptyTrash(HttpExchange ex) throws IOException {
+        ChildProcess child = fileChild(ex, true);
+        if (child == null) return;
+        Path trash = child.config().dir().resolve(".trash");
+        if (Files.isDirectory(trash)) {
+            try (Stream<Path> walk = Files.walk(trash)) {
+                walk.sorted(Comparator.reverseOrder()).filter(p -> !p.equals(trash)).forEach(p -> {
+                    try { Files.deleteIfExists(p); } catch (IOException ignored) {}
+                });
+            }
+        }
+        send(ex, 200, "Trash emptied");
+    }
+
+    private void handleFileImport(HttpExchange ex) throws IOException {
+        ChildProcess child = fileChild(ex, true);
+        if (child == null) return;
+        Path temp = Files.createTempFile(child.config().dir(), ".import-", ".zip");
+        try {
+            try (InputStream in = ex.getRequestBody()) { Files.copy(in, temp, StandardCopyOption.REPLACE_EXISTING); }
+            String dest = param(ex, "path", "public");
+            FileOps.extract(temp, FileOps.resolve(child.config().dir(), dest));
+            send(ex, 200, "Imported");
+        } catch (Exception e) {
+            send(ex, 403, e.getMessage());
+        } finally { Files.deleteIfExists(temp); }
     }
 
     private void handleInstallPaper(HttpExchange ex) throws IOException {
