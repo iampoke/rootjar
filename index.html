@@ -438,7 +438,7 @@
         .restart-banner { display:none; margin-bottom:12px; padding:12px 14px; border-radius:10px; background:hsla(40,90%,60%,.15); color:var(--warning); }
         .fm-check { width:42px; text-align:center; }
         .fm-check input, .fm-row-check { width:16px; height:16px; accent-color:var(--accent); cursor:pointer; }
-        .fm-selected { background:hsla(215,80%,60%,.12); }
+        .fm-name { cursor:pointer; }
     </style>
 </head>
 <body class="mc-font">
@@ -1475,6 +1475,7 @@
             const res = await fetch('/api/status');
             if (!res.ok) return;
             const data = await res.json();
+            if (!data || !Array.isArray(data.servers)) return;
             isAdmin = data.isAdmin;
             window.csrfToken = data.csrfToken || '';
             currentServersList = data.servers;
@@ -2129,9 +2130,11 @@
                 row.draggable = !searchResults;
                 row.dataset.path = relative;
                 row.dataset.dir = file.dir ? '1' : '0';
-                row.innerHTML = `<td class="fm-check"><input class="fm-row-check" type="checkbox" data-path="${escapeHtml(relative)}" aria-label="Select ${escapeHtml(file.name)}"></td><td>${file.dir ? '📁' : '📄'} ${escapeHtml(file.name)}</td><td>${file.dir ? '-' : fmtBytes(file.size || 0)}</td><td>${file.modified ? new Date(file.modified).toLocaleString() : ''}</td><td><button class="fm-btn" onclick="downloadFile('${escapeHtml(relative)}', ${file.dir})">Download</button></td>`;
-                row.querySelector('.fm-row-check').onchange = event => toggleFileSelection(relative, event.target.checked);
-                row.querySelector('td').onclick = () => file.dir && !searchResults ? loadFileList(relative) : (!file.dir && openFile(relative));
+                row.innerHTML = `<td class="fm-check"><input class="fm-row-check" type="checkbox" data-path="${escapeHtml(relative)}" aria-label="Select ${escapeHtml(file.name)}"></td><td class="fm-name">${file.dir ? '📁' : '📄'} ${escapeHtml(file.name)}</td><td>${file.dir ? '-' : fmtBytes(file.size || 0)}</td><td>${file.modified ? new Date(file.modified).toLocaleString() : ''}</td><td><button class="fm-btn" onclick="downloadFile('${escapeHtml(relative)}', ${file.dir})">Download</button></td>`;
+                const checkbox = row.querySelector('.fm-row-check');
+                checkbox.onclick = event => event.stopPropagation();
+                checkbox.onchange = event => toggleFileSelection(relative, event.target.checked);
+                row.querySelector('.fm-name').onclick = () => file.dir && !searchResults ? loadFileList(relative) : (!file.dir && openFile(relative));
                 row.oncontextmenu = event => showCtx(event, relative);
                 row.ondragstart = event => event.dataTransfer.setData('text/panel-path', relative);
                 if (file.dir) row.ondragover = event => { event.preventDefault(); row.classList.add('fm-row-drop'); };
