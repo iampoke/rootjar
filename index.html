@@ -360,7 +360,9 @@
         .software-card.disabled { cursor: not-allowed; opacity: .6; }
         .software-card.disabled:hover { border-color: var(--border); }
         .software-card-head { display: flex; gap: 10px; align-items: center; min-width: 0; }
-        .software-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; color: hsl(215,20%,8%); flex-shrink: 0; }
+        .software-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; color: hsl(215,20%,8%); flex-shrink: 0; overflow: hidden; }
+        .software-icon.has-logo { background: var(--bg-hover); color: transparent; position: relative; }
+        .software-icon img { width: 30px; height: 30px; object-fit: contain; position: absolute; }
         .software-title { min-width: 0; }
         .software-name { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .software-cat { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); }
@@ -2791,6 +2793,32 @@
             return h;
         }
 
+        // Only the Change Version cards use these logos. Keep the initial visible if an image is unavailable.
+        const SOFTWARE_LOGOS = Object.freeze({
+            vanilla: 'https://cdn.revivenode.com/Images/versions/vanilla.gif',
+            paper: 'https://cdn.revivenode.com/Images/versions/paper.png',
+            purpur: 'https://cdn.revivenode.com/Images/versions/purpur.png',
+            fabric: 'https://cdn.revivenode.com/Images/versions/fabric.png',
+            quilt: 'https://github.com/QuiltMC.png?size=96',
+            folia: 'https://cdn.revivenode.com/Images/versions/folia.png',
+            velocity: 'https://cdn.revivenode.com/Images/versions/velocity.png',
+            waterfall: 'https://cdn.revivenode.com/Images/versions/waterfall.png',
+            bungeecord: 'https://cdn.revivenode.com/Images/versions/bungeecord.png',
+            forge: 'https://cdn.revivenode.com/Images/versions/forge.png',
+            neoforge: 'https://cdn.revivenode.com/Images/versions/neoforge.png',
+            spigot: 'https://cdn.revivenode.com/Images/versions/spigot.png',
+            arclight: 'https://github.com/ArclightPowered.png?size=96'
+        });
+
+        function softwareLogoFailed(img) {
+            const tile = img.parentElement;
+            if (tile) {
+                tile.classList.remove('has-logo');
+                tile.style.background = tile.style.getPropertyValue('--fallback-bg');
+            }
+            img.remove();
+        }
+
         function renderSoftwareGrid() {
             const grid = document.getElementById('software-grid');
             if (!grid) return;
@@ -2839,10 +2867,14 @@
                     : (!canChange ? 'You do not have permission to change this server.' : '');
                 const hue = softwareHue(id);
                 const initial = escapeHtml(name.charAt(0).toUpperCase() || '?');
+                const logo = SOFTWARE_LOGOS[id.toLowerCase()];
+                const icon = logo
+                    ? `<div class="software-icon has-logo" style="--fallback-bg: hsl(${hue}, 62%, 62%);">${initial}<img src="${logo}" alt="" loading="lazy" onerror="softwareLogoFailed(this)"></div>`
+                    : `<div class="software-icon" style="background: hsl(${hue}, 62%, 62%);">${initial}</div>`;
                 const click = disabled ? '' : ` onclick="openVersionPicker(this.dataset.software)"`;
                 return `<div class="software-card${isCurrent ? ' current' : ''}${disabled ? ' disabled' : ''}" data-software="${escapeHtml(id)}"${click} tabindex="${disabled ? '-1' : '0'}" role="button" aria-disabled="${disabled ? 'true' : 'false'}">
                     <div class="software-card-head">
-                        <div class="software-icon" style="background: hsl(${hue}, 62%, 62%);">${initial}</div>
+                        ${icon}
                         <div class="software-title">
                             <div class="software-name">${escapeHtml(name)}</div>
                             <div class="software-cat">${escapeHtml(category || 'Software')}</div>
