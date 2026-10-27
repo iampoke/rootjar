@@ -1044,7 +1044,7 @@ public class WebServer {
         if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
         String body = new String(ex.getRequestBody().readNBytes(8193), StandardCharsets.UTF_8);
         if (body.length() > 8192) { send(ex, 413, "Request too large"); return; }
-        String id = extractJson(body, "id"), name = extractJson(body, "name"), jar = extractJson(body, "jar");
+        String id = extractJson(body, "id"), name = extractJson(body, "name"), jar = extractJson(body, "jar"), type = extractJson(body, "type");
         if (!id.matches("[A-Za-z0-9_-]+") || !name.matches("[A-Za-z0-9_-]+")
                 || Set.of("status", "help", "stop").contains(name.toLowerCase(java.util.Locale.ROOT))) {
             send(ex, 400, "Invalid server name"); return;
@@ -1055,6 +1055,7 @@ public class WebServer {
         if (port < 1 || port > 65535 || port == config.server().port() || ram < 128 || ram > 1048576) {
             send(ex, 400, "Port or RAM outside allowed range"); return;
         }
+        if (!type.isBlank() && !type.matches("[a-z0-9_-]{1,32}")) { send(ex, 400, "Invalid server type"); return; }
         if (jar.isBlank()) jar = null;
         else {
             jar = Paths.get(jar.replace('\\', '/')).getFileName().toString();
@@ -1079,7 +1080,7 @@ public class WebServer {
             if (!name.equals(id) && (Files.exists(newDir) || !oldDir.toAbsolutePath().normalize().getParent().equals(newDir.toAbsolutePath().normalize().getParent()))) {
                 send(ex, 409, "Destination folder already exists or is outside the server directory"); return;
             }
-            ChildConfig updated = new ChildConfig(name, old.type(), newDir, jar == null ? old.jar() : jar, ram + "M", old.xmsEqualXmx(),
+            ChildConfig updated = new ChildConfig(name, type.isBlank() ? old.type() : type, newDir, jar == null ? old.jar() : jar, ram + "M", old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(), old.startOrder(),
                 old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(), old.extraFlags(),
                 old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart());
