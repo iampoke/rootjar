@@ -36,6 +36,17 @@ public final class Supervisor implements ChildProcess.ExitListener {
         }
     }
 
+    public synchronized void reorder(List<String> ids) {
+        Map<String, ChildProcess> ordered = new LinkedHashMap<>();
+        for (String id : ids) {
+            ChildProcess child = children.get(id);
+            if (child != null) ordered.put(id, child);
+        }
+        for (var entry : children.entrySet()) ordered.putIfAbsent(entry.getKey(), entry.getValue());
+        children.clear();
+        children.putAll(ordered);
+    }
+
     public synchronized void addChild(ChildConfig c) {
         addChildInternal(c);
         ConsoleOutput.root("dynamically added new child: " + c.id());

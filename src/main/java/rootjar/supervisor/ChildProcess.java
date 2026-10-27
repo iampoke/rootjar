@@ -14,6 +14,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -115,6 +117,7 @@ public final class ChildProcess {
             cmd = CommandLineBuilder.build(cfg, javaFor(cfg));
         }
         ConsoleOutput.root("starting " + id() + " in " + cfg.dir() + ": " + String.join(" ", cmd));
+        repairCopiedFiles(cfg.dir());
         Process p;
         try {
             p = new ProcessBuilder(cmd)
@@ -140,6 +143,25 @@ public final class ChildProcess {
         pump.start();
         monitor.start();
         return true;
+    }
+
+    /** Makes a transferred server folder writable by the user running Rootjar. */
+    private static void repairCopiedFiles(Path root) {
+        if (root == null || !Files.isDirectory(root)) return;
+        try (var paths = Files.walk(root)) {
+            paths.forEach(path -> {
+                try {
+                    if (!path.getFileSystem().supportedFileAttributeViews().contains("posix")) return;
+                    var permissions = EnumSet.copyOf(Files.getPosixFilePermissions(path));
+                    permissions.add(PosixFilePermission.OWNER_READ);
+                    permissions.add(PosixFilePermission.OWNER_WRITE);
+                    if (Files.isDirectory(path)) permissions.add(PosixFilePermission.OWNER_EXECUTE);
+                    Files.setPosixFilePermissions(path, permissions);
+                } catch (IOException ignored) {}
+            });
+        } catch (IOException e) {
+            ConsoleOutput.root("could not repair permissions in " + root.getFileName() + ": " + e.getMessage());
+        }
     }
     
     public void kill() {

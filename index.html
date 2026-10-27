@@ -9,7 +9,7 @@
     <style>
         :root { --hue: 215; --bg-body: hsl(var(--hue), 20%, 8%); --bg-panel: hsl(var(--hue), 20%, 12%); --bg-card: hsl(var(--hue), 20%, 15%); --bg-hover: hsl(var(--hue), 20%, 20%); --bg-input: hsl(var(--hue), 20%, 10%); --text-main: hsl(var(--hue), 10%, 90%); --text-muted: hsl(var(--hue), 10%, 60%); --text-dark: hsl(var(--hue), 10%, 40%); --accent: hsl(var(--hue), 80%, 60%); --accent-hover: hsl(var(--hue), 80%, 50%); --success: hsl(150, 70%, 50%); --danger: hsl(350, 70%, 60%); --warning: hsl(40, 90%, 60%); --border: hsl(var(--hue), 20%, 18%); --border-light: hsl(var(--hue), 20%, 25%); --shadow: 0 8px 24px rgba(0,0,0,0.4); --font-main: 'Inter', sans-serif; --font-mono: monospace; }
         
-        body.mc-font { font-family: 'Minecraft', monospace; -webkit-font-smoothing: none; image-rendering: pixelated; font-size: 16px; }
+        body.mc-font { font-family: 'Minecraft', monospace; font-variant: normal; text-transform: none; -webkit-font-smoothing: none; image-rendering: pixelated; font-size: 16px; }
         body.mc-font * { font-weight: normal !important; }
         
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -129,6 +129,9 @@
         /* NEW DASHBOARD CARDS */
         .server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(450px, 1fr)); gap: 20px; }
         .server-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+        .server-card[draggable="true"], .manage-row[draggable="true"] { cursor: grab; }
+        .server-card.dragging, .manage-row.dragging { opacity: .45; }
+        .drop-target { outline: 2px solid var(--accent); outline-offset: -2px; }
         .sc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
         .sc-name { font-size: 18px; font-weight: 700; }
         .sc-status { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
@@ -145,6 +148,22 @@
         .sc-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; }
         
         .sc-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+        .power-icon { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-hover); color: var(--text-main); cursor: pointer; }
+        .power-icon svg { width: 16px; height: 16px; }
+        .power-icon:hover { border-color: var(--accent); color: var(--accent); background: var(--bg-panel); }
+        .power-icon.stop:hover { border-color: var(--danger); color: var(--danger); }
+        .backup-list { display: grid; gap: 12px; }
+        .backup-card { display: flex; align-items: center; gap: 16px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-panel); }
+        .backup-icon { width: 42px; height: 42px; flex: 0 0 42px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: var(--bg-hover); color: var(--accent); }
+        .backup-icon svg { width: 20px; height: 20px; }
+        .backup-copy { min-width: 0; flex: 1; }
+        .backup-copy strong, .backup-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .backup-copy span { margin-top: 4px; color: var(--text-muted); font-size: 12px; }
+        .backup-actions { display: flex; gap: 8px; }
+        .backup-actions button { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; }
+        .backup-actions svg { width: 16px; height: 16px; }
+        .backup-actions button:hover { color: var(--accent); border-color: var(--accent); background: var(--bg-hover); }
+        .backup-actions .danger:hover { color: var(--danger); border-color: var(--danger); }
         .sc-uptime { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); }
         
         .btn { background: var(--accent); color: var(--bg-body); padding: 8px 16px; border-radius: 6px; font-weight: 600; border: none; cursor: pointer; }
@@ -486,7 +505,7 @@
                     <div class="theme-dot" style="background: hsl(350, 70%, 60%);" onclick="setTheme(350, this)"></div>
                 </div>
                 <label class="font-toggle">
-                    <input type="checkbox" id="mcFontToggle" checked onchange="toggleFont()"> MC Font
+                    <input type="checkbox" id="mcFontToggle" onchange="toggleFont()"> MC Font
                 </label>
                 <div class="avatar" id="avatar-name">A</div>
                 <button class="btn btn-outline" style="padding:6px 14px;" onclick="doLogout()">Log out</button>
@@ -684,6 +703,7 @@
                                   <div class="form-group"><label>Server Name</label><input id="edit-server-name" type="text"></div>
                                   <div class="form-group"><label>Port</label><input id="edit-server-port" type="number" min="1" max="65535"></div>
                                   <div class="form-group"><label>RAM (MB)</label><input id="edit-server-ram" type="number" min="128"></div>
+                                  <div class="form-group" id="edit-server-jar-group"><label>Server Jar File</label><input id="edit-server-jar" type="text" placeholder="server.jar"></div>
                               </div>
                           </div>
                           <div class="wizard-footer"><button class="btn btn-outline" onclick="closeEditServer()">Cancel</button><button class="btn" id="edit-server-save" style="margin-left:auto" onclick="saveEditServer()">Save Changes</button></div>
@@ -816,8 +836,7 @@
                     <div id="tab-backups" class="tab-container">
                         <div class="fm-page">
                             <div class="fm-toolbar"><h2>Backups</h2><div class="fm-spacer"></div><button class="fm-btn fm-btn-accent" onclick="createBackup()">Create Backup</button></div>
-                            <p class="version-note" id="backup-retention">The newest backups are kept automatically.</p>
-                            <div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Name</th><th>Size</th><th>Created</th><th></th></tr></thead><tbody id="backup-tbody"></tbody></table></div>
+                            <div class="backup-list" id="backup-list"></div>
                         </div>
                     </div>
                     <div id="tab-plugins" class="tab-container">
@@ -1397,7 +1416,16 @@
         }
         
         function toggleFont() {
-            document.body.classList.toggle('mc-font', document.getElementById('mcFontToggle').checked);
+            const enabled = document.getElementById('mcFontToggle').checked;
+            document.body.classList.toggle('mc-font', enabled);
+            localStorage.setItem('rootjar-mc-font', enabled ? '1' : '0');
+        }
+
+        function restoreFont() {
+            const enabled = localStorage.getItem('rootjar-mc-font') === '1';
+            const toggle = document.getElementById('mcFontToggle');
+            if (toggle) toggle.checked = enabled;
+            document.body.classList.toggle('mc-font', enabled);
         }
 
         async function copyText(text) {
@@ -1440,27 +1468,54 @@
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('app').style.display = 'flex';
                 document.getElementById('avatar-name').innerText = u.charAt(0).toUpperCase();
-                refresh();
+                await refresh();
+                openPanelPath();
                 setInterval(refresh, 2000);
+                window.addEventListener('popstate', openPanelPath);
             } else showToast("Invalid login", "error");
         }
 
         window.onload = async () => {
+            restoreFont();
             const res = await fetch('/api/status');
             if (res.ok) {
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('app').style.display = 'flex';
-                refresh();
+                await refresh();
+                openPanelPath();
                 setInterval(refresh, 2000);
+                window.addEventListener('popstate', openPanelPath);
             }
         };
 
-        function switchView(v) {
+        function panelPath(view, id) {
+            if (view === 'console' && id) return '/server/' + encodeURIComponent(id);
+            if (view === 'manage') return '/manage/server';
+            if (view === 'users') return '/manage/user';
+            if (view === 'settings') return '/settings';
+            return '/';
+        }
+
+        function switchView(v, id) {
             document.querySelectorAll('.view-wrapper').forEach(e => e.classList.remove('active'));
             document.getElementById('view-' + v).classList.add('active');
             if (v === 'settings') loadSettings();
             if (v === 'manage') { document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span> / <span>Manage</span>`; renderManageList(); }
             if (v === 'users') { document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span> / <span>Users</span>`; loadGlobalUsers(); }
+            const path = panelPath(v, id || (currentServer && currentServer.id));
+            if (location.pathname !== path) history.pushState({ panelPath: path }, '', path);
+        }
+
+        function openPanelPath() {
+            const path = decodeURIComponent(location.pathname);
+            if (path === '/manage/server') return switchView('manage');
+            if (path === '/manage/user') return switchView('users');
+            if (path === '/settings') return switchView('settings');
+            const server = path.match(/^\/server\/([^/]+)$/);
+            if (server) {
+                const found = currentServersList.find(s => s.id === server[1]);
+                if (found) openServer(found.id, found.port, found.type);
+            }
         }
 
         function switchTab(t) {
@@ -1549,6 +1604,9 @@
 
             if (document.getElementById('view-dashboard').classList.contains('active')) {
                 const grid = document.getElementById('server-grid'); grid.innerHTML = '';
+                const signature = JSON.stringify(data.servers);
+                if (window.serverRenderSignature === signature) return;
+                window.serverRenderSignature = signature;
                 if (data.servers.length === 0) {
                     grid.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding:40px; color:var(--text-muted);">No servers running.</div>`;
                     return;
@@ -1556,10 +1614,10 @@
                 const largestDisk = Math.max(...data.servers.map(server => Number(server.diskUsed) || 0), 1);
                 data.servers.forEach(s => {
                     const ramPct = Math.min((s.ramUsed / s.ramMax) * 100, 100);
-                    const cpuPct = Math.min((s.cpuUsed / cpuMaxPct) * 100, 100);
+                    const cpuPct = Math.min(s.cpuUsed, 100);
                     const diskPct = Math.min((s.diskUsed / largestDisk) * 100, 100);
                     
-                    grid.innerHTML += `<div class="server-card">
+                    grid.innerHTML += `<div class="server-card" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
                         <div class="sc-header">
                             <div>
                                 <div class="sc-name">${escapeHtml(s.id)}</div>
@@ -1574,7 +1632,7 @@
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect></svg>
                                     CPU
                                 </div>
-                                <div class="sc-stat-values"><span>${s.cpuUsed}%</span> <span>/ ${cpuMaxPct}%</span></div>
+                                <div class="sc-stat-values"><span>${s.cpuUsed}%</span> <span>used</span></div>
                                 <div class="sc-bar-bg"><div class="sc-bar-fill" style="width: ${cpuPct}%; background: var(--accent);"></div></div>
                             </div>
                             
@@ -1603,10 +1661,9 @@
                                 Uptime: ${s.uptime}
                             </div>
                             <div style="display:flex; gap:8px;">
-                                <button class="btn btn-outline" onclick="dashboardPower('${escapeHtml(s.id)}', '${s.status === 'STOPPED' ? 'start' : 'stop'}')">${s.status === 'STOPPED' ? 'Start' : 'Stop'}</button>
-                                <button class="btn btn-outline" onclick="dashboardPower('${escapeHtml(s.id)}', 'restart')">Restart</button>
+                                <button class="power-icon ${s.status === 'STOPPED' ? '' : 'stop'}" title="${s.status === 'STOPPED' ? 'Start' : 'Stop'}" aria-label="${s.status === 'STOPPED' ? 'Start' : 'Stop'}" onclick="dashboardPower('${escapeHtml(s.id)}', '${s.status === 'STOPPED' ? 'start' : 'stop'}')">${s.status === 'STOPPED' ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg>' : '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg>'}</button>
+                                <button class="power-icon" title="Restart" aria-label="Restart" onclick="dashboardPower('${escapeHtml(s.id)}', 'restart')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.2-5.8"></path><polyline points="21 3 21 9 15 9"></polyline></svg></button>
                                 ${s.type === 'website' && allowPanelIpView ? `<a class="btn btn-outline" href="http://${escapeHtml(currentPublicIp)}:${s.port}/" target="_blank" rel="noopener">Open Website</a>` : ''}
-                                ${isAdmin ? `<button class="btn btn-outline" style="border-color:var(--danger); color:var(--danger);" onclick="openDeleteModal('${s.id}')">Delete</button>` : ''}
                                 <button class="btn" onclick="openServer('${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')">Manage</button>
                             </div>
                         </div>
@@ -1624,7 +1681,7 @@
                     
                     document.getElementById('res-cpu-txt').innerText = s.cpuUsed + '%';
                     document.getElementById('res-cpu-val').innerText = s.cpuUsed + '%';
-                    document.getElementById('res-cpu-bar').style.width = Math.min((s.cpuUsed / cpuMaxPct) * 100, 100) + '%';
+                    document.getElementById('res-cpu-bar').style.width = Math.min(s.cpuUsed, 100) + '%';
 
                     const ramPct = Math.round((s.ramUsed / s.ramMax) * 100);
                     document.getElementById('res-ram-pct').innerText = ramPct + '%';
@@ -1645,11 +1702,45 @@
             }
         }
 
+        let draggedServerId = '';
+        function serverDragStart(event) {
+            draggedServerId = event.currentTarget.dataset.serverId;
+            event.currentTarget.classList.add('dragging');
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', draggedServerId);
+        }
+        function serverDragOver(event) {
+            event.preventDefault();
+            const target = event.currentTarget;
+            if (target.dataset.serverId !== draggedServerId) target.classList.add('drop-target');
+        }
+        function serverDragEnd(event) {
+            event.currentTarget.classList.remove('dragging');
+            document.querySelectorAll('.drop-target').forEach(item => item.classList.remove('drop-target'));
+        }
+        async function serverDrop(event) {
+            event.preventDefault();
+            const target = event.currentTarget;
+            target.classList.remove('drop-target');
+            const targetId = target.dataset.serverId;
+            if (!isAdmin || !draggedServerId || draggedServerId === targetId) return;
+            const ids = currentServersList.map(server => server.id);
+            const from = ids.indexOf(draggedServerId), to = ids.indexOf(targetId);
+            if (from < 0 || to < 0) return;
+            ids.splice(to, 0, ids.splice(from, 1)[0]);
+            currentServersList = ids.map(id => currentServersList.find(server => server.id === id));
+            window.serverRenderSignature = '';
+            renderManageList();
+            const response = await fetch('/api/server/reorder', { method: 'POST', body: JSON.stringify({ ids }) });
+            if (!response.ok) showToast(await response.text(), 'error');
+            refresh();
+        }
+
         function renderManageList() {
             const tbody = document.getElementById('manage-table-body');
             tbody.innerHTML = '';
             currentServersList.forEach(s => {
-                tbody.innerHTML += `<tr>
+                tbody.innerHTML += `<tr class="manage-row" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
                     <td><strong>${escapeHtml(s.id)}</strong></td>
                     <td>${typeBadge(s.type)}</td>
                     <td>${s.port}</td>
@@ -1800,7 +1891,7 @@
             updateServerIdentity();
             document.getElementById('sidebar-ip').innerText = displayAddress(port);
             document.getElementById('console-output').innerHTML = '';
-            switchView('console'); switchTab('console');
+            switchView('console', id); switchTab('console');
             reconnectConsole();
             refreshVersionInfo();
             const input = document.getElementById('console-input');
@@ -1909,11 +2000,21 @@
             if (!forks) {
                 if (wizardGameType === 'minecraft') {
                     forks = [
+                        {id: 'vanilla', name: 'Vanilla', ram: 1024},
                         {id: 'paper', name: 'Paper', ram: 1024},
                         {id: 'purpur', name: 'Purpur', ram: 1024},
                         {id: 'fabric', name: 'Fabric', ram: 1024},
                         {id: 'quilt', name: 'Quilt', ram: 1024},
-                        {id: 'spigot', name: 'Spigot', ram: 1024}
+                        {id: 'folia', name: 'Folia', ram: 1024},
+                        {id: 'velocity', name: 'Velocity', ram: 512},
+                        {id: 'waterfall', name: 'Waterfall', ram: 512},
+                        {id: 'travertine', name: 'Travertine', ram: 512},
+                        {id: 'bungeecord', name: 'BungeeCord', ram: 512},
+                        {id: 'nanolimbo', name: 'NanoLimbo', ram: 512},
+                        {id: 'forge', name: 'Forge', ram: 1024},
+                        {id: 'neoforge', name: 'NeoForge', ram: 1024},
+                        {id: 'spigot', name: 'Spigot', ram: 1024},
+                        {id: 'arclight', name: 'Arclight', ram: 1024}
                     ];
                 } else if (wizardGameType === 'discord_bot') {
                     forks = [
@@ -2135,12 +2236,16 @@
             const response = await fetch('/api/backups/list?server=' + encodeURIComponent(currentServer.id));
             if (!response.ok) return;
             const data = await response.json();
-            document.getElementById('backup-retention').textContent = 'Retention: newest ' + data.retention + ' backups are kept.';
-            const body = document.getElementById('backup-tbody');
-            body.innerHTML = (data.backups || []).map(backup => `<tr><td>${escapeHtml(backup.name)}</td><td>${fmtBytes(backup.size)}</td><td>${new Date(backup.created).toLocaleString()}</td><td><button class="fm-btn" onclick="downloadBackup('${escapeHtml(backup.name)}')">Download</button> <button class="fm-btn" onclick="restoreBackup('${escapeHtml(backup.name)}')">Restore</button> <button class="fm-btn" onclick="deleteBackup('${escapeHtml(backup.name)}')">Delete</button></td></tr>`).join('') || '<tr><td colspan="4">No backups yet.</td></tr>';
+            const list = document.getElementById('backup-list');
+            const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"></path><path d="M3 8h18"></path><path d="M10 12h4"></path><path d="M7 3h10l2 5H5z"></path></svg>';
+            list.innerHTML = (data.backups || []).map(backup => {
+                const name = escapeHtml(backup.name);
+                const when = backup.created ? new Date(backup.created).toLocaleString() : 'Unknown date';
+                return `<article class="backup-card"><div class="backup-icon">${icon}</div><div class="backup-copy"><strong>${name}</strong><span>${fmtBytes(backup.size)} · ${escapeHtml(when)}</span></div><div class="backup-actions"><button title="Download" aria-label="Download" onclick="downloadBackup('${name}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"></path><polyline points="7 11 12 16 17 11"></polyline><path d="M5 21h14"></path></svg></button><button title="Restore" aria-label="Restore" onclick="restoreBackup('${name}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 4 3 10 9 10"></polyline></svg></button><button class="danger" title="Delete" aria-label="Delete" onclick="deleteBackup('${name}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg></button></div></article>`;
+            }).join('') || '<div class="version-empty">No backups yet.</div>';
         }
         async function createBackup() {
-            const label = await promptModal({ title: 'Create Backup', label: 'Backup label (optional)', placeholder: 'manual', confirmText: 'Create Backup' });
+            const label = await promptModal({ title: 'Create Backup', label: 'Backup name (optional)', placeholder: 'my-backup', confirmText: 'Create Backup' });
             if (label === null) return;
             const response = await fetch(`/api/backups/create?server=${encodeURIComponent(currentServer.id)}&label=${encodeURIComponent(label)}&include_logs=1&force=1`, {method:'POST'});
             if (!response.ok) return showToast(await response.text(), 'error');
@@ -3214,6 +3319,8 @@
             document.getElementById('edit-server-name').value = server.id;
             document.getElementById('edit-server-port').value = server.port;
             document.getElementById('edit-server-ram').value = server.ramMax;
+            document.getElementById('edit-server-jar').value = server.jar || 'server.jar';
+            document.getElementById('edit-server-jar-group').style.display = server.type === 'website' ? 'none' : '';
             document.getElementById('edit-server-overlay').style.display = 'flex';
         }
         function closeEditServer() {
@@ -3224,13 +3331,18 @@
             const name = document.getElementById('edit-server-name').value.trim();
             const port = Number(document.getElementById('edit-server-port').value);
             const ram = Number(document.getElementById('edit-server-ram').value);
+            const jar = document.getElementById('edit-server-jar').value.trim();
+            const server = currentServersList.find(s => s.id === editingServerId);
             if (!/^[A-Za-z0-9_-]+$/.test(name) || !Number.isInteger(port) || port < 1 || port > 65535 || !Number.isInteger(ram) || ram < 128) {
                 showToast('Enter a valid name, port (1-65535), and RAM (at least 128 MB)', 'error'); return;
+            }
+            if (server && server.type !== 'website' && !/^[A-Za-z0-9._ -]+\.jar$/i.test(jar)) {
+                showToast('Jar file name must end with .jar', 'error'); return;
             }
             const button = document.getElementById('edit-server-save');
             button.disabled = true;
             try {
-                const response = await fetch('/api/server/edit', {method:'POST', body:JSON.stringify({id:editingServerId, name, port, ram})});
+                const response = await fetch('/api/server/edit', {method:'POST', body:JSON.stringify({id:editingServerId, name, port, ram, jar})});
                 if (!response.ok) { showToast(await response.text(), 'error'); return; }
                 closeEditServer();
                 await refresh();

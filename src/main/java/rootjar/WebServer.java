@@ -149,6 +149,7 @@ public class WebServer {
         route("/api/create/preview", this::handleCreatePreviewJar);
         route("/api/create/server", this::handleCreateServer);
         route("/api/server/edit", this::handleEditServer);
+        route("/api/server/reorder", this::handleReorderServers);
 
         // Server management endpoints
         route("/api/servers/", this::handleServerRoute);
@@ -443,7 +444,8 @@ public class WebServer {
 
     private void handleStatic(HttpExchange ex) throws IOException {
         String path = ex.getRequestURI().getPath();
-        if (!path.equals("/") && !path.equals("/index.html")) { send(ex, 404, "Not Found"); return; }
+        if (!path.equals("/") && !path.equals("/index.html") && !path.startsWith("/server/")
+                && !path.startsWith("/manage/") && !path.equals("/settings")) { send(ex, 404, "Not Found"); return; }
 
         byte[] bytes;
         Path file = Paths.get("index.html");
@@ -602,7 +604,7 @@ public class WebServer {
             if (!maxStr.equals("max")) maxRamMb = Long.parseLong(maxStr) / (1024 * 1024);
         } catch (Exception ignored) {}
 
-        int cpuMax = Math.max(100, Runtime.getRuntime().availableProcessors() * 100);
+        int cpuMax = detectCpuMax();
 
         long rxSpeed = 0, txSpeed = 0;
         synchronized (netStatsLock) {
@@ -660,7 +662,7 @@ public class WebServer {
                 while (samples.size() > 900) samples.removeFirst();
             }
         }
-        totalUsedCpu = Math.min(totalUsedCpu, cpuMax);
+        totalUsedCpu = Math.max(0, totalUsedCpu);
 
         StringBuilder sb = new StringBuilder();
         Session sess = sessionOf(ex);
@@ -771,11 +773,17 @@ public class WebServer {
         if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
         String type = extractQuery(ex.getRequestURI().getRawQuery(), "type");
         if (type == null || type.equals("minecraft")) {
-            send(ex, 200, "[{\"id\":\"paper\",\"name\":\"Paper\",\"ram_recommended\":1024},"
-                + "{\"id\":\"purpur\",\"name\":\"Purpur\",\"ram_recommended\":1024},"
-                + "{\"id\":\"fabric\",\"name\":\"Fabric\",\"ram_recommended\":1024},"
-                + "{\"id\":\"quilt\",\"name\":\"Quilt\",\"ram_recommended\":1024},"
-                + "{\"id\":\"spigot\",\"name\":\"Spigot\",\"ram_recommended\":1024}]");
+            StringBuilder json = new StringBuilder("[");
+            boolean first = true;
+            for (SoftwareRegistry.Software software : registry.catalog()) {
+                if (!first) json.append(',');
+                first = false;
+                int ram = software.category() == SoftwareRegistry.Category.PROXY ? 512 : 1024;
+                json.append("{\"id\":\"").append(jsonEscape(software.id()))
+                    .append("\",\"name\":\"").append(jsonEscape(software.name()))
+                    .append("\",\"ram_recommended\":").append(ram).append('}');
+            }
+            send(ex, 200, json.append(']').toString());
         } else if (type.equals("discord_bot")) {
             send(ex, 200, "[{\"id\":\"jda\",\"name\":\"JDA (Java Discord API)\",\"ram_recommended\":512},"
                 + "{\"id\":\"discord4j\",\"name\":\"Discord4J\",\"ram_recommended\":512}]");
@@ -786,6 +794,32 @@ public class WebServer {
         } else {
             send(ex, 200, "[]");
         }
+    }
+
+    /** Uses the container CPU quota when present, so a restricted JVM cannot report only 200%. */
+    private static int detectCpuMax() {
+        int processors = Math.max(1, Runtime.getRuntime().availableProcessors());
+        Double quotaCores = cgroupCpuCores();
+        int cores = quotaCores == null ? processors : (int) Math.ceil(quotaCores);
+        return Math.max(100, Math.max(processors, cores) * 100);
+    }
+
+    private static Double cgroupCpuCores() {
+        try {
+            String max = Files.readString(Paths.get("/sys/fs/cgroup/cpu.max")).trim();
+            String[] parts = max.split("\\s+");
+            if (parts.length == 2 && !parts[0].equals("max")) {
+                double quota = Double.parseDouble(parts[0]);
+                double period = Double.parseDouble(parts[1]);
+                if (quota > 0 && period > 0) return quota / period;
+            }
+        } catch (Exception ignored) {}
+        try {
+            double quota = Double.parseDouble(Files.readString(Paths.get("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")).trim());
+            double period = Double.parseDouble(Files.readString(Paths.get("/sys/fs/cgroup/cpu/cpu.cfs_period_us")).trim());
+            if (quota > 0 && period > 0) return quota / period;
+        } catch (Exception ignored) {}
+        return null;
     }
 
     private void handleCreateVersions(HttpExchange ex) throws IOException {
@@ -976,13 +1010,41 @@ public class WebServer {
         } catch (IOException e) { send(ex, 500, e.getMessage()); }
     }
 
+    /** Saves the dashboard drag order without changing start or stop behavior. */
+    private void handleReorderServers(HttpExchange ex) throws IOException {
+        if (!ex.getRequestMethod().equals("POST")) { send(ex, 405, "Method not allowed"); return; }
+        if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
+        String body = new String(ex.getRequestBody().readNBytes(8193), StandardCharsets.UTF_8);
+        if (body.length() > 8192) { send(ex, 413, "Request too large"); return; }
+        List<String> ids = new ArrayList<>();
+        int arrayStart = body.indexOf('['), arrayEnd = body.indexOf(']');
+        String array = arrayStart >= 0 && arrayEnd > arrayStart ? body.substring(arrayStart, arrayEnd) : "";
+        Matcher matcher = Pattern.compile("\"([A-Za-z0-9_-]+)\"").matcher(array);
+        while (matcher.find()) ids.add(matcher.group(1));
+        synchronized (supervisor) {
+            Set<String> known = supervisor.children().stream().map(ChildProcess::id).collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+            if (!known.equals(new LinkedHashSet<>(ids))) { send(ex, 400, "Server list is out of date"); return; }
+            supervisor.reorder(ids);
+            List<ChildConfig> children = new ArrayList<>();
+            int index = 1;
+            for (ChildProcess child : supervisor.children()) {
+                ChildConfig updated = child.config().withOrders(index, supervisor.children().size() - index + 1);
+                child.setConfig(updated);
+                children.add(updated);
+                index++;
+            }
+            saveConfig(new RootConfig(config.server(), children, config.baseDir()));
+        }
+        send(ex, 200, "{\"saved\":true}");
+    }
+
     /** Change allocation or rename a stopped server without touching its world/site files. */
     private void handleEditServer(HttpExchange ex) throws IOException {
         if (!ex.getRequestMethod().equals("POST")) { send(ex, 405, "Method not allowed"); return; }
         if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
         String body = new String(ex.getRequestBody().readNBytes(8193), StandardCharsets.UTF_8);
         if (body.length() > 8192) { send(ex, 413, "Request too large"); return; }
-        String id = extractJson(body, "id"), name = extractJson(body, "name");
+        String id = extractJson(body, "id"), name = extractJson(body, "name"), jar = extractJson(body, "jar");
         if (!id.matches("[A-Za-z0-9_-]+") || !name.matches("[A-Za-z0-9_-]+")
                 || Set.of("status", "help", "stop").contains(name.toLowerCase(java.util.Locale.ROOT))) {
             send(ex, 400, "Invalid server name"); return;
@@ -992,6 +1054,13 @@ public class WebServer {
         catch (NumberFormatException e) { send(ex, 400, "Invalid port or RAM"); return; }
         if (port < 1 || port > 65535 || port == config.server().port() || ram < 128 || ram > 1048576) {
             send(ex, 400, "Port or RAM outside allowed range"); return;
+        }
+        if (jar.isBlank()) jar = null;
+        else {
+            jar = Paths.get(jar.replace('\\', '/')).getFileName().toString();
+            if (jar.equals(".") || jar.equals("..") || !jar.toLowerCase(java.util.Locale.ROOT).endsWith(".jar")) {
+                send(ex, 400, "Jar file name must end with .jar"); return;
+            }
         }
         synchronized (supervisor) {
             ChildProcess child = supervisor.child(id).orElse(null);
@@ -1010,7 +1079,7 @@ public class WebServer {
             if (!name.equals(id) && (Files.exists(newDir) || !oldDir.toAbsolutePath().normalize().getParent().equals(newDir.toAbsolutePath().normalize().getParent()))) {
                 send(ex, 409, "Destination folder already exists or is outside the server directory"); return;
             }
-            ChildConfig updated = new ChildConfig(name, old.type(), newDir, old.jar(), ram + "M", old.xmsEqualXmx(),
+            ChildConfig updated = new ChildConfig(name, old.type(), newDir, jar == null ? old.jar() : jar, ram + "M", old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(), old.startOrder(),
                 old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(), old.extraFlags(),
                 old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart());

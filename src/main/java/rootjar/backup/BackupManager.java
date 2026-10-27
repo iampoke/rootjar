@@ -39,9 +39,10 @@ public final class BackupManager {
 
     public static BackupInfo create(ChildConfig child, String label, boolean includeLogs, int retention) throws IOException {
         String safeLabel = label == null ? "" : label.replaceAll("[^A-Za-z0-9._-]", "");
-        String prefix = child.id() + "-" + LocalDateTime.now().format(STAMP) + (safeLabel.isBlank() ? "" : "-" + safeLabel);
+        if (safeLabel.toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) safeLabel = safeLabel.substring(0, safeLabel.length() - 4);
+        String prefix = safeLabel.isBlank() ? child.id() + "-" + LocalDateTime.now().format(STAMP) : safeLabel;
         String name = prefix + ".zip";
-        for (int suffix = 1; Files.exists(directory(child).resolve(name)); suffix++) name = prefix + "-" + suffix + ".zip";
+        for (int suffix = 2; Files.exists(directory(child).resolve(name)); suffix++) name = prefix + "-" + suffix + ".zip";
         Path destination = directory(child).resolve(name);
         Path temp = destination.resolveSibling(name + ".part");
         try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(temp))) {
