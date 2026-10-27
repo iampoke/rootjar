@@ -69,7 +69,9 @@ public class WebServer {
 
     /** Optional previous/next panel links shown as fixed buttons in the UI. */
     private record NodeButtons(String previousUrl, String nextUrl, boolean showPrevious, boolean showNext) {}
+    private record PanelOptions(List<Integer> ports, long diskLimitBytes, long backupLimitBytes, boolean setupComplete) {}
     private volatile NodeButtons nodeButtons;
+    private volatile PanelOptions panelOptions;
     private final Path nodeButtonsPath;
     
     private final Map<Long, Long> lastCpuTime = new ConcurrentHashMap<>();
@@ -130,6 +132,7 @@ public class WebServer {
         this.configPath = configPath;
         this.nodeButtonsPath = config.baseDir().resolve("node-buttons.properties");
         this.nodeButtons = loadNodeButtons(this.nodeButtonsPath);
+        this.panelOptions = loadPanelOptions(config.baseDir().resolve("panel-options.properties"));
         // httpClient is a field initializer, so both dependencies exist here.
         this.registry = new SoftwareRegistry(httpClient);
         this.javaRuntimes = new JavaRuntimes(config.baseDir(), httpClient);
@@ -682,6 +685,10 @@ public class WebServer {
           .append(",\"nodeNextUrl\":\"").append(jsonEscape(nodeButtons.nextUrl())).append("\"")
           .append(",\"nodeShowPrevious\":").append(nodeButtons.showPrevious())
           .append(",\"nodeShowNext\":").append(nodeButtons.showNext())
+          .append(",\"availablePorts\":").append(availablePortsJson())
+          .append(",\"diskLimit\":").append(panelOptions.diskLimitBytes())
+          .append(",\"backupLimit\":").append(panelOptions.backupLimitBytes())
+          .append(",\"setupComplete\":").append(panelOptions.setupComplete())
           .append(",\"servers\":[");
         boolean first = true;
         for (ChildStats s : stats) {
@@ -1779,7 +1786,11 @@ public class WebServer {
                     + ",\"nodePreviousUrl\":\"" + jsonEscape(nodeButtons.previousUrl()) + "\""
                     + ",\"nodeNextUrl\":\"" + jsonEscape(nodeButtons.nextUrl()) + "\""
                     + ",\"nodeShowPrevious\":" + nodeButtons.showPrevious()
-                    + ",\"nodeShowNext\":" + nodeButtons.showNext() + "}");
+                    + ",\"nodeShowNext\":" + nodeButtons.showNext()
+                    + ",\"ports\":\"" + jsonEscape(portListText()) + "\""
+                    + ",\"diskLimitGb\":" + (panelOptions.diskLimitBytes() / 1073741824L)
+                    + ",\"backupLimitGb\":" + (panelOptions.backupLimitBytes() / 1073741824L)
+                    + ",\"setupComplete\":" + panelOptions.setupComplete() + "}");
             return;
         }
         String body = new String(ex.getRequestBody().readNBytes(8193), StandardCharsets.UTF_8);
@@ -1805,6 +1816,13 @@ public class WebServer {
         saveConfig(new RootConfig(new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(),
                 old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(),
                 old.trustedProxies(), old.diskMaxGb(), retention, webhook, publicStatus, old.users()), config.children(), config.baseDir()));
+        if (jsonHas(body, "ports") || jsonHas(body, "diskLimitGb") || jsonHas(body, "backupLimitGb") || jsonHas(body, "setupComplete")) {
+            long diskGb = Math.max(0, parseLong(extractJson(body, "diskLimitGb")));
+            long backupGb = Math.max(0, parseLong(extractJson(body, "backupLimitGb")));
+            PanelOptions updatedOptions = new PanelOptions(parsePorts(extractJson(body, "ports")), diskGb * 1073741824L, backupGb * 1073741824L, !"false".equals(extractJson(body, "setupComplete")));
+            savePanelOptions(updatedOptions);
+            panelOptions = updatedOptions;
+        }
         if (updatedButtons != null) {
             try {
                 saveNodeButtons(updatedButtons);
@@ -1818,6 +1836,56 @@ public class WebServer {
         send(ex, 200, "{\"saved\":true}");
     }
 
+    private static long parseLong(String value) { try { return Long.parseLong(value); } catch (NumberFormatException e) { return 0; } }
+    private static List<Integer> parsePorts(String text) {
+        List<Integer> ports = new ArrayList<>();
+        for (String part : text.split("[,\\s]+")) {
+            if (part.isBlank()) continue;
+            try { int port = Integer.parseInt(part); if (port >= 1 && port <= 65535 && !ports.contains(port)) ports.add(port); }
+            catch (NumberFormatException ignored) {}
+        }
+        return ports;
+    }
+    private String portListText() { return panelOptions.ports().stream().map(String::valueOf).reduce((a, b) -> a + ", " + b).orElse(""); }
+    private String availablePortsJson() {
+        Set<Integer> used = supervisor.children().stream().map(child -> child.config().port()).collect(java.util.stream.Collectors.toSet());
+        StringBuilder json = new StringBuilder("[");
+        boolean first = true;
+        for (int port : panelOptions.ports()) {
+            if (used.contains(port)) continue;
+            if (!first) json.append(',');
+            first = false;
+            json.append(port);
+        }
+        return json.append(']').toString();
+    }
+    private static PanelOptions loadPanelOptions(Path file) {
+        String ports = "";
+        long disk = 0, backup = 0;
+        boolean setup = false;
+        if (Files.exists(file)) {
+            try {
+                for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                    if (!line.contains("=")) continue;
+                    String key = line.substring(0, line.indexOf('=')).trim();
+                    String value = line.substring(line.indexOf('=') + 1).trim();
+                    switch (key) {
+                        case "ports" -> ports = value;
+                        case "diskLimit" -> disk = parseLong(value);
+                        case "backupLimit" -> backup = parseLong(value);
+                        case "setupComplete" -> setup = value.equals("true");
+                    }
+                }
+            } catch (IOException ignored) {}
+        }
+        return new PanelOptions(parsePorts(ports), disk, backup, setup);
+    }
+    private void savePanelOptions(PanelOptions options) throws IOException {
+        Path file = config.baseDir().resolve("panel-options.properties");
+        Files.writeString(file, "ports=" + options.ports().stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("")
+                + "\ndiskLimit=" + options.diskLimitBytes() + "\nbackupLimit=" + options.backupLimitBytes()
+                + "\nsetupComplete=" + options.setupComplete() + "\n", StandardCharsets.UTF_8);
+    }
     private static boolean jsonHas(String json, String key) {
         return json != null && json.contains("\"" + key + "\"");
     }

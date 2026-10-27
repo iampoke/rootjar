@@ -59,6 +59,7 @@ public final class TaskScheduler {
                 String key = server + "|" + type + "|" + scheduled;
                 if (!now.equals(scheduled) || LocalDate.now().equals(lastRun.get(key))) continue;
                 if ("restart".equals(type)) supervisor.requestLifecycle(server, "restart");
+                else if ("backup".equals(type)) supervisor.child(server).ifPresent(child -> { try { rootjar.backup.BackupManager.create(child.config(), "scheduled", true, 5); } catch (IOException e) { ConsoleOutput.root("scheduled backup failed: " + e.getMessage()); } });
                 else if ("command".equals(type)) supervisor.child(server).ifPresent(child -> child.sendLine(String.valueOf(task.get("command"))));
                 lastRun.put(key, LocalDate.now());
             }

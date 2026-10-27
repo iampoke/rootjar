@@ -457,6 +457,18 @@
         .settings-grid label { display:grid; gap:6px; color:var(--text-muted); font-size:13px; }
         .settings-grid input { padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-main); }
         .settings-check { display:flex !important; align-items:center; gap:8px; }
+        .setup-overlay { position:fixed; inset:0; z-index:3000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.72); }
+        .setup-card { width:min(560px, calc(100% - 32px)); background:var(--bg-panel); border:1px solid var(--border); border-radius:16px; padding:24px; }
+        .limit-warning { margin-top:8px; color:var(--warning); font-size:12px; }
+        @media (max-width: 800px) {
+            .topbar, .dashboard-header, .sc-footer, .fm-toolbar, .wizard-footer { flex-wrap:wrap; height:auto; gap:8px; }
+            .dashboard-content, .console-layout { padding:12px; }
+            .server-grid, .sc-stats-row, .form-grid { grid-template-columns:1fr !important; }
+            .sidebar-left { width:100%; }
+            .console-layout, .view-wrapper, body { overflow:auto; }
+            .server-card, .backup-card { min-width:0; }
+            .sc-footer > div, .backup-actions { flex-wrap:wrap; }
+        }
         .settings-tasks { width:min(860px,100%); min-height:220px; margin:12px 0; padding:14px; border-radius:10px; border:1px solid var(--border); background:#111827; color:#d1d5db; font-family:var(--font-mono); }
         .restart-banner { display:none; margin-bottom:12px; padding:12px 14px; border-radius:10px; background:hsla(40,90%,60%,.15); color:var(--warning); }
         .fm-check { width:42px; text-align:center; }
@@ -568,10 +580,13 @@
                     <label>Next Node URL<input id="settings-next-url" type="url" placeholder="http://192.168.1.11:25568"></label>
                     <label class="settings-check"><input id="settings-prev-show" type="checkbox"> Show Previous Node button</label>
                     <label class="settings-check"><input id="settings-next-show" type="checkbox"> Show Next Node button</label>
+                    <label>Available Ports<input id="settings-ports" placeholder="25565, 25566, 25567"></label>
+                    <label>Server Disk Warning (GB, 0 disables)<input id="settings-disk-limit" type="number" min="0"></label>
+                    <label>Backup Warning (GB, 0 disables)<input id="settings-backup-limit" type="number" min="0"></label>
                     <div><button class="btn" onclick="saveSettings()">Save Settings</button></div>
                 </div>
                 <h2>Schedules</h2>
-                <p class="version-note">Edit tasks.yml. Each task needs server, type (`restart` or `command`), and time (`HH:mm`).</p>
+                <p class="version-note">Each task needs server, type (`restart`, `backup`, or `command`), and time (`HH:mm`). A backup task creates a scheduled backup.</p>
                 <textarea id="settings-tasks" class="settings-tasks" spellcheck="false"></textarea>
                 <button class="btn" onclick="saveTasks()">Save Schedules</button>
             </div>
@@ -666,7 +681,8 @@
                                       </div>
                                       <div class="form-group">
                                           <label>Port</label>
-                                          <input type="number" id="wizard-port" placeholder="25565" value="25565">
+                                          <input type="number" id="wizard-port" placeholder="25565" value="25565" list="available-ports">
+                                           <datalist id="available-ports"></datalist>
                                       </div>
                                       <div class="form-group">
                                           <label>RAM (MB)</label>
@@ -1193,6 +1209,7 @@
 
     <button type="button" class="node-nav prev" id="node-prev-btn" onclick="openNodeLink('prev')" title="Open the previous node panel">&#8592; Previous Node</button>
     <button type="button" class="node-nav next" id="node-next-btn" onclick="openNodeLink('next')" title="Open the next node panel">Next Node &#8594;</button>
+    <div class="setup-overlay" id="setup-overlay"><form class="setup-card" onsubmit="finishSetup(event)"><h2>Panel Setup</h2><p class="version-note">Choose the ports servers may use and optional size warnings. You can change these later in Settings.</p><label>Available Ports<input id="setup-ports" placeholder="25565, 25566, 25567"></label><label>Server Disk Warning GB<input id="setup-disk" type="number" min="0" value="0"></label><label>Backup Warning GB<input id="setup-backup" type="number" min="0" value="0"></label><button class="btn" style="margin-top:16px">Finish Setup</button></form></div>
 
     <script>
         let currentServer = null, currentPath = ".", currentFile = null, isAdmin = false;
@@ -1590,6 +1607,9 @@
             currentServersList = data.servers;
             allowPanelIpView = data.allowPanelIpView !== false;
             currentPublicIp = data.publicIp || "127.0.0.1";
+            const ports = document.getElementById('available-ports');
+            if (ports) ports.innerHTML = (data.availablePorts || []).map(port => `<option value="${port}"></option>`).join('');
+            if (isAdmin && data.setupComplete === false) document.getElementById('setup-overlay').style.display = 'flex';
             cpuMaxPct = data.cpuMax || 300;
             const storageMax = data.storageMax || 0;
             document.getElementById('create-btn').style.display = isAdmin ? 'block' : 'none';
@@ -1659,6 +1679,7 @@
                                     Storage
                                 </div>
                                 <div class="sc-stat-values"><span>${fmtBytes(s.diskUsed)}</span> <span>used</span></div>
+                                ${data.diskLimit > 0 && s.diskUsed > data.diskLimit ? `<div class="limit-warning">Over disk warning limit</div>` : ''}
                                 <div class="sc-bar-bg"><div class="sc-bar-fill" style="width: ${diskPct}%; background: #8b5cf6;"></div></div>
                             </div>
                         </div>
@@ -2417,8 +2438,9 @@
         async function bulkMove() { const destination = await promptModal({title:'Move Selected', label:'Destination folder', value:currentPath, confirmText:'Move'}); if (!destination) return; for (const path of [...fileSelection]) await fetch('/api/files/move/' + currentServer.id + '?old=' + encodeURIComponent(path) + '&new=' + encodeURIComponent(destination.replace(/\/$/, '') + '/' + path.split('/').pop()), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
         async function bulkTrash() { if (!await confirmPromise({title:'Move to Trash', body:'Move ' + fileSelection.size + ' selected item(s) to Trash?', confirmText:'Move to Trash', danger:true})) return; for (const path of [...fileSelection]) await fetch('/api/files/trash/' + currentServer.id + '?path=' + encodeURIComponent(path), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
         function updateRestartBanner() { const banner = document.getElementById('config-restart-banner'); const server = currentServersList.find(item => currentServer && item.id === currentServer.id); if (banner) banner.style.display = server && server.restartRequired ? 'block' : 'none'; }
-        async function loadSettings() { const response = await fetch('/api/settings'); if (!response.ok) return; const data = await response.json(); document.getElementById('settings-webhook').value = data.webhookUrl || ''; document.getElementById('settings-retention').value = data.backupRetention || 5; document.getElementById('settings-public').checked = data.publicStatus === true; document.getElementById('settings-prev-url').value = data.nodePreviousUrl || ''; document.getElementById('settings-next-url').value = data.nodeNextUrl || ''; document.getElementById('settings-prev-show').checked = data.nodeShowPrevious !== false; document.getElementById('settings-next-show').checked = data.nodeShowNext !== false; document.getElementById('settings-tasks').value = await (await fetch('/api/tasks')).text(); }
-        async function saveSettings() { const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({webhookUrl:document.getElementById('settings-webhook').value, backupRetention:document.getElementById('settings-retention').value, publicStatus:document.getElementById('settings-public').checked, nodePreviousUrl:document.getElementById('settings-prev-url').value, nodeNextUrl:document.getElementById('settings-next-url').value, nodeShowPrevious:document.getElementById('settings-prev-show').checked, nodeShowNext:document.getElementById('settings-next-show').checked})}); showToast(response.ok ? 'Settings saved' : await response.text(), response.ok ? 'success' : 'error'); }
+        async function loadSettings() { const response = await fetch('/api/settings'); if (!response.ok) return; const data = await response.json(); document.getElementById('settings-webhook').value = data.webhookUrl || ''; document.getElementById('settings-retention').value = data.backupRetention || 5; document.getElementById('settings-public').checked = data.publicStatus === true; document.getElementById('settings-prev-url').value = data.nodePreviousUrl || ''; document.getElementById('settings-next-url').value = data.nodeNextUrl || ''; document.getElementById('settings-prev-show').checked = data.nodeShowPrevious !== false; document.getElementById('settings-next-show').checked = data.nodeShowNext !== false; document.getElementById('settings-ports').value = data.ports || ''; document.getElementById('settings-disk-limit').value = data.diskLimitGb || 0; document.getElementById('settings-backup-limit').value = data.backupLimitGb || 0; document.getElementById('settings-tasks').value = await (await fetch('/api/tasks')).text(); }
+        async function saveSettings() { const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({webhookUrl:document.getElementById('settings-webhook').value, backupRetention:document.getElementById('settings-retention').value, publicStatus:document.getElementById('settings-public').checked, nodePreviousUrl:document.getElementById('settings-prev-url').value, nodeNextUrl:document.getElementById('settings-next-url').value, nodeShowPrevious:document.getElementById('settings-prev-show').checked, nodeShowNext:document.getElementById('settings-next-show').checked, ports:document.getElementById('settings-ports').value, diskLimitGb:document.getElementById('settings-disk-limit').value, backupLimitGb:document.getElementById('settings-backup-limit').value, setupComplete:true})}); showToast(response.ok ? 'Settings saved' : await response.text(), response.ok ? 'success' : 'error'); }
+        async function finishSetup(event) { event.preventDefault(); const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({webhookUrl:'', backupRetention:5, publicStatus:false, ports:document.getElementById('setup-ports').value, diskLimitGb:document.getElementById('setup-disk').value, backupLimitGb:document.getElementById('setup-backup').value, setupComplete:true})}); if (!response.ok) return showToast(await response.text(), 'error'); document.getElementById('setup-overlay').style.display = 'none'; refresh(); }
         async function saveTasks() { const response = await fetch('/api/tasks', {method:'POST', body:document.getElementById('settings-tasks').value}); showToast(response.ok ? 'Schedules saved' : await response.text(), response.ok ? 'success' : 'error'); }
         function downloadFile(path, directory) { window.open(`/api/files/${directory ? 'download-zip' : 'download'}/${currentServer.id}?path=${encodeURIComponent(path)}`); }
         async function createNewFile() {
