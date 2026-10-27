@@ -1603,6 +1603,8 @@
                                 Uptime: ${s.uptime}
                             </div>
                             <div style="display:flex; gap:8px;">
+                                <button class="btn btn-outline" onclick="dashboardPower('${escapeHtml(s.id)}', '${s.status === 'STOPPED' ? 'start' : 'stop'}')">${s.status === 'STOPPED' ? 'Start' : 'Stop'}</button>
+                                <button class="btn btn-outline" onclick="dashboardPower('${escapeHtml(s.id)}', 'restart')">Restart</button>
                                 ${s.type === 'website' && allowPanelIpView ? `<a class="btn btn-outline" href="http://${escapeHtml(currentPublicIp)}:${s.port}/" target="_blank" rel="noopener">Open Website</a>` : ''}
                                 ${isAdmin ? `<button class="btn btn-outline" style="border-color:var(--danger); color:var(--danger);" onclick="openDeleteModal('${s.id}')">Delete</button>` : ''}
                                 <button class="btn" onclick="openServer('${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')">Manage</button>
@@ -1761,6 +1763,12 @@
         async function powerAction(action) {
             if (!currentServer) return;
             await fetch('/api/action/' + currentServer.id, { method: 'POST', body: action });
+            refresh();
+        }
+
+        async function dashboardPower(id, action) {
+            const response = await fetch('/api/action/' + encodeURIComponent(id), { method: 'POST', body: action });
+            if (!response.ok) showToast(await response.text() || 'Could not ' + action + ' server', 'error');
             refresh();
         }
 
