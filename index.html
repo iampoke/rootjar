@@ -134,6 +134,7 @@
         .drop-target { outline: 2px solid var(--accent); outline-offset: -2px; }
         .sc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
         .sc-name { font-size: 18px; font-weight: 700; }
+        .server-address { color: var(--text-muted) !important; }
         .sc-status { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
         .sc-status.RUNNING { background: rgba(16,185,129,0.1); color: var(--success); }
         .sc-status.STOPPED { background: rgba(239,68,68,0.1); color: var(--danger); }
@@ -1644,11 +1645,11 @@
                     const cpuPct = Math.min(s.cpuUsed, 100);
                     const diskPct = Math.min((s.diskUsed / largestDisk) * 100, 100);
                     
-                    grid.innerHTML += `<div class="server-card" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
+                    grid.innerHTML += `<div class="server-card" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" onclick="openServerFromCard(event, '${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
                         <div class="sc-header">
                             <div>
                                 <div class="sc-name">${escapeHtml(s.id)}</div>
-                                <button type="button" class="sc-type" style="background:none;border:0;padding:0;cursor:pointer;" onclick="copyServerAddress('${s.port}')">${escapeHtml(displayAddress(s.port))}</button>
+                                <button type="button" class="sc-type server-address" style="background:none;border:0;padding:0;cursor:pointer;color:var(--text-muted);" onclick="copyServerAddress('${s.port}')">${escapeHtml(displayAddress(s.port))}</button>
                                 <div class="sc-type">${typeBadge(s.type)}</div>
                             </div>
                             <div class="sc-status ${s.status}">${s.status}</div>
@@ -1733,6 +1734,7 @@
 
         let draggedServerId = '';
         function serverDragStart(event) {
+            serverDragMoved = true;
             draggedServerId = event.currentTarget.dataset.serverId;
             event.currentTarget.classList.add('dragging');
             event.dataTransfer.effectAllowed = 'move';
@@ -1744,6 +1746,7 @@
             if (target.dataset.serverId !== draggedServerId) target.classList.add('drop-target');
         }
         function serverDragEnd(event) {
+            setTimeout(() => { serverDragMoved = false; }, 0);
             event.currentTarget.classList.remove('dragging');
             document.querySelectorAll('.drop-target').forEach(item => item.classList.remove('drop-target'));
         }
@@ -1890,6 +1893,12 @@
             const response = await fetch('/api/action/' + encodeURIComponent(id), { method: 'POST', body: action });
             if (!response.ok) showToast(await response.text() || 'Could not ' + action + ' server', 'error');
             refresh();
+        }
+
+        let serverDragMoved = false;
+        function openServerFromCard(event, id, port, type) {
+            if (serverDragMoved || event.target.closest('button, a, input, select, textarea')) return;
+            openServer(id, port, type);
         }
 
         function openServer(id, port, type) {
