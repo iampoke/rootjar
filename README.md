@@ -1,5 +1,9 @@
 # Rootjar
 
+<p align="center">
+  <img src="icon.svg" width="160" alt="Rootjar icon">
+</p>
+
 **A Minecraft server slot is usually cheaper than a VPS, so Rootjar can save money when the goal is to host multiple Minecraft servers.** It turns that one allowed jar into a panel for every server the slot can run.
 
 **One Java jar that turns a single server slot into a panel for many servers.**
