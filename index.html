@@ -1452,6 +1452,12 @@
 
         let allowPanelIpView = true;
         function displayAddress(port) { return allowPanelIpView ? currentPublicIp + ':' + port : 'Hidden'; }
+        async function copyServerAddress(port) {
+            const address = displayAddress(port);
+            if (!allowPanelIpView || address === 'Hidden') return showToast('IP not available', 'error');
+            const ok = await copyText(address);
+            showToast(ok ? 'IP copied to clipboard!' : 'Failed to copy IP', ok ? 'success' : 'error');
+        }
 
         async function copyIp() {
             const el = document.getElementById('sidebar-ip');
@@ -1622,6 +1628,7 @@
                         <div class="sc-header">
                             <div>
                                 <div class="sc-name">${escapeHtml(s.id)}</div>
+                                <button type="button" class="sc-type" style="background:none;border:0;padding:0;cursor:pointer;" onclick="copyServerAddress('${s.port}')">${escapeHtml(displayAddress(s.port))}</button>
                                 <div class="sc-type">${typeBadge(s.type)}</div>
                             </div>
                             <div class="sc-status ${s.status}">${s.status}</div>
