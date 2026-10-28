@@ -518,6 +518,7 @@ public class WebServer {
             String token = UUID.randomUUID().toString();
             sessions.put(token, new Session(token, user, now, UUID.randomUUID().toString(), clientIp(ex), ex.getRequestHeaders().getFirst("User-Agent"), now));
             ex.getResponseHeaders().add("Set-Cookie", "session=" + token + "; HttpOnly; SameSite=Strict; Path=/");
+            audit(user, "login", "signed in from " + ip);
             send(ex, 200, "OK");
         } else {
             int failures = loginFailures.merge(ip, 1, Integer::sum);
@@ -530,9 +531,11 @@ public class WebServer {
     }
 
     private void handleLogout(HttpExchange ex) throws IOException {
+        String user = getSessionUser(ex);
         String token = sessionToken(ex);
         if (token != null) sessions.remove(token);
         ex.getResponseHeaders().add("Set-Cookie", "session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
+        if (user != null) audit(user, "logout", "signed out");
         send(ex, 200, "OK");
     }
 
@@ -1017,6 +1020,7 @@ public class WebServer {
             StringBuilder response = new StringBuilder("{\"id\":\"").append(jsonEscape(name))
                 .append("\",\"message\":\"Created\",\"jar_downloaded\":").append(downloaded);
             if (warning != null) response.append(",\"warning\":\"").append(jsonEscape(warning)).append("\"");
+            audit(ex, "server.create", name + " (port " + port + ")");
             send(ex, 200, response.append("}").toString());
         } catch (IOException e) { send(ex, 500, e.getMessage()); }
     }
@@ -1114,6 +1118,7 @@ public class WebServer {
             if (name.equals(id)) supervisor.updateChildConfig(id, updated);
             else { supervisor.removeChild(id); supervisor.addChild(updated); }
             diskUsage.remove(id);
+            audit(ex, "server.edit", name + " (port " + port + ", " + ram + "M)" + (name.equals(id) ? "" : ", renamed from " + id));
             send(ex, 200, "{\"id\":\"" + jsonEscape(name) + "\",\"port\":" + port + ",\"ram\":" + ram + "}");
         }
     }
@@ -1486,6 +1491,7 @@ public class WebServer {
         try {
             Path file = safeResolve(child, relPath);
             Files.delete(file);
+            audit(ex, id + ".file.delete", relPath);
             send(ex, 200, "Deleted");
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
     }
@@ -1558,6 +1564,7 @@ public class WebServer {
                     os.write(buffer, 0, read);
                 }
             }
+            audit(ex, id + ".file.upload", path + "/" + filename);
             send(ex, 200, "Uploaded");
         } catch (Exception e) { send(ex, 500, e.getMessage()); }
     }
@@ -1639,6 +1646,7 @@ public class WebServer {
             Path target = FileOps.resolve(child.config().dir(), param(ex, toKey, ""));
             if (move) Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
             else FileOps.copyRecursive(source, target);
+            audit(ex, child.id() + (move ? ".file.move" : ".file.copy"), param(ex, fromKey, "") + " -> " + param(ex, toKey, ""));
             send(ex, 200, move ? "Moved" : "Copied");
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
     }
@@ -1651,6 +1659,7 @@ public class WebServer {
             String dest = param(ex, "dest", "");
             if (dest.isBlank()) dest = param(ex, "path", "").replaceAll("(?i)\\.zip$", "");
             FileOps.extract(zip, FileOps.resolve(child.config().dir(), dest));
+            audit(ex, child.id() + ".file.extract", param(ex, "path", "") + " -> " + dest);
             send(ex, 200, "Extracted");
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
     }
@@ -1666,6 +1675,7 @@ public class WebServer {
             String stamped = System.currentTimeMillis() + "-" + source.getFileName();
             Files.move(source, trash.resolve(stamped));
             Files.writeString(trash.resolve(stamped + ".meta"), param(ex, "path", ""));
+            audit(ex, child.id() + ".file.trash", param(ex, "path", ""));
             send(ex, 200, "{\"name\":\"" + jsonEscape(stamped) + "\"}");
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
     }
@@ -1975,6 +1985,12 @@ public class WebServer {
         catch (IOException ignored) {}
     }
 
+    /** Audit overload for actions without a session yet (login) or with an explicit user. */
+    private void audit(String user, String action, String details) {
+        try { ActivityLog.append(config.baseDir(), user == null ? "" : user, action, details); }
+        catch (IOException ignored) {}
+    }
+
     private void handleSessions(HttpExchange ex) throws IOException {
         if (!isAuthed(ex)) { send(ex, 401, "Unauthorized"); return; }
         if (ex.getRequestMethod().equals("GET")) {
@@ -2104,7 +2120,7 @@ public class WebServer {
         if (ex.getRequestMethod().equals("GET")) { send(ex, 200, tasks.read()); return; }
         String body = new String(ex.getRequestBody().readNBytes(65537), StandardCharsets.UTF_8);
         if (body.length() > 65536) { send(ex, 413, "tasks.yml is too large"); return; }
-        try { tasks.save(body); send(ex, 200, "Saved"); }
+        try { tasks.save(body); audit(ex, "tasks.changed", "Schedules updated"); send(ex, 200, "Saved"); }
         catch (ConfigException | IOException e) { send(ex, 400, e.getMessage()); }
     }
 
@@ -2127,6 +2143,7 @@ public class WebServer {
             try (InputStream in = ex.getRequestBody()) { Files.copy(in, temp, StandardCopyOption.REPLACE_EXISTING); }
             String dest = param(ex, "path", "public");
             FileOps.extract(temp, FileOps.resolve(child.config().dir(), dest));
+            audit(ex, child.id() + ".file.import", dest);
             send(ex, 200, "Imported");
         } catch (Exception e) {
             send(ex, 403, e.getMessage());
@@ -2323,6 +2340,7 @@ public class WebServer {
                 Files.deleteIfExists(part);
                 throw e;
             }
+            audit(ex, serverId + (mods ? ".mod.install" : ".plugin.install"), fileName + (replaced ? " (updated)" : ""));
             send(ex, 200, "{\"file\":\"" + jsonEscape(fileName) + "\",\"kind\":\"" + (mods ? "mod" : "plugin")
                     + "\",\"size\":" + Files.size(target) + ",\"url\":\"" + jsonEscape(downloadUrl)
                     + "\",\"replaced\":" + replaced + ",\"created_folder\":" + createdFolder + "}");
@@ -2618,6 +2636,8 @@ public class WebServer {
                 : name + ".disabled");
         try {
             Files.move(target, renamed, StandardCopyOption.REPLACE_EXISTING);
+            audit(ex, serverId + (mods ? ".mod.toggle" : ".plugin.toggle"), renamed.getFileName().toString()
+                    + (disabled ? " (enabled)" : " (disabled)"));
             send(ex, 200, "{\"file\":\"" + jsonEscape(renamed.getFileName().toString())
                     + "\",\"enabled\":" + disabled + "}");
         } catch (Exception e) {
@@ -2638,6 +2658,7 @@ public class WebServer {
         if (target == null || !Files.isRegularFile(target)) { send(ex, 404, "Not found"); return; }
         try {
             Files.delete(target);
+            audit(ex, serverId + (mods ? ".mod.delete" : ".plugin.delete"), target.getFileName().toString());
             send(ex, 200, "{\"deleted\":\"" + jsonEscape(target.getFileName().toString()) + "\"}");
         } catch (Exception e) {
             send(ex, 500, "{\"error\":\"" + jsonEscape(e.getMessage()) + "\"}");
@@ -4056,6 +4077,7 @@ public class WebServer {
         ServerConfig old = config.server();
         ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), old.webhookUrl(), old.publicStatus(), newUsers);
         saveConfig(new RootConfig(updated, config.children(), config.baseDir()));
+        audit(ex, "users.create", user);
         send(ex, 200, "Created");
     }
 
@@ -4090,6 +4112,7 @@ public class WebServer {
         ServerConfig old = config.server();
         ServerConfig updated = new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(), old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), old.webhookUrl(), old.publicStatus(), newUsers);
         saveConfig(new RootConfig(updated, config.children(), config.baseDir()));
+        audit(ex, "users.assign", targetUser + ": " + action + (targetServer.isBlank() ? "" : " " + targetServer));
         send(ex, 200, "Assigned");
     }
 

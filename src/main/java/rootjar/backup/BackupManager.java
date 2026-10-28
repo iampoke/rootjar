@@ -1,6 +1,7 @@
 package rootjar.backup;
 
 import rootjar.config.ChildConfig;
+import rootjar.supervisor.PermissionRepair;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -63,7 +64,8 @@ public final class BackupManager {
                 }
                 @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                     String fileName = file.getFileName().toString();
-                    if (Files.isSymbolicLink(file) || fileName.equals("backup.json") || fileName.equals(".rootjar-permissions-repaired")) return FileVisitResult.CONTINUE;
+                    if (Files.isSymbolicLink(file) || fileName.equals("backup.json")
+                            || fileName.equals(PermissionRepair.SUCCESS_MARKER) || fileName.equals(PermissionRepair.FAILURE_MARKER)) return FileVisitResult.CONTINUE;
                     out.putNextEntry(new ZipEntry(root.relativize(file).toString().replace('\\', '/')));
                     Files.copy(file, out);
                     out.closeEntry();
@@ -135,7 +137,8 @@ public final class BackupManager {
                     Files.move(entry, child.dir().resolve(entry.getFileName()));
                 }
             }
-            Files.deleteIfExists(child.dir().resolve(".rootjar-permissions-repaired"));
+            Files.deleteIfExists(child.dir().resolve(PermissionRepair.SUCCESS_MARKER));
+            Files.deleteIfExists(child.dir().resolve(PermissionRepair.FAILURE_MARKER));
             deleteTree(previousOld);
         } catch (IOException e) {
             if (movedOld && Files.isDirectory(old)) {

@@ -14,8 +14,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.attribute.PosixFilePermission;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -117,7 +115,7 @@ public final class ChildProcess {
             cmd = CommandLineBuilder.build(cfg, javaFor(cfg));
         }
         ConsoleOutput.root("starting " + id() + " in " + cfg.dir() + ": " + String.join(" ", cmd));
-        if (repairOnce(cfg.dir())) ConsoleOutput.root("repaired copied file permissions in " + id());
+        if (PermissionRepair.repairOnce(cfg.dir(), id())) ConsoleOutput.root("repaired copied file permissions in " + id());
         Process p;
         try {
             p = new ProcessBuilder(cmd)
@@ -145,41 +143,6 @@ public final class ChildProcess {
         return true;
     }
 
-    /** Repairs a transferred folder once, then records that the repair was attempted. */
-    private static boolean repairOnce(Path root) {
-        if (root == null || !Files.isDirectory(root)) return false;
-        Path marker = root.resolve(".rootjar-permissions-repaired");
-        if (Files.exists(marker)) return false;
-        java.util.concurrent.atomic.AtomicBoolean failed = new java.util.concurrent.atomic.AtomicBoolean();
-        boolean repaired = repairCopiedFiles(root, failed);
-        if (failed.get()) return false;
-        try { Files.writeString(marker, "repaired"); } catch (IOException ignored) { return false; }
-        return repaired;
-    }
-
-    /** Makes a transferred server folder writable by the user running Rootjar. */
-    private static boolean repairCopiedFiles(Path root, java.util.concurrent.atomic.AtomicBoolean failed) {
-        if (!Files.isDirectory(root)) return false;
-        java.util.concurrent.atomic.AtomicBoolean repaired = new java.util.concurrent.atomic.AtomicBoolean();
-        try (var paths = Files.walk(root)) {
-            paths.forEach(path -> {
-                try {
-                    if (!path.getFileSystem().supportedFileAttributeViews().contains("posix")) return;
-                    var permissions = EnumSet.copyOf(Files.getPosixFilePermissions(path));
-                    permissions.add(PosixFilePermission.OWNER_READ);
-                    permissions.add(PosixFilePermission.OWNER_WRITE);
-                    if (Files.isDirectory(path)) permissions.add(PosixFilePermission.OWNER_EXECUTE);
-                    Files.setPosixFilePermissions(path, permissions);
-                    repaired.set(true);
-                } catch (IOException e) { failed.set(true); }
-            });
-        } catch (IOException e) {
-            failed.set(true);
-            ConsoleOutput.root("could not repair permissions in " + root.getFileName() + ": " + e.getMessage());
-        }
-        return repaired.get();
-    }
-    
     public void kill() {
         Process p;
         synchronized (this) { p = process; }

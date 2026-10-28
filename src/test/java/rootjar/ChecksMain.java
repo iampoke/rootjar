@@ -17,6 +17,7 @@ import rootjar.console.StdinRouter.Kind;
 import rootjar.supervisor.BackoffPolicy;
 import rootjar.supervisor.ChildProcess;
 import rootjar.supervisor.CommandLineBuilder;
+import rootjar.supervisor.PermissionRepair;
 import rootjar.backup.BackupManager;
 import rootjar.files.FileOps;
 import rootjar.website.StaticSiteServer;
@@ -28,6 +29,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -69,6 +71,7 @@ public final class ChecksMain {
         staticWebsite();
         fileOps();
         backups();
+        permissionRepair();
         System.out.println("unit checks: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
@@ -167,12 +170,50 @@ public final class ChecksMain {
         boolean rejected = false;
         try { BackupManager.restore(child, "evil-import.zip"); } catch (IOException e) { rejected = true; }
         check(rejected && Files.notExists(root.getParent().resolve("outside.txt")), "backup restore rejects zip slip");
+        Files.writeString(root.resolve(PermissionRepair.SUCCESS_MARKER), "repaired");
+        Files.writeString(root.resolve(PermissionRepair.FAILURE_MARKER), "1 " + System.currentTimeMillis());
+        BackupManager.BackupInfo markerBackup = BackupManager.create(child, "markers", false, 5);
+        try (var archive = new java.util.zip.ZipFile(BackupManager.resolve(child, markerBackup.name()).toFile())) {
+            check(archive.stream().noneMatch(entry -> entry.getName().equals(PermissionRepair.SUCCESS_MARKER)
+                    || entry.getName().equals(PermissionRepair.FAILURE_MARKER)), "backup excludes permission repair markers");
+        }
+        BackupManager.restore(child, markerBackup.name());
+        check(Files.notExists(root.resolve(PermissionRepair.SUCCESS_MARKER))
+                && Files.notExists(root.resolve(PermissionRepair.FAILURE_MARKER)), "backup restore removes permission repair markers");
         Path legacy = root.resolve("backups");
         Files.createDirectories(legacy);
         Files.writeString(legacy.resolve("old-legacy.zip"), "old");
         BackupManager.BackupInfo kept = BackupManager.create(child, "kept", false, 1);
         check(BackupManager.list(child).stream().anyMatch(info -> info.name().equals(kept.name())), "retention keeps newest backup");
         check(BackupManager.list(child).stream().noneMatch(info -> info.name().equals("old-legacy.zip")), "retention includes legacy backups");
+    }
+
+    // ---- PermissionRepair: marker files stop repeated startup scans ---------------------------
+
+    private static void permissionRepair() throws Exception {
+        Path root = Files.createTempDirectory("perm-repair");
+        Path nested = Files.createDirectories(root.resolve("world"));
+        Files.writeString(nested.resolve("level.dat"), "map");
+        boolean posix = root.getFileSystem().supportedFileAttributeViews().contains("posix");
+        boolean repaired = PermissionRepair.repairOnce(root, "check");
+        if (posix) {
+            check(repaired, "permission repair reports changes on posix");
+            var perms = Files.getPosixFilePermissions(nested.resolve("level.dat"));
+            check(perms.contains(PosixFilePermission.OWNER_READ) && perms.contains(PosixFilePermission.OWNER_WRITE),
+                    "permission repair grants owner read/write");
+        } else {
+            check(!repaired, "permission repair is a no-op without posix");
+        }
+        check(Files.exists(root.resolve(PermissionRepair.SUCCESS_MARKER)), "permission repair writes success marker");
+        check(!PermissionRepair.repairOnce(root, "check"), "success marker prevents rescan");
+
+        long now = System.currentTimeMillis();
+        check(PermissionRepair.shouldAttempt(null, now), "missing failure marker allows repair");
+        check(PermissionRepair.shouldAttempt("  ", now), "blank failure marker allows repair");
+        check(PermissionRepair.shouldAttempt("2 " + now, now), "failures under the cap allow retry");
+        check(!PermissionRepair.shouldAttempt("3 " + now, now), "failures at the cap block retry");
+        check(PermissionRepair.shouldAttempt("3 " + (now - 25L * 60 * 60 * 1000), now), "a day-old failure marker allows retry");
+        check(PermissionRepair.shouldAttempt("not-a-number", now), "unreadable failure marker allows repair");
     }
 
     private static void router() {

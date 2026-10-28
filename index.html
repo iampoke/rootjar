@@ -1631,11 +1631,15 @@
             currentPublicIp = data.publicIp || "127.0.0.1";
             const ports = document.getElementById('available-ports');
             if (ports) ports.innerHTML = (data.availablePorts || []).map(port => `<option value="${port}"></option>`).join('');
+            const setupOverlay = document.getElementById('setup-overlay');
             if (isAdmin && data.setupComplete === false && localStorage.getItem('rootjar-setup-dismissed') !== 'true') {
-                document.getElementById('setup-ports').value = data.availablePortsText || document.getElementById('setup-ports').value;
-                document.getElementById('setup-disk').value = data.diskLimitGb || 0;
-                document.getElementById('setup-backup').value = data.backupLimitGb || 0;
-                document.getElementById('setup-overlay').style.display = 'flex';
+                // Preload once when the overlay first appears; later polls must not clobber what the user typed.
+                if (setupOverlay.style.display !== 'flex') {
+                    document.getElementById('setup-ports').value = data.availablePortsText || document.getElementById('setup-ports').value;
+                    document.getElementById('setup-disk').value = data.diskLimitGb || 0;
+                    document.getElementById('setup-backup').value = data.backupLimitGb || 0;
+                    setupOverlay.style.display = 'flex';
+                }
             }
             cpuMaxPct = data.cpuMax || 300;
             const storageMax = data.storageMax || 0;
@@ -1653,8 +1657,8 @@
                 fmtBytes(data.storageUsed) + (storageMax > 0 ? " / " + fmtBytes(storageMax) : " used");
 
             if (document.getElementById('view-manage').classList.contains('active')) {
-                const manageSignature = JSON.stringify((data.servers || []).map(server => [server.id, server.type, server.port, server.ramMax, server.jar]));
-                if (!draggedServerId && window.manageRenderSignature !== manageSignature) {
+                const manageSignature = JSON.stringify([isAdmin, (data.servers || []).map(server => [server.id, server.type, server.port, server.ramMax, server.jar])]);
+                if (!draggedServerId && !pointerDrag && window.manageRenderSignature !== manageSignature) {
                     window.manageRenderSignature = manageSignature;
                     renderManageList();
                 }
@@ -1662,9 +1666,9 @@
 
             if (document.getElementById('view-dashboard').classList.contains('active')) {
                 const grid = document.getElementById('server-grid');
-                const signature = JSON.stringify((data.servers || []).map(server => [server.id, server.port, server.type, server.status, server.silent, server.ramMax, server.jar]));
+                const signature = JSON.stringify([allowPanelIpView, currentPublicIp, isAdmin, (data.servers || []).map(server => [server.id, server.port, server.type, server.status, server.silent, server.ramMax, server.jar])]);
                 const cardsReady = grid.querySelector('.server-card') || data.servers.length === 0;
-                if (draggedServerId || (window.serverRenderSignature === signature && cardsReady)) updateLiveCardStats(data);
+                if (draggedServerId || pointerDrag || (window.serverRenderSignature === signature && cardsReady)) updateLiveCardStats(data);
                 else {
                 window.serverRenderSignature = signature;
                 grid.innerHTML = '';
@@ -1805,9 +1809,14 @@
         }
         function serverPointerMove(event) {
             if (!pointerDrag || pointerDrag.pointerId !== event.pointerId) return;
-            if (Math.hypot(event.clientX - pointerDrag.x, event.clientY - pointerDrag.y) < 10) return;
-            if (!pointerDrag.moved) event.currentTarget.setPointerCapture(event.pointerId);
-            pointerDrag.moved = true;
+            const dx = event.clientX - pointerDrag.x, dy = event.clientY - pointerDrag.y;
+            if (!pointerDrag.moved) {
+                // Only confirm a reorder for clearly horizontal movement; vertical motion belongs to page scrolling.
+                if (Math.abs(dy) >= 10 && Math.abs(dy) > Math.abs(dx)) { serverPointerCancel(); return; }
+                if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy)) return;
+                event.currentTarget.setPointerCapture(event.pointerId);
+                pointerDrag.moved = true;
+            }
             draggedServerId = pointerDrag.id;
             serverDragMoved = true;
             const under = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-server-id]');
@@ -1867,6 +1876,15 @@
             refresh();
         }
 
+        /** Fallback reorder for touch users: shifts one server up or down the dashboard order. */
+        async function nudgeServer(id, delta) {
+            if (!isAdmin) return;
+            const ids = currentServersList.map(server => server.id);
+            const from = ids.indexOf(id), to = from + delta;
+            if (from < 0 || to < 0 || to >= ids.length) return;
+            moveServer(id, ids[to]);
+        }
+
         function renderManageList() {
             const tbody = document.getElementById('manage-table-body');
             tbody.innerHTML = '';
@@ -1878,7 +1896,9 @@
                     <td>${s.ramMax} MB</td>
                     <td>${s.type === 'website' ? 'Static site' : escapeHtml(s.jar)}</td>
                     <td style="text-align:right;">
-                        ${isAdmin ? `<button class="btn btn-outline" style="border-color:var(--danger); color:var(--danger); margin-right:8px;" onclick="openDeleteModal('${s.id}')">Delete</button>` : ''}
+                        ${isAdmin ? `<button class="btn btn-outline" title="Move up" aria-label="Move ${escapeHtml(s.id)} up" onclick="nudgeServer('${escapeHtml(s.id)}', -1)">&uarr;</button>
+                        <button class="btn btn-outline" title="Move down" aria-label="Move ${escapeHtml(s.id)} down" onclick="nudgeServer('${escapeHtml(s.id)}', 1)">&darr;</button>
+                        <button class="btn btn-outline" style="border-color:var(--danger); color:var(--danger); margin-right:8px;" onclick="openDeleteModal('${s.id}')">Delete</button>` : ''}
                         <button class="btn btn-outline" onclick="openServer('${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')">Manage</button>
                         ${isAdmin ? `<button class="btn btn-outline" onclick="openEditServer('${escapeHtml(s.id)}')">Edit Server</button>` : ''}
                     </td>
