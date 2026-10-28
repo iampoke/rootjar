@@ -1292,9 +1292,11 @@ public class WebServer {
         } else if (method.equals("POST")) {
             String content = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             Files.writeString(file, content);
+            audit(ex, id + ".file.write", path);
             send(ex, 200, "Saved");
         } else if (method.equals("DELETE")) {
             Files.deleteIfExists(file);
+            audit(ex, id + ".file.delete", path);
             send(ex, 200, "Deleted");
         } else { send(ex, 405, "Method not allowed"); }
     }
@@ -1332,6 +1334,7 @@ public class WebServer {
         Path file = safeResolve(child, path);
         Files.createDirectories(file.getParent());
         Files.writeString(file, content);
+        audit(ex, child.id() + ".config.write", path);
         send(ex, 200, "{\"saved\":true}");
     }
 
@@ -1478,6 +1481,7 @@ public class WebServer {
         try {
             Path file = safeResolve(child, relPath);
             Files.writeString(file, content);
+            audit(ex, id + ".file.write", relPath);
             send(ex, 200, "Saved");
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
     }
@@ -1505,6 +1509,7 @@ public class WebServer {
         try {
             Path dir = safeResolve(child, relPath);
             Files.createDirectories(dir);
+            audit(ex, id + ".file.mkdir", relPath);
             send(ex, 200, "Created");
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
     }
@@ -1520,6 +1525,7 @@ public class WebServer {
             Path source = safeResolve(child, oldP);
             Path target = safeResolve(child, newP);
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+            audit(ex, id + ".file.rename", oldP + " -> " + newP);
             send(ex, 200, "Renamed");
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
     }
@@ -1541,6 +1547,7 @@ public class WebServer {
                     } catch (Exception ignored) {}
                 });
             }
+            audit(ex, id + ".file.zip", relPath);
             send(ex, 200, "Zipped");
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
     }
@@ -1745,8 +1752,8 @@ public class WebServer {
         for (BackupManager.BackupInfo info : backups) {
             if (!first) json.append(',');
             first = false;
-            json.append("{\"name\":\"").append(jsonEscape(info.name())).append("\",\"size\":").append(info.bytes())
-                .append(",\"created\":").append(info.createdAt()).append('}');
+            json.append("{\"name\":\"").append(jsonEscape(info.name())).append("\",\"folder\":\"").append(jsonEscape(info.folder()))
+                .append("\",\"size\":").append(info.bytes()).append(",\"created\":").append(info.createdAt()).append('}');
         }
         send(ex, 200, json.append("]}").toString());
     }
@@ -1767,7 +1774,7 @@ public class WebServer {
         if (!requireServer(ex, server)) return;
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null) { send(ex, 404, "Not found"); return; }
-        Path file = BackupManager.resolve(child.config(), param(ex, "name", ""));
+        Path file = BackupManager.resolve(child.config(), param(ex, "name", ""), param(ex, "folder", ""));
         ex.getResponseHeaders().set("Content-Type", "application/zip");
         ex.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + file.getFileName() + "\"");
         ex.sendResponseHeaders(200, Files.size(file));
@@ -1783,8 +1790,9 @@ public class WebServer {
         if (child.isAlive()) child.stop();
         if (child.isAlive()) { send(ex, 409, "Could not stop server"); return; }
         String name = param(ex, "name", "");
+        String folder = param(ex, "folder", "");
         BackupManager.create(child.config(), "pre-restore", true, config.server().backupRetention());
-        BackupManager.restore(child.config(), name);
+        BackupManager.restore(child.config(), name, folder);
         activity(server, ex, "backup.restore", name);
         send(ex, 200, "Restored");
     }
@@ -1795,7 +1803,8 @@ public class WebServer {
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null) { send(ex, 404, "Not found"); return; }
         String name = param(ex, "name", "");
-        BackupManager.delete(child.config(), name);
+        String folder = param(ex, "folder", "");
+        BackupManager.delete(child.config(), name, folder);
         activity(server, ex, "backup.delete", name);
         send(ex, 200, "Deleted");
     }
@@ -2132,6 +2141,7 @@ public class WebServer {
         String name = "import-" + System.currentTimeMillis() + ".zip";
         Path target = BackupManager.directory(child.config()).resolve(name);
         try (InputStream in = ex.getRequestBody()) { Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING); }
+        activity(server, ex, "backup.upload", name);
         send(ex, 200, "{\"name\":\"" + name + "\"}");
     }
 
@@ -2174,6 +2184,7 @@ public class WebServer {
             HttpRequest dlReq = HttpRequest.newBuilder(URI.create(url)).build();
             HttpResponse<Path> dlRes = httpClient.send(dlReq, HttpResponse.BodyHandlers.ofFile(jarPath));
             if (dlRes.statusCode() != 200 || Files.size(jarPath) < 1024 * 1024) { Files.deleteIfExists(jarPath); send(ex, 500, "Download failed"); return; }
+            audit(ex, id + ".version.install", "paper " + version);
             send(ex, 200, "Installed Paper " + version);
         } catch (Exception e) { send(ex, 500, e.getMessage()); }
     }
@@ -3298,6 +3309,7 @@ public class WebServer {
                         + ",\"backup\":" + backedUp + ",\"stage\":\"done\"}";
                 // The change already happened; a broken client connection must not trigger a rollback.
                 try { send(ex, 200, response); } catch (IOException ignored) {}
+                audit(ex, serverId + ".version.change", software.id() + " " + version);
                 return;
             } catch (ChangeConflictException e) {
                 rollbackVersionChange(serverId, owner[0], oldCfg, oldJarPath, oldBackup, targetPath, targetBackup,
@@ -3880,6 +3892,7 @@ public class WebServer {
             Matcher m = Pattern.compile("\"([^\"]+)\":\"([^\"]*)\"").matcher(body);
             while (m.find()) props.setProperty(m.group(1), m.group(2));
             try (OutputStream os = Files.newOutputStream(file)) { props.store(os, "Edited by Web Panel"); }
+            audit(ex, id + ".config.write", fileName);
             send(ex, 200, "Saved");
         } catch (Exception e) { send(ex, 500, e.getMessage()); }
     }
@@ -4023,6 +4036,7 @@ public class WebServer {
             if (raw != null) {
                 Files.writeString(target, body, StandardCharsets.UTF_8);
                 configRestartRequired.add(serverId);
+                audit(ex, serverId + ".config.save", fileName);
                 send(ex, 200, "{\"saved\":true,\"mode\":\"raw\",\"restartRequired\":true}");
                 return;
             }
@@ -4037,6 +4051,7 @@ public class WebServer {
             }
             if (updates.isEmpty()) { send(ex, 200, "{\"saved\":true,\"updated\":0}"); return; }
             int saved = ConfigEditor.patch(target, ConfigEditor.formatOf(fileName), updates);
+            audit(ex, serverId + ".config.save", fileName);
             send(ex, 200, "{\"saved\":true,\"updated\":" + saved + "}");
         } catch (IllegalArgumentException e) {
             send(ex, 400, e.getMessage());

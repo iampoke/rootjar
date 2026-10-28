@@ -156,11 +156,11 @@ public final class ChecksMain {
                     "new backup excludes earlier backups");
         }
         Files.writeString(root.resolve("world.txt"), "changed");
-        BackupManager.restore(child, created.name());
+        BackupManager.restore(child, created.name(), "");
         check(Files.readString(root.resolve("world.txt")).equals("safe"), "backup restore replaces changed file");
         check(Files.readString(root.resolve("backup-old/world.txt")).equals("changed"), "restore keeps current files in backup-old");
         Files.writeString(root.resolve("world.txt"), "newer");
-        BackupManager.restore(child, created.name());
+        BackupManager.restore(child, created.name(), "");
         check(Files.readString(root.resolve("backup-old/world.txt")).equals("newer"), "another restore replaces backup-old");
         Path evil = root.resolve("evil.zip");
         try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(evil))) {
@@ -168,7 +168,7 @@ public final class ChecksMain {
         }
         Files.copy(evil, BackupManager.directory(child).resolve("evil-import.zip"));
         boolean rejected = false;
-        try { BackupManager.restore(child, "evil-import.zip"); } catch (IOException e) { rejected = true; }
+        try { BackupManager.restore(child, "evil-import.zip", ""); } catch (IOException e) { rejected = true; }
         check(rejected && Files.notExists(root.getParent().resolve("outside.txt")), "backup restore rejects zip slip");
         Files.writeString(root.resolve(PermissionRepair.SUCCESS_MARKER), "repaired");
         Files.writeString(root.resolve(PermissionRepair.FAILURE_MARKER), "1 " + System.currentTimeMillis());
@@ -177,7 +177,7 @@ public final class ChecksMain {
             check(archive.stream().noneMatch(entry -> entry.getName().equals(PermissionRepair.SUCCESS_MARKER)
                     || entry.getName().equals(PermissionRepair.FAILURE_MARKER)), "backup excludes permission repair markers");
         }
-        BackupManager.restore(child, markerBackup.name());
+        BackupManager.restore(child, markerBackup.name(), "");
         check(Files.notExists(root.resolve(PermissionRepair.SUCCESS_MARKER))
                 && Files.notExists(root.resolve(PermissionRepair.FAILURE_MARKER)), "backup restore removes permission repair markers");
         Path legacy = root.resolve("backups");
@@ -186,6 +186,11 @@ public final class ChecksMain {
         BackupManager.BackupInfo kept = BackupManager.create(child, "kept", false, 1);
         check(BackupManager.list(child).stream().anyMatch(info -> info.name().equals(kept.name())), "retention keeps newest backup");
         check(BackupManager.list(child).stream().noneMatch(info -> info.name().equals("old-legacy.zip")), "retention includes legacy backups");
+        Files.writeString(root.resolve("backup-live").resolve("shared.zip"), "live");
+        Files.writeString(root.resolve("backups").resolve("shared.zip"), "legacy");
+        var shared = BackupManager.list(child).stream().filter(info -> info.name().equals("shared.zip")).toList();
+        check(shared.size() == 2 && shared.stream().anyMatch(info -> info.folder().equals("backups")), "duplicate backup names keep their folders");
+        check(Files.readString(BackupManager.resolve(child, "shared.zip", "backups")).equals("legacy"), "backup resolve honors the requested folder");
     }
 
     // ---- PermissionRepair: marker files stop repeated startup scans ---------------------------
@@ -205,6 +210,10 @@ public final class ChecksMain {
             check(!repaired, "permission repair is a no-op without posix");
         }
         check(Files.exists(root.resolve(PermissionRepair.SUCCESS_MARKER)), "permission repair writes success marker");
+        check(PermissionRepair.matchesHost(Files.readString(root.resolve(PermissionRepair.SUCCESS_MARKER)), PermissionRepair.hostIdentity()), "permission marker matches this host");
+        Files.writeString(root.resolve(PermissionRepair.SUCCESS_MARKER), "repaired other-host");
+        PermissionRepair.repairOnce(root, "check");
+        check(PermissionRepair.matchesHost(Files.readString(root.resolve(PermissionRepair.SUCCESS_MARKER)), PermissionRepair.hostIdentity()), "copied permission marker from another host is repaired");
         check(!PermissionRepair.repairOnce(root, "check"), "success marker prevents rescan");
 
         long now = System.currentTimeMillis();
@@ -214,6 +223,8 @@ public final class ChecksMain {
         check(!PermissionRepair.shouldAttempt("3 " + now, now), "failures at the cap block retry");
         check(PermissionRepair.shouldAttempt("3 " + (now - 25L * 60 * 60 * 1000), now), "a day-old failure marker allows retry");
         check(PermissionRepair.shouldAttempt("not-a-number", now), "unreadable failure marker allows repair");
+        check(!PermissionRepair.matchesHost("repaired other-host", PermissionRepair.hostIdentity()), "foreign permission marker does not match this host");
+        check(PermissionRepair.matchesHost("repaired", PermissionRepair.hostIdentity()), "legacy permission marker still matches");
     }
 
     private static void router() {

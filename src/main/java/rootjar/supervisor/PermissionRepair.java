@@ -3,9 +3,11 @@ package rootjar.supervisor;
 import rootjar.console.ConsoleOutput;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.security.MessageDigest;
 import java.util.EnumSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -22,13 +24,16 @@ public final class PermissionRepair {
     public static boolean repairOnce(Path root, String id) {
         if (root == null || !Files.isDirectory(root)) return false;
         Path marker = root.resolve(SUCCESS_MARKER);
-        if (Files.exists(marker)) return false;
+        String identity = hostIdentity();
+        String existing = readMarker(marker);
+        if (!existing.isBlank() && matchesHost(existing, identity)) return false;
         if (!root.getFileSystem().supportedFileAttributeViews().contains("posix")) {
             // Nothing to repair on this filesystem (e.g. Windows); record it so the folder is not walked every start.
-            writeMarker(marker, "no-op");
+            writeMarker(marker, "no-op " + identity);
             return false;
         }
-        if (!shouldAttempt(readMarker(root.resolve(FAILURE_MARKER)), System.currentTimeMillis())) return false;
+        String failure = readMarker(root.resolve(FAILURE_MARKER));
+        if (matchesHost(failure, identity) && !shouldAttempt(failure, System.currentTimeMillis())) return false;
         AtomicBoolean failed = new AtomicBoolean();
         boolean repaired = repairCopiedFiles(root, failed);
         if (failed.get()) {
@@ -36,7 +41,7 @@ public final class PermissionRepair {
             return false;
         }
         try { Files.deleteIfExists(root.resolve(FAILURE_MARKER)); } catch (IOException ignored) {}
-        return writeMarker(marker, "repaired") ? repaired : false;
+        return writeMarker(marker, "repaired " + identity) ? repaired : false;
     }
 
     /** True when another repair attempt is allowed: fewer than {@value #MAX_ATTEMPTS} failures, or the last one is older than a day. */
@@ -78,14 +83,38 @@ public final class PermissionRepair {
     private static void recordFailure(Path root, String id) {
         int attempts = 1;
         String[] parts = readMarker(root.resolve(FAILURE_MARKER)).trim().split("\\s+");
-        try { attempts = Math.min(MAX_ATTEMPTS, Integer.parseInt(parts[0]) + 1); } catch (NumberFormatException ignored) {}
+        if (matchesHost(readMarker(root.resolve(FAILURE_MARKER)), hostIdentity())) {
+            try { attempts = Math.min(MAX_ATTEMPTS, Integer.parseInt(parts[0]) + 1); } catch (NumberFormatException ignored) {}
+        }
         ConsoleOutput.root("WARNING: could not repair file permissions in " + id + " (attempt " + attempts
                 + " of " + MAX_ATTEMPTS + (attempts >= MAX_ATTEMPTS ? "; next retry in 24h" : "") + ")");
-        writeMarker(root.resolve(FAILURE_MARKER), attempts + " " + System.currentTimeMillis());
+        writeMarker(root.resolve(FAILURE_MARKER), attempts + " " + System.currentTimeMillis() + " " + hostIdentity());
     }
 
     private static String readMarker(Path marker) {
         try { return Files.readString(marker); } catch (IOException e) { return ""; }
+    }
+
+    /** True when a marker was written by this host and user, or has no host identity from an older Rootjar. */
+    public static boolean matchesHost(String markerText, String identity) {
+        if (markerText == null || markerText.isBlank() || identity == null || identity.isBlank()) return false;
+        String[] parts = markerText.trim().split("\\s+");
+        return parts[parts.length - 1].equals(identity) || parts.length < (parts[0].equals("repaired") || parts[0].equals("no-op") ? 2 : 3);
+    }
+
+    public static String hostIdentity() {
+        String raw = System.getProperty("os.name", "") + "|" + System.getProperty("user.name", "") + "|" + hostAddress();
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(raw.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(16);
+            for (int i = 0; i < 8; i++) hex.append(String.format("%02x", digest[i]));
+            return hex.toString();
+        } catch (Exception e) { return "unknown-host"; }
+    }
+
+    private static String hostAddress() {
+        try { return java.net.InetAddress.getLocalHost().getHostName(); }
+        catch (Exception e) { return "localhost"; }
     }
 
     private static boolean writeMarker(Path marker, String text) {

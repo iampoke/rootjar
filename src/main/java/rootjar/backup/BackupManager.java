@@ -26,12 +26,17 @@ public final class BackupManager {
 
     private BackupManager() {}
 
-    public record BackupInfo(String name, long bytes, long createdAt) {}
+    public record BackupInfo(String name, String folder, long bytes, long createdAt) {}
 
     public static Path directory(ChildConfig child) throws IOException {
         Path dir = child.dir().resolve("backup-live");
         Files.createDirectories(dir);
         return dir;
+    }
+
+    private static String safeFolder(String folder) throws IOException {
+        if ("backup-live".equals(folder) || "backups".equals(folder)) return folder;
+        throw new IOException("Invalid backup folder");
     }
 
     private static boolean isBackupStorage(String name) {
@@ -78,43 +83,48 @@ public final class BackupManager {
         }
         Files.move(temp, destination, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         applyRetention(child, retention, destination);
-        return new BackupInfo(name, Files.size(destination), Files.getLastModifiedTime(destination).toMillis());
+        return new BackupInfo(name, "backup-live", Files.size(destination), Files.getLastModifiedTime(destination).toMillis());
     }
 
     public static List<BackupInfo> list(ChildConfig child) throws IOException {
         List<BackupInfo> all = new java.util.ArrayList<>();
-        for (String folder : List.of("backup-live", "backups")) all.addAll(listFolder(child.dir().resolve(folder)));
+        for (String folder : List.of("backup-live", "backups")) all.addAll(listFolder(child.dir().resolve(folder), folder));
         all.sort(Comparator.comparingLong(BackupInfo::createdAt).reversed());
         return all;
     }
 
-    private static List<BackupInfo> listFolder(Path dir) throws IOException {
+    private static List<BackupInfo> listFolder(Path dir, String folder) throws IOException {
         if (!Files.isDirectory(dir)) return List.of();
         try (Stream<Path> entries = Files.list(dir)) {
             return entries.filter(path -> NAME.matcher(path.getFileName().toString()).matches())
                     .map(path -> {
-                        try { return new BackupInfo(path.getFileName().toString(), Files.size(path), Files.getLastModifiedTime(path).toMillis()); }
-                        catch (IOException e) { return new BackupInfo(path.getFileName().toString(), 0, 0); }
+                        try { return new BackupInfo(path.getFileName().toString(), folder, Files.size(path), Files.getLastModifiedTime(path).toMillis()); }
+                        catch (IOException e) { return new BackupInfo(path.getFileName().toString(), folder, 0, 0); }
                     }).sorted(Comparator.comparingLong(BackupInfo::createdAt).reversed()).toList();
         }
     }
 
     public static Path resolve(ChildConfig child, String name) throws IOException {
+        return resolve(child, name, "");
+    }
+
+    public static Path resolve(ChildConfig child, String name, String folder) throws IOException {
         if (name == null || !NAME.matcher(name).matches()) throw new IOException("Invalid backup name");
-        for (String folder : List.of("backup-live", "backups")) {
-            Path file = child.dir().resolve(folder).resolve(name).normalize();
-            if (file.startsWith(child.dir().resolve(folder)) && Files.isRegularFile(file)) return file;
+        java.util.List<String> folders = folder == null || folder.isBlank() ? List.of("backup-live", "backups") : List.of(safeFolder(folder));
+        for (String candidate : folders) {
+            Path file = child.dir().resolve(candidate).resolve(name).normalize();
+            if (file.startsWith(child.dir().resolve(candidate)) && Files.isRegularFile(file)) return file;
         }
         throw new IOException("Backup not found");
     }
 
-    public static void delete(ChildConfig child, String name) throws IOException {
-        Path file = resolve(child, name);
+    public static void delete(ChildConfig child, String name, String folder) throws IOException {
+        Path file = resolve(child, name, folder);
         Files.deleteIfExists(file);
     }
 
-    public static void restore(ChildConfig child, String name) throws IOException {
-        Path source = resolve(child, name);
+    public static void restore(ChildConfig child, String name, String folder) throws IOException {
+        Path source = resolve(child, name, folder);
         Path staging = child.dir().resolve(".restore-" + System.currentTimeMillis());
         Path old = child.dir().resolve("backup-old");
         Path previousOld = child.dir().resolve(".backup-old-previous");

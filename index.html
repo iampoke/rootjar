@@ -2404,8 +2404,9 @@
             warning.textContent = overLimit ? 'Backups are over the warning limit.' : '';
             list.innerHTML = (data.backups || []).map(backup => {
                 const name = escapeHtml(backup.name);
+                const folder = encodeURIComponent(backup.folder || '');
                 const when = backup.created ? new Date(backup.created).toLocaleString() : 'Unknown date';
-                return `<article class="backup-card"><div class="backup-icon">${icon}</div><div class="backup-copy"><strong>${name}</strong><span>${fmtBytes(backup.size)} · ${escapeHtml(when)}</span></div><div class="backup-actions"><button title="Download" aria-label="Download" onclick="downloadBackup('${name}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"></path><polyline points="7 11 12 16 17 11"></polyline><path d="M5 21h14"></path></svg></button><button title="Restore" aria-label="Restore" onclick="restoreBackup('${name}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 4 3 10 9 10"></polyline></svg></button><button class="danger" title="Delete" aria-label="Delete" onclick="deleteBackup('${name}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg></button></div></article>`;
+                return `<article class="backup-card"><div class="backup-icon">${icon}</div><div class="backup-copy"><strong>${name}</strong><span>${fmtBytes(backup.size)} · ${escapeHtml(when)}</span></div><div class="backup-actions"><button title="Download" aria-label="Download" onclick="downloadBackup('${name}', '${folder}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"></path><polyline points="7 11 12 16 17 11"></polyline><path d="M5 21h14"></path></svg></button><button title="Restore" aria-label="Restore" onclick="restoreBackup('${name}', '${folder}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 4 3 10 9 10"></polyline></svg></button><button class="danger" title="Delete" aria-label="Delete" onclick="deleteBackup('${name}', '${folder}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M8 6V4h8v2"></path><path d="M19 6l-1 14H6L5 6"></path></svg></button></div></article>`;
             }).join('') || '<div class="version-empty">No backups yet.</div>';
         }
         async function createBackup() {
@@ -2415,17 +2416,17 @@
             if (!response.ok) return showToast(await response.text(), 'error');
             showToast('Backup created', 'success'); loadBackups();
         }
-        function downloadBackup(name) { window.open(`/api/backups/download?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}`); }
-        async function restoreBackup(name) {
+        function downloadBackup(name, folder) { window.open(`/api/backups/download?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}&folder=${folder || ''}`); }
+        async function restoreBackup(name, folder) {
             const typed = await promptModal({ title: 'Restore Backup', label: 'Existing files may be overwritten. Type the server name to confirm:', placeholder: currentServer.id, confirmText: 'Restore' });
             if (typed === null) return;
             if (typed !== currentServer.id) return showToast('Server name does not match', 'error');
-            const response = await fetch(`/api/backups/restore?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}&confirm=${encodeURIComponent(typed)}`, {method:'POST'});
+            const response = await fetch(`/api/backups/restore?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}&folder=${folder || ''}&confirm=${encodeURIComponent(typed)}`, {method:'POST'});
             showToast(response.ok ? 'Backup restored' : await response.text(), response.ok ? 'success' : 'error'); loadBackups();
         }
-        async function deleteBackup(name) {
+        async function deleteBackup(name, folder) {
             if (!await confirmPromise({ title: 'Delete Backup', body: 'Delete backup ' + name + '? This cannot be undone.', confirmText: 'Delete', danger: true })) return;
-            await fetch(`/api/backups/delete?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}`, {method:'DELETE'});
+            await fetch(`/api/backups/delete?server=${encodeURIComponent(currentServer.id)}&name=${encodeURIComponent(name)}&folder=${folder || ''}`, {method:'DELETE'});
             loadBackups();
         }
 
