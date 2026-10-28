@@ -150,13 +150,15 @@ public final class ChildProcess {
         if (root == null || !Files.isDirectory(root)) return false;
         Path marker = root.resolve(".rootjar-permissions-repaired");
         if (Files.exists(marker)) return false;
-        boolean repaired = repairCopiedFiles(root);
-        try { Files.writeString(marker, "repaired"); } catch (IOException ignored) {}
+        java.util.concurrent.atomic.AtomicBoolean failed = new java.util.concurrent.atomic.AtomicBoolean();
+        boolean repaired = repairCopiedFiles(root, failed);
+        if (failed.get()) return false;
+        try { Files.writeString(marker, "repaired"); } catch (IOException ignored) { return false; }
         return repaired;
     }
 
     /** Makes a transferred server folder writable by the user running Rootjar. */
-    private static boolean repairCopiedFiles(Path root) {
+    private static boolean repairCopiedFiles(Path root, java.util.concurrent.atomic.AtomicBoolean failed) {
         if (!Files.isDirectory(root)) return false;
         java.util.concurrent.atomic.AtomicBoolean repaired = new java.util.concurrent.atomic.AtomicBoolean();
         try (var paths = Files.walk(root)) {
@@ -169,9 +171,10 @@ public final class ChildProcess {
                     if (Files.isDirectory(path)) permissions.add(PosixFilePermission.OWNER_EXECUTE);
                     Files.setPosixFilePermissions(path, permissions);
                     repaired.set(true);
-                } catch (IOException ignored) {}
+                } catch (IOException e) { failed.set(true); }
             });
         } catch (IOException e) {
+            failed.set(true);
             ConsoleOutput.root("could not repair permissions in " + root.getFileName() + ": " + e.getMessage());
         }
         return repaired.get();

@@ -129,7 +129,7 @@
         /* NEW DASHBOARD CARDS */
         .server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(450px, 1fr)); gap: 20px; }
         .server-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
-        .server-card[draggable="true"], .manage-row[draggable="true"] { cursor: grab; }
+        .server-card[draggable="true"], .manage-row[draggable="true"] { cursor: grab; touch-action: pan-y; }
         .server-card.dragging, .manage-row.dragging { opacity: .45; }
         .drop-target { outline: 2px solid var(--accent); outline-offset: -2px; }
         .sc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
@@ -1231,7 +1231,7 @@
 
     <button type="button" class="node-nav prev" id="node-prev-btn" onclick="openNodeLink('prev')" title="Open the previous node panel">&#8592; Previous Node</button>
     <button type="button" class="node-nav next" id="node-next-btn" onclick="openNodeLink('next')" title="Open the next node panel">Next Node &#8594;</button>
-    <div class="setup-overlay" id="setup-overlay"><form class="setup-card" onsubmit="finishSetup(event)"><h2>Panel Setup</h2><p class="version-note">Choose the ports servers may use and optional size warnings. You can change these later in Settings.</p><label>Available Ports<input id="setup-ports" placeholder="25565, 25566, 25567"></label><label>Server Disk Warning GB<input id="setup-disk" type="number" min="0" value="0"></label><label>Backup Warning GB<input id="setup-backup" type="number" min="0" value="0"></label><div style="display:flex;gap:8px;margin-top:16px"><button type="button" class="btn btn-outline" onclick="window.setupDismissed=true;document.getElementById('setup-overlay').style.display='none'">Later</button><button class="btn">Finish Setup</button></div></form></div>
+    <div class="setup-overlay" id="setup-overlay"><form class="setup-card" onsubmit="finishSetup(event)"><h2>Panel Setup</h2><p class="version-note">Choose the ports servers may use and optional size warnings. You can change these later in Settings.</p><label>Available Ports<input id="setup-ports" placeholder="25565, 25566, 25567"></label><label>Server Disk Warning GB<input id="setup-disk" type="number" min="0" value="0"></label><label>Backup Warning GB<input id="setup-backup" type="number" min="0" value="0"></label><div style="display:flex;gap:8px;margin-top:16px"><button type="button" class="btn btn-outline" onclick="localStorage.setItem('rootjar-setup-dismissed','true');document.getElementById('setup-overlay').style.display='none'">Later</button><button class="btn">Finish Setup</button></div></form></div>
 
     <script>
         let currentServer = null, currentPath = ".", currentFile = null, isAdmin = false;
@@ -1631,7 +1631,12 @@
             currentPublicIp = data.publicIp || "127.0.0.1";
             const ports = document.getElementById('available-ports');
             if (ports) ports.innerHTML = (data.availablePorts || []).map(port => `<option value="${port}"></option>`).join('');
-            if (isAdmin && data.setupComplete === false && !window.setupDismissed) document.getElementById('setup-overlay').style.display = 'flex';
+            if (isAdmin && data.setupComplete === false && localStorage.getItem('rootjar-setup-dismissed') !== 'true') {
+                document.getElementById('setup-ports').value = data.availablePortsText || document.getElementById('setup-ports').value;
+                document.getElementById('setup-disk').value = data.diskLimitGb || 0;
+                document.getElementById('setup-backup').value = data.backupLimitGb || 0;
+                document.getElementById('setup-overlay').style.display = 'flex';
+            }
             cpuMaxPct = data.cpuMax || 300;
             const storageMax = data.storageMax || 0;
             document.getElementById('create-btn').style.display = isAdmin ? 'block' : 'none';
@@ -1657,7 +1662,7 @@
 
             if (document.getElementById('view-dashboard').classList.contains('active')) {
                 const grid = document.getElementById('server-grid');
-                const signature = JSON.stringify((data.servers || []).map(server => [server.id, server.port, server.type, server.status, server.silent, server.ramMax, server.diskUsed]));
+                const signature = JSON.stringify((data.servers || []).map(server => [server.id, server.port, server.type, server.status, server.silent, server.ramMax, server.jar]));
                 const cardsReady = grid.querySelector('.server-card') || data.servers.length === 0;
                 if (draggedServerId || (window.serverRenderSignature === signature && cardsReady)) updateLiveCardStats(data);
                 else {
@@ -1672,7 +1677,7 @@
                     const cpuPct = Math.min(s.cpuUsed, 100);
                     const diskPct = Math.min((s.diskUsed / largestDisk) * 100, 100);
                     
-                    grid.innerHTML += `<div class="server-card" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" onclick="openServerFromCard(event, '${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')" onpointerdown="serverPointerDown(event)" onpointermove="serverPointerMove(event)" onpointerup="serverPointerUp(event)" onpointercancel="serverPointerUp(event)" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
+                    grid.innerHTML += `<div class="server-card" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" onclick="openServerFromCard(event, '${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')" onpointerdown="serverPointerDown(event)" onpointermove="serverPointerMove(event)" onpointerup="serverPointerUp(event)" onpointercancel="serverPointerCancel(event)" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
                         <div class="sc-header">
                             <div>
                                 <div class="sc-name">${escapeHtml(s.id)}</div>
@@ -1706,8 +1711,8 @@
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
                                     Storage
                                 </div>
-                                <div class="sc-stat-values"><span>${fmtBytes(s.diskUsed)}</span> <span>used</span></div>
-                                ${data.diskLimit > 0 && s.diskUsed > data.diskLimit ? `<div class="limit-warning">Over disk warning limit</div>` : ''}
+                                <div class="sc-stat-values"><span class="sc-disk-value">${fmtBytes(s.diskUsed)}</span> <span>used</span></div>
+                                <div class="limit-warning sc-disk-warning" style="display:none"></div>
                                 <div class="sc-bar-bg"><div class="sc-bar-fill sc-disk-bar" style="width: ${diskPct}%; background: #8b5cf6;"></div></div>
                             </div>
                         </div>
@@ -1727,6 +1732,7 @@
                     </div>`;
                 });
                 }
+                updateLiveCardStats(data);
                 }
             }
 
@@ -1772,7 +1778,12 @@
                 const set = (selector, value) => { const node = card.querySelector(selector); if (node) node.textContent = value; };
                 set('.sc-cpu-value', server.cpuUsed + '%');
                 set('.sc-ram-value', server.ramUsed + ' MB');
+                set('.sc-disk-value', fmtBytes(server.diskUsed));
                 set('.sc-uptime-value', server.uptime);
+                set('.server-address', displayAddress(server.port));
+                const warning = card.querySelector('.sc-disk-warning');
+                const overDisk = data.diskLimit > 0 && server.diskUsed > data.diskLimit;
+                if (warning) { warning.style.display = overDisk ? 'block' : 'none'; warning.textContent = overDisk ? 'Over disk warning limit' : ''; }
                 const cpuBar = card.querySelector('.sc-cpu-bar'), ramBar = card.querySelector('.sc-ram-bar'), diskBar = card.querySelector('.sc-disk-bar');
                 if (cpuBar) cpuBar.style.width = cpu + '%';
                 if (ramBar) ramBar.style.width = ram + '%';
@@ -1786,9 +1797,16 @@
             if (!isAdmin || event.pointerType === 'mouse' || event.target.closest('button, a, input, select, textarea')) return;
             pointerDrag = { id: event.currentTarget.dataset.serverId, x: event.clientX, y: event.clientY, moved: false, pointerId: event.pointerId };
         }
+        function serverPointerCancel() {
+            pointerDrag = null;
+            draggedServerId = '';
+            document.querySelectorAll('.drop-target').forEach(item => item.classList.remove('drop-target'));
+            setTimeout(() => { serverDragMoved = false; }, 0);
+        }
         function serverPointerMove(event) {
             if (!pointerDrag || pointerDrag.pointerId !== event.pointerId) return;
             if (Math.hypot(event.clientX - pointerDrag.x, event.clientY - pointerDrag.y) < 10) return;
+            if (!pointerDrag.moved) event.currentTarget.setPointerCapture(event.pointerId);
             pointerDrag.moved = true;
             draggedServerId = pointerDrag.id;
             serverDragMoved = true;
@@ -1853,7 +1871,7 @@
             const tbody = document.getElementById('manage-table-body');
             tbody.innerHTML = '';
             currentServersList.forEach(s => {
-                tbody.innerHTML += `<tr class="manage-row" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" onpointerdown="serverPointerDown(event)" onpointermove="serverPointerMove(event)" onpointerup="serverPointerUp(event)" onpointercancel="serverPointerUp(event)" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
+                tbody.innerHTML += `<tr class="manage-row" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" onpointerdown="serverPointerDown(event)" onpointermove="serverPointerMove(event)" onpointerup="serverPointerUp(event)" onpointercancel="serverPointerCancel(event)" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
                     <td><strong>${escapeHtml(s.id)}</strong></td>
                     <td>${typeBadge(s.type)}</td>
                     <td>${s.port}</td>
@@ -2536,9 +2554,9 @@
         async function bulkTrash() { if (!await confirmPromise({title:'Move to Trash', body:'Move ' + fileSelection.size + ' selected item(s) to Trash?', confirmText:'Move to Trash', danger:true})) return; for (const path of [...fileSelection]) await fetch('/api/files/trash/' + currentServer.id + '?path=' + encodeURIComponent(path), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
         function updateRestartBanner() { const banner = document.getElementById('config-restart-banner'); const server = currentServersList.find(item => currentServer && item.id === currentServer.id); if (banner) banner.style.display = server && server.restartRequired ? 'block' : 'none'; }
         async function loadSettings() { const response = await fetch('/api/settings'); if (!response.ok) return; const data = await response.json(); document.getElementById('settings-webhook').value = data.webhookUrl || ''; document.getElementById('settings-retention').value = data.backupRetention || 5; document.getElementById('settings-public').checked = data.publicStatus === true; document.getElementById('settings-prev-url').value = data.nodePreviousUrl || ''; document.getElementById('settings-next-url').value = data.nodeNextUrl || ''; document.getElementById('settings-prev-show').checked = data.nodeShowPrevious !== false; document.getElementById('settings-next-show').checked = data.nodeShowNext !== false; document.getElementById('settings-ports').value = data.ports || ''; document.getElementById('settings-disk-limit').value = data.diskLimitGb || 0; document.getElementById('settings-backup-limit').value = data.backupLimitGb || 0; document.getElementById('settings-tasks').value = await (await fetch('/api/tasks')).text(); }
-        async function saveSettings() { const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({webhookUrl:document.getElementById('settings-webhook').value, backupRetention:document.getElementById('settings-retention').value, publicStatus:document.getElementById('settings-public').checked, nodePreviousUrl:document.getElementById('settings-prev-url').value, nodeNextUrl:document.getElementById('settings-next-url').value, nodeShowPrevious:document.getElementById('settings-prev-show').checked, nodeShowNext:document.getElementById('settings-next-show').checked, ports:document.getElementById('settings-ports').value, diskLimitGb:document.getElementById('settings-disk-limit').value, backupLimitGb:document.getElementById('settings-backup-limit').value, setupComplete:true})}); showToast(response.ok ? 'Settings saved' : await response.text(), response.ok ? 'success' : 'error'); }
-        async function finishSetup(event) { event.preventDefault(); const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({ports:document.getElementById('setup-ports').value, diskLimitGb:document.getElementById('setup-disk').value, backupLimitGb:document.getElementById('setup-backup').value, setupComplete:true})}); if (!response.ok) return showToast(await response.text(), 'error'); document.getElementById('setup-overlay').style.display = 'none'; refresh(); }
-        async function saveTasks() { const response = await fetch('/api/tasks', {method:'POST', body:document.getElementById('settings-tasks').value}); showToast(response.ok ? 'Schedules saved' : await response.text(), response.ok ? 'success' : 'error'); }
+        async function saveSettings() { const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({webhookUrl:document.getElementById('settings-webhook').value, backupRetention:document.getElementById('settings-retention').value, publicStatus:document.getElementById('settings-public').checked, nodePreviousUrl:document.getElementById('settings-prev-url').value, nodeNextUrl:document.getElementById('settings-next-url').value, nodeShowPrevious:document.getElementById('settings-prev-show').checked, nodeShowNext:document.getElementById('settings-next-show').checked, ports:document.getElementById('settings-ports').value, diskLimitGb:document.getElementById('settings-disk-limit').value, backupLimitGb:document.getElementById('settings-backup-limit').value, setupComplete:true})}); showToast(response.ok ? 'Settings saved' : await response.text(), response.ok ? 'success' : 'error'); if (response.ok) { localStorage.removeItem('rootjar-setup-dismissed'); loadAuditLog(); refresh(); } }
+        async function finishSetup(event) { event.preventDefault(); const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({ports:document.getElementById('setup-ports').value, diskLimitGb:document.getElementById('setup-disk').value, backupLimitGb:document.getElementById('setup-backup').value, setupComplete:true})}); if (!response.ok) return showToast(await response.text(), 'error'); localStorage.removeItem('rootjar-setup-dismissed'); document.getElementById('setup-overlay').style.display = 'none'; refresh(); }
+        async function saveTasks() { const response = await fetch('/api/tasks', {method:'POST', body:document.getElementById('settings-tasks').value}); showToast(response.ok ? 'Schedules saved' : await response.text(), response.ok ? 'success' : 'error'); if (response.ok) loadAuditLog(); }
         function downloadFile(path, directory) { window.open(`/api/files/${directory ? 'download-zip' : 'download'}/${currentServer.id}?path=${encodeURIComponent(path)}`); }
         async function createNewFile() {
             const name = await promptModal({ title: 'New File', label: 'File name', placeholder: 'index.html', confirmText: 'Create' });

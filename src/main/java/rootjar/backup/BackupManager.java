@@ -135,6 +135,7 @@ public final class BackupManager {
                     Files.move(entry, child.dir().resolve(entry.getFileName()));
                 }
             }
+            Files.deleteIfExists(child.dir().resolve(".rootjar-permissions-repaired"));
             deleteTree(previousOld);
         } catch (IOException e) {
             if (movedOld && Files.isDirectory(old)) {
@@ -157,11 +158,15 @@ public final class BackupManager {
     }
 
     private static void applyRetention(ChildConfig child, int retention, Path current) throws IOException {
-        List<Path> archives;
-        try (Stream<Path> entries = Files.list(directory(child))) {
-            archives = entries.filter(path -> NAME.matcher(path.getFileName().toString()).matches())
-                    .sorted(Comparator.comparingLong((Path path) -> path.toFile().lastModified()).reversed()).toList();
+        List<Path> archives = new java.util.ArrayList<>();
+        for (String folder : List.of("backup-live", "backups")) {
+            Path dir = child.dir().resolve(folder);
+            if (!Files.isDirectory(dir)) continue;
+            try (Stream<Path> entries = Files.list(dir)) {
+                entries.filter(path -> NAME.matcher(path.getFileName().toString()).matches()).forEach(archives::add);
+            }
         }
+        archives.sort(Comparator.comparingLong((Path path) -> path.toFile().lastModified()).reversed());
         int kept = 0;
         for (Path archive : archives) {
             if (archive.equals(current) || kept < Math.max(1, retention)) kept++;

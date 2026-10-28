@@ -30,15 +30,17 @@ public final class TaskScheduler {
     });
 
     private final java.util.function.IntSupplier retention;
+    private final Path auditDir;
 
     public TaskScheduler(Supervisor supervisor, Path file) {
-        this(supervisor, file, () -> 5);
+        this(supervisor, file, () -> 5, null);
     }
 
-    public TaskScheduler(Supervisor supervisor, Path file, java.util.function.IntSupplier retention) {
+    public TaskScheduler(Supervisor supervisor, Path file, java.util.function.IntSupplier retention, Path auditDir) {
         this.supervisor = supervisor;
         this.file = file;
         this.retention = retention;
+        this.auditDir = auditDir;
         executor.scheduleAtFixedRate(this::tick, 30, 30, TimeUnit.SECONDS);
     }
 
@@ -66,7 +68,7 @@ public final class TaskScheduler {
                 String key = server + "|" + type + "|" + scheduled;
                 if (!now.equals(scheduled) || LocalDate.now().equals(lastRun.get(key))) continue;
                 if ("restart".equals(type)) supervisor.requestLifecycle(server, "restart");
-                else if ("backup".equals(type)) supervisor.child(server).ifPresent(child -> { try { rootjar.backup.BackupManager.BackupInfo info = rootjar.backup.BackupManager.create(child.config(), "scheduled", true, retention.getAsInt()); try { rootjar.security.ActivityLog.append(child.config().dir(), "scheduler", "backup.create", info.name()); } catch (IOException ignored) {} } catch (IOException e) { ConsoleOutput.root("scheduled backup failed: " + e.getMessage()); } });
+                else if ("backup".equals(type)) supervisor.child(server).ifPresent(child -> { try { rootjar.backup.BackupManager.BackupInfo info = rootjar.backup.BackupManager.create(child.config(), "scheduled", true, retention.getAsInt()); try { rootjar.security.ActivityLog.append(child.config().dir(), "scheduler", "backup.create", info.name()); if (auditDir != null) rootjar.security.ActivityLog.append(auditDir, "scheduler", server + ".backup.create", info.name()); } catch (IOException ignored) {} } catch (IOException e) { ConsoleOutput.root("scheduled backup failed: " + e.getMessage()); } });
                 else if ("command".equals(type)) supervisor.child(server).ifPresent(child -> child.sendLine(String.valueOf(task.get("command"))));
                 lastRun.put(key, LocalDate.now());
             }

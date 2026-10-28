@@ -167,6 +167,12 @@ public final class ChecksMain {
         boolean rejected = false;
         try { BackupManager.restore(child, "evil-import.zip"); } catch (IOException e) { rejected = true; }
         check(rejected && Files.notExists(root.getParent().resolve("outside.txt")), "backup restore rejects zip slip");
+        Path legacy = root.resolve("backups");
+        Files.createDirectories(legacy);
+        Files.writeString(legacy.resolve("old-legacy.zip"), "old");
+        BackupManager.BackupInfo kept = BackupManager.create(child, "kept", false, 1);
+        check(BackupManager.list(child).stream().anyMatch(info -> info.name().equals(kept.name())), "retention keeps newest backup");
+        check(BackupManager.list(child).stream().noneMatch(info -> info.name().equals("old-legacy.zip")), "retention includes legacy backups");
     }
 
     private static void router() {

@@ -127,7 +127,7 @@ public class WebServer {
 
     public WebServer(RootConfig config, Supervisor supervisor, Path configPath) throws IOException {
         this.config = config;
-        this.tasks = new TaskScheduler(supervisor, config.baseDir().resolve("tasks.yml"), () -> config.server().backupRetention());
+        this.tasks = new TaskScheduler(supervisor, config.baseDir().resolve("tasks.yml"), () -> config.server().backupRetention(), config.baseDir());
         this.supervisor = supervisor;
         this.configPath = configPath;
         this.nodeButtonsPath = config.baseDir().resolve("node-buttons.properties");
@@ -686,6 +686,9 @@ public class WebServer {
           .append(",\"nodeShowPrevious\":").append(nodeButtons.showPrevious())
           .append(",\"nodeShowNext\":").append(nodeButtons.showNext())
           .append(",\"availablePorts\":").append(availablePortsJson())
+          .append(",\"availablePortsText\":\"").append(jsonEscape(portListText())).append("\"")
+          .append(",\"diskLimitGb\":").append(panelOptions.diskLimitBytes() / 1073741824L)
+          .append(",\"backupLimitGb\":").append(panelOptions.backupLimitBytes() / 1073741824L)
           .append(",\"diskLimit\":").append(panelOptions.diskLimitBytes())
           .append(",\"backupLimit\":").append(panelOptions.backupLimitBytes())
           .append(",\"setupComplete\":").append(panelOptions.setupComplete())
@@ -1817,23 +1820,24 @@ public class WebServer {
         NodeButtons updatedButtons = null;
         if (jsonHas(body, "nodePreviousUrl") || jsonHas(body, "nodeNextUrl")
                 || jsonHas(body, "nodeShowPrevious") || jsonHas(body, "nodeShowNext")) {
-            String previousUrl = validNodeLink(extractJson(body, "nodePreviousUrl"));
-            String nextUrl = validNodeLink(extractJson(body, "nodeNextUrl"));
+            String previousUrl = jsonHas(body, "nodePreviousUrl") ? validNodeLink(extractJson(body, "nodePreviousUrl")) : nodeButtons.previousUrl();
+            String nextUrl = jsonHas(body, "nodeNextUrl") ? validNodeLink(extractJson(body, "nodeNextUrl")) : nodeButtons.nextUrl();
             if (previousUrl == null || nextUrl == null) {
                 send(ex, 400, "Node links must start with http:// or https://");
                 return;
             }
             updatedButtons = new NodeButtons(previousUrl, nextUrl,
-                    "true".equals(extractJson(body, "nodeShowPrevious")),
-                    "true".equals(extractJson(body, "nodeShowNext")));
+                    jsonHas(body, "nodeShowPrevious") ? "true".equals(extractJson(body, "nodeShowPrevious")) : nodeButtons.showPrevious(),
+                    jsonHas(body, "nodeShowNext") ? "true".equals(extractJson(body, "nodeShowNext")) : nodeButtons.showNext());
         }
         saveConfig(new RootConfig(new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(),
                 old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(),
                 old.trustedProxies(), old.diskMaxGb(), retention, webhook, publicStatus, old.users()), config.children(), config.baseDir()));
         if (jsonHas(body, "ports") || jsonHas(body, "diskLimitGb") || jsonHas(body, "backupLimitGb") || jsonHas(body, "setupComplete")) {
-            long diskGb = Math.max(0, parseLong(extractJson(body, "diskLimitGb")));
-            long backupGb = Math.max(0, parseLong(extractJson(body, "backupLimitGb")));
-            PanelOptions updatedOptions = new PanelOptions(parsePorts(extractJson(body, "ports")), diskGb * 1073741824L, backupGb * 1073741824L, !"false".equals(extractJson(body, "setupComplete")));
+            long diskBytes = jsonHas(body, "diskLimitGb") ? Math.max(0, parseLong(extractJson(body, "diskLimitGb"))) * 1073741824L : panelOptions.diskLimitBytes();
+            long backupBytes = jsonHas(body, "backupLimitGb") ? Math.max(0, parseLong(extractJson(body, "backupLimitGb"))) * 1073741824L : panelOptions.backupLimitBytes();
+            boolean setupComplete = jsonHas(body, "setupComplete") ? !"false".equals(extractJson(body, "setupComplete")) : panelOptions.setupComplete();
+            PanelOptions updatedOptions = new PanelOptions(jsonHas(body, "ports") ? parsePorts(extractJson(body, "ports")) : panelOptions.ports(), diskBytes, backupBytes, setupComplete);
             savePanelOptions(updatedOptions);
             panelOptions = updatedOptions;
         }
@@ -1963,6 +1967,7 @@ public class WebServer {
             try { ActivityLog.append(child.config().dir(), getSessionUser(ex), action, details); }
             catch (IOException ignored) {}
         });
+        audit(ex, serverId + "." + action, details);
     }
 
     private void audit(HttpExchange ex, String action, String details) {
