@@ -191,6 +191,24 @@ public final class ChecksMain {
         var shared = BackupManager.list(child).stream().filter(info -> info.name().equals("shared.zip")).toList();
         check(shared.size() == 2 && shared.stream().anyMatch(info -> info.folder().equals("backups")), "duplicate backup names keep their folders");
         check(Files.readString(BackupManager.resolve(child, "shared.zip", "backups")).equals("legacy"), "backup resolve honors the requested folder");
+        Files.writeString(legacy.resolve("addons-plugins-old.zip"), "plugins");
+        Files.createDirectories(BackupManager.addonDirectory(child));
+        Files.writeString(BackupManager.addonDirectory(child).resolve("addons-mods-old.zip"), "mods");
+        check(BackupManager.list(child).stream().noneMatch(info -> info.name().startsWith("addons-")), "addon archives stay out of server backups");
+        boolean addonRejected = false;
+        try { BackupManager.resolve(child, "addons-plugins-old.zip", "backups"); } catch (IOException e) { addonRejected = true; }
+        check(addonRejected, "addon archives cannot be restored as server backups");
+        Files.writeString(legacy.resolve("custom.zip"), "legacy-custom");
+        BackupManager.BackupInfo renamed = BackupManager.create(child, "custom", false, 5);
+        check(!renamed.name().equals("custom.zip"), "custom names avoid legacy backup names");
+        Files.writeString(root.resolve("world.txt"), "old-world");
+        BackupManager.BackupInfo oldWorld = BackupManager.create(child, "old-world", false, 5);
+        Files.writeString(root.resolve("world.txt"), "before-old-restore");
+        for (int i = 0; i < 6; i++) BackupManager.create(child, "newer-" + i, false, 20);
+        BackupManager.create(child, "pre-restore", true, 1, oldWorld.name());
+        check(Files.exists(root.resolve("backup-live").resolve(oldWorld.name())), "retention keeps the backup selected for restore");
+        BackupManager.restore(child, oldWorld.name(), "backup-live");
+        check(Files.readString(root.resolve("world.txt")).equals("old-world"), "an older backup can still be restored");
     }
 
     // ---- PermissionRepair: marker files stop repeated startup scans ---------------------------
@@ -224,7 +242,8 @@ public final class ChecksMain {
         check(PermissionRepair.shouldAttempt("3 " + (now - 25L * 60 * 60 * 1000), now), "a day-old failure marker allows retry");
         check(PermissionRepair.shouldAttempt("not-a-number", now), "unreadable failure marker allows repair");
         check(!PermissionRepair.matchesHost("repaired other-host", PermissionRepair.hostIdentity()), "foreign permission marker does not match this host");
-        check(PermissionRepair.matchesHost("repaired", PermissionRepair.hostIdentity()), "legacy permission marker still matches");
+        check(!PermissionRepair.matchesHost("repaired", PermissionRepair.hostIdentity()), "legacy permission marker does not suppress repair");
+        check(!PermissionRepair.matchesHost("no-op", PermissionRepair.hostIdentity()), "legacy no-op marker does not suppress repair");
     }
 
     private static void router() {

@@ -44,12 +44,16 @@ public final class BackupManager {
     }
 
     public static BackupInfo create(ChildConfig child, String label, boolean includeLogs, int retention) throws IOException {
+        return create(child, label, includeLogs, retention, "");
+    }
+
+    public static BackupInfo create(ChildConfig child, String label, boolean includeLogs, int retention, String keepName) throws IOException {
         String safeLabel = label == null ? "" : label.replaceAll("[^A-Za-z0-9._-]", "");
         if (safeLabel.toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) safeLabel = safeLabel.substring(0, safeLabel.length() - 4);
         boolean automatic = safeLabel.isBlank() || safeLabel.equals("scheduled") || safeLabel.equals("pre-restore");
         String prefix = automatic ? child.id() + "-" + (safeLabel.isBlank() ? "" : safeLabel + "-") + LocalDateTime.now().format(STAMP) : safeLabel;
         String name = prefix + ".zip";
-        for (int suffix = 2; Files.exists(directory(child).resolve(name)); suffix++) name = prefix + "-" + suffix + ".zip";
+        for (int suffix = 2; nameExists(child, name); suffix++) name = prefix + "-" + suffix + ".zip";
         Path destination = directory(child).resolve(name);
         Path temp = destination.resolveSibling(name + ".part");
         try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(temp))) {
@@ -82,7 +86,7 @@ public final class BackupManager {
             throw e;
         }
         Files.move(temp, destination, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        applyRetention(child, retention, destination);
+        applyRetention(child, retention, destination, keepName);
         return new BackupInfo(name, "backup-live", Files.size(destination), Files.getLastModifiedTime(destination).toMillis());
     }
 
@@ -96,7 +100,7 @@ public final class BackupManager {
     private static List<BackupInfo> listFolder(Path dir, String folder) throws IOException {
         if (!Files.isDirectory(dir)) return List.of();
         try (Stream<Path> entries = Files.list(dir)) {
-            return entries.filter(path -> NAME.matcher(path.getFileName().toString()).matches())
+            return entries.filter(path -> NAME.matcher(path.getFileName().toString()).matches() && !isAddonArchive(path.getFileName().toString()))
                     .map(path -> {
                         try { return new BackupInfo(path.getFileName().toString(), folder, Files.size(path), Files.getLastModifiedTime(path).toMillis()); }
                         catch (IOException e) { return new BackupInfo(path.getFileName().toString(), folder, 0, 0); }
@@ -104,12 +108,30 @@ public final class BackupManager {
         }
     }
 
+    /** True for a plugin or mod archive, which must never be listed or restored as a full server backup. */
+    public static boolean isAddonArchive(String name) {
+        return name != null && (name.startsWith("addons-plugins-") || name.startsWith("addons-mods-"));
+    }
+
+    public static Path addonDirectory(ChildConfig child) throws IOException {
+        Path dir = child.dir().resolve("backups").resolve("addons");
+        Files.createDirectories(dir);
+        return dir;
+    }
+
+    private static boolean nameExists(ChildConfig child, String name) {
+        for (String folder : List.of("backup-live", "backups")) {
+            if (Files.exists(child.dir().resolve(folder).resolve(name))) return true;
+        }
+        return false;
+    }
+
     public static Path resolve(ChildConfig child, String name) throws IOException {
         return resolve(child, name, "");
     }
 
     public static Path resolve(ChildConfig child, String name, String folder) throws IOException {
-        if (name == null || !NAME.matcher(name).matches()) throw new IOException("Invalid backup name");
+        if (name == null || !NAME.matcher(name).matches() || isAddonArchive(name)) throw new IOException("Invalid backup name");
         java.util.List<String> folders = folder == null || folder.isBlank() ? List.of("backup-live", "backups") : List.of(safeFolder(folder));
         for (String candidate : folders) {
             Path file = child.dir().resolve(candidate).resolve(name).normalize();
@@ -170,20 +192,22 @@ public final class BackupManager {
         }
     }
 
-    private static void applyRetention(ChildConfig child, int retention, Path current) throws IOException {
+    private static void applyRetention(ChildConfig child, int retention, Path current, String keepName) throws IOException {
         List<Path> archives = new java.util.ArrayList<>();
         for (String folder : List.of("backup-live", "backups")) {
             Path dir = child.dir().resolve(folder);
             if (!Files.isDirectory(dir)) continue;
             try (Stream<Path> entries = Files.list(dir)) {
-                entries.filter(path -> NAME.matcher(path.getFileName().toString()).matches()).forEach(archives::add);
+                entries.filter(path -> NAME.matcher(path.getFileName().toString()).matches() && !isAddonArchive(path.getFileName().toString())).forEach(archives::add);
             }
         }
         archives.sort(Comparator.comparingLong((Path path) -> path.toFile().lastModified()).reversed());
         int kept = 0;
+        int limit = Math.max(1, retention);
         for (Path archive : archives) {
-            if (archive.equals(current) || kept < Math.max(1, retention)) kept++;
-            else Files.deleteIfExists(archive);
+            boolean selected = !archive.equals(current) && !keepName.isBlank() && archive.getFileName().toString().equals(keepName);
+            if (archive.equals(current) || kept < limit) kept++;
+            else if (!selected) Files.deleteIfExists(archive);
         }
     }
 }

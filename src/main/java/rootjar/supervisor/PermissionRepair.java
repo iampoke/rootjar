@@ -95,11 +95,11 @@ public final class PermissionRepair {
         try { return Files.readString(marker); } catch (IOException e) { return ""; }
     }
 
-    /** True when a marker was written by this host and user, or has no host identity from an older Rootjar. */
+    /** True only when a marker was written by this host and user. Older markers have no host identity, so a copied folder is repaired again. */
     public static boolean matchesHost(String markerText, String identity) {
         if (markerText == null || markerText.isBlank() || identity == null || identity.isBlank()) return false;
         String[] parts = markerText.trim().split("\\s+");
-        return parts[parts.length - 1].equals(identity) || parts.length < (parts[0].equals("repaired") || parts[0].equals("no-op") ? 2 : 3);
+        return parts[parts.length - 1].equals(identity);
     }
 
     public static String hostIdentity() {

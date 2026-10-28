@@ -1791,7 +1791,8 @@ public class WebServer {
         if (child.isAlive()) { send(ex, 409, "Could not stop server"); return; }
         String name = param(ex, "name", "");
         String folder = param(ex, "folder", "");
-        BackupManager.create(child.config(), "pre-restore", true, config.server().backupRetention());
+        Path source = BackupManager.resolve(child.config(), name, folder);
+        BackupManager.create(child.config(), "pre-restore", true, config.server().backupRetention(), source.getFileName().toString());
         BackupManager.restore(child.config(), name, folder);
         activity(server, ex, "backup.restore", name);
         send(ex, 200, "Restored");
@@ -2140,7 +2141,14 @@ public class WebServer {
         if (child == null) { send(ex, 404, "Not found"); return; }
         String name = "import-" + System.currentTimeMillis() + ".zip";
         Path target = BackupManager.directory(child.config()).resolve(name);
-        try (InputStream in = ex.getRequestBody()) { Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING); }
+        Path temp = target.resolveSibling(name + ".part");
+        try {
+            try (InputStream in = ex.getRequestBody()) { Files.copy(in, temp, StandardCopyOption.REPLACE_EXISTING); }
+            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            Files.deleteIfExists(temp);
+            throw e;
+        }
         activity(server, ex, "backup.upload", name);
         send(ex, 200, "{\"name\":\"" + name + "\"}");
     }
@@ -2685,20 +2693,27 @@ public class WebServer {
         boolean mods = kind.equals("mod");
         if (!mods && !kind.equals("plugin")) { send(ex, 400, "Bad kind"); return; }
         Path folder = child.config().dir().resolve(Addons.folder(mods));
-        Path backups = child.config().dir().resolve("backups");
         try {
-            Files.createDirectories(backups);
+            Path backups = BackupManager.addonDirectory(child.config());
             String name = "addons-" + Addons.folder(mods) + "-" + stamp() + ".zip";
             Path out = backups.resolve(name);
+            Path temp = out.resolveSibling(name + ".part");
             int count = 0;
-            try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(out))) {
-                for (Path file : listJars(folder)) {
-                    zos.putNextEntry(new ZipEntry(file.getFileName().toString()));
-                    Files.copy(file, zos);
-                    zos.closeEntry();
-                    count++;
+            try {
+                try (ZipOutputStream zos = new ZipOutputStream(Files.newOutputStream(temp))) {
+                    for (Path file : listJars(folder)) {
+                        zos.putNextEntry(new ZipEntry(file.getFileName().toString()));
+                        Files.copy(file, zos);
+                        zos.closeEntry();
+                        count++;
+                    }
                 }
+                Files.move(temp, out, StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e) {
+                Files.deleteIfExists(temp);
+                throw e;
             }
+            audit(ex, serverId + (mods ? ".mod.backup" : ".plugin.backup"), name);
             send(ex, 200, "{\"name\":\"" + jsonEscape(name) + "\",\"size\":" + Files.size(out) + ",\"files\":" + count + "}");
         } catch (Exception e) {
             send(ex, 500, "{\"error\":\"" + jsonEscape(e.getMessage()) + "\"}");
@@ -3303,13 +3318,13 @@ public class WebServer {
                 stage = "start";
                 if (restart[0]) startIfRegistered(serverId);
                 boolean backedUp = oldBackup != null || targetBackup != null;
+                audit(ex, serverId + ".version.change", software.id() + " " + version);
                 String response = "{\"ok\":true,\"jar\":\"" + jsonEscape(newJar)
                         + "\",\"type\":\"" + jsonEscape(software.id())
                         + "\",\"restarted\":" + restart[0]
                         + ",\"backup\":" + backedUp + ",\"stage\":\"done\"}";
                 // The change already happened; a broken client connection must not trigger a rollback.
                 try { send(ex, 200, response); } catch (IOException ignored) {}
-                audit(ex, serverId + ".version.change", software.id() + " " + version);
                 return;
             } catch (ChangeConflictException e) {
                 rollbackVersionChange(serverId, owner[0], oldCfg, oldJarPath, oldBackup, targetPath, targetBackup,
