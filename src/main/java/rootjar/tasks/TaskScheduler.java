@@ -29,9 +29,16 @@ public final class TaskScheduler {
         return thread;
     });
 
+    private final java.util.function.IntSupplier retention;
+
     public TaskScheduler(Supervisor supervisor, Path file) {
+        this(supervisor, file, () -> 5);
+    }
+
+    public TaskScheduler(Supervisor supervisor, Path file, java.util.function.IntSupplier retention) {
         this.supervisor = supervisor;
         this.file = file;
+        this.retention = retention;
         executor.scheduleAtFixedRate(this::tick, 30, 30, TimeUnit.SECONDS);
     }
 
@@ -59,7 +66,7 @@ public final class TaskScheduler {
                 String key = server + "|" + type + "|" + scheduled;
                 if (!now.equals(scheduled) || LocalDate.now().equals(lastRun.get(key))) continue;
                 if ("restart".equals(type)) supervisor.requestLifecycle(server, "restart");
-                else if ("backup".equals(type)) supervisor.child(server).ifPresent(child -> { try { rootjar.backup.BackupManager.create(child.config(), "scheduled", true, 5); } catch (IOException e) { ConsoleOutput.root("scheduled backup failed: " + e.getMessage()); } });
+                else if ("backup".equals(type)) supervisor.child(server).ifPresent(child -> { try { rootjar.backup.BackupManager.create(child.config(), "scheduled", true, retention.getAsInt()); } catch (IOException e) { ConsoleOutput.root("scheduled backup failed: " + e.getMessage()); } });
                 else if ("command".equals(type)) supervisor.child(server).ifPresent(child -> child.sendLine(String.valueOf(task.get("command"))));
                 lastRun.put(key, LocalDate.now());
             }

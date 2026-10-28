@@ -127,7 +127,7 @@ public class WebServer {
 
     public WebServer(RootConfig config, Supervisor supervisor, Path configPath) throws IOException {
         this.config = config;
-        this.tasks = new TaskScheduler(supervisor, config.baseDir().resolve("tasks.yml"));
+        this.tasks = new TaskScheduler(supervisor, config.baseDir().resolve("tasks.yml"), () -> config.server().backupRetention());
         this.supervisor = supervisor;
         this.configPath = configPath;
         this.nodeButtonsPath = config.baseDir().resolve("node-buttons.properties");
@@ -752,6 +752,7 @@ public class WebServer {
 
         long pid = child.pid();
         // Files on disk are intentionally kept: this only removes the server from the panel/config.
+        activity(id, ex, "server.delete", "Removed from panel");
         supervisor.removeChild(id);
         lastCpuTime.remove(pid);
         lastWallTime.remove(pid);
@@ -1041,6 +1042,7 @@ public class WebServer {
                 index++;
             }
             saveConfig(new RootConfig(config.server(), children, config.baseDir()));
+            for (String id : ids) activity(id, ex, "server.reorder", String.join(", ", ids));
         }
         send(ex, 200, "{\"saved\":true}");
     }
@@ -1722,9 +1724,12 @@ public class WebServer {
         if (!requireServer(ex, server)) return;
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null) { send(ex, 404, "Not found"); return; }
-        StringBuilder json = new StringBuilder("{\"retention\":").append(config.server().backupRetention()).append(",\"backups\":[");
+        StringBuilder json = new StringBuilder("{\"retention\":").append(config.server().backupRetention()).append(",\"backupBytes\":");
+        java.util.List<BackupManager.BackupInfo> backups = BackupManager.list(child.config());
+        long backupBytes = backups.stream().mapToLong(BackupManager.BackupInfo::bytes).sum();
+        json.append(backupBytes).append(",\"backupLimit\":").append(panelOptions.backupLimitBytes()).append(",\"backups\":[");
         boolean first = true;
-        for (BackupManager.BackupInfo info : BackupManager.list(child.config())) {
+        for (BackupManager.BackupInfo info : backups) {
             if (!first) json.append(',');
             first = false;
             json.append("{\"name\":\"").append(jsonEscape(info.name())).append("\",\"size\":").append(info.bytes())
@@ -1822,6 +1827,7 @@ public class WebServer {
             PanelOptions updatedOptions = new PanelOptions(parsePorts(extractJson(body, "ports")), diskGb * 1073741824L, backupGb * 1073741824L, !"false".equals(extractJson(body, "setupComplete")));
             savePanelOptions(updatedOptions);
             panelOptions = updatedOptions;
+            try { ActivityLog.append(config.baseDir(), getSessionUser(ex), "settings.changed", "Panel options updated"); } catch (IOException ignored) {}
         }
         if (updatedButtons != null) {
             try {

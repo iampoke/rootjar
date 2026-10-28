@@ -157,7 +157,7 @@ public final class BackupManager {
     private static void applyRetention(ChildConfig child, int retention, Path current) throws IOException {
         List<Path> archives;
         try (Stream<Path> entries = Files.list(directory(child))) {
-            archives = entries.filter(path -> path.getFileName().toString().startsWith(child.id() + "-") && path.toString().endsWith(".zip"))
+            archives = entries.filter(path -> NAME.matcher(path.getFileName().toString()).matches())
                     .sorted(Comparator.comparingLong((Path path) -> path.toFile().lastModified()).reversed()).toList();
         }
         int kept = 0;

@@ -117,7 +117,7 @@ public final class ChildProcess {
             cmd = CommandLineBuilder.build(cfg, javaFor(cfg));
         }
         ConsoleOutput.root("starting " + id() + " in " + cfg.dir() + ": " + String.join(" ", cmd));
-        repairCopiedFiles(cfg.dir());
+        if (repairOnce(cfg.dir())) ConsoleOutput.root("repaired copied file permissions in " + id());
         Process p;
         try {
             p = new ProcessBuilder(cmd)
@@ -145,9 +145,20 @@ public final class ChildProcess {
         return true;
     }
 
+    /** Repairs a transferred folder once, then records that the repair was attempted. */
+    private static boolean repairOnce(Path root) {
+        if (root == null || !Files.isDirectory(root)) return false;
+        Path marker = root.resolve(".rootjar-permissions-repaired");
+        if (Files.exists(marker)) return false;
+        boolean repaired = repairCopiedFiles(root);
+        try { Files.writeString(marker, "repaired"); } catch (IOException ignored) {}
+        return repaired;
+    }
+
     /** Makes a transferred server folder writable by the user running Rootjar. */
-    private static void repairCopiedFiles(Path root) {
-        if (root == null || !Files.isDirectory(root)) return;
+    private static boolean repairCopiedFiles(Path root) {
+        if (!Files.isDirectory(root)) return false;
+        java.util.concurrent.atomic.AtomicBoolean repaired = new java.util.concurrent.atomic.AtomicBoolean();
         try (var paths = Files.walk(root)) {
             paths.forEach(path -> {
                 try {
@@ -157,11 +168,13 @@ public final class ChildProcess {
                     permissions.add(PosixFilePermission.OWNER_WRITE);
                     if (Files.isDirectory(path)) permissions.add(PosixFilePermission.OWNER_EXECUTE);
                     Files.setPosixFilePermissions(path, permissions);
+                    repaired.set(true);
                 } catch (IOException ignored) {}
             });
         } catch (IOException e) {
             ConsoleOutput.root("could not repair permissions in " + root.getFileName() + ": " + e.getMessage());
         }
+        return repaired.get();
     }
     
     public void kill() {

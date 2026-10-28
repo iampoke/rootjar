@@ -1227,7 +1227,7 @@
 
     <button type="button" class="node-nav prev" id="node-prev-btn" onclick="openNodeLink('prev')" title="Open the previous node panel">&#8592; Previous Node</button>
     <button type="button" class="node-nav next" id="node-next-btn" onclick="openNodeLink('next')" title="Open the next node panel">Next Node &#8594;</button>
-    <div class="setup-overlay" id="setup-overlay"><form class="setup-card" onsubmit="finishSetup(event)"><h2>Panel Setup</h2><p class="version-note">Choose the ports servers may use and optional size warnings. You can change these later in Settings.</p><label>Available Ports<input id="setup-ports" placeholder="25565, 25566, 25567"></label><label>Server Disk Warning GB<input id="setup-disk" type="number" min="0" value="0"></label><label>Backup Warning GB<input id="setup-backup" type="number" min="0" value="0"></label><button class="btn" style="margin-top:16px">Finish Setup</button></form></div>
+    <div class="setup-overlay" id="setup-overlay"><form class="setup-card" onsubmit="finishSetup(event)"><h2>Panel Setup</h2><p class="version-note">Choose the ports servers may use and optional size warnings. You can change these later in Settings.</p><label>Available Ports<input id="setup-ports" placeholder="25565, 25566, 25567"></label><label>Server Disk Warning GB<input id="setup-disk" type="number" min="0" value="0"></label><label>Backup Warning GB<input id="setup-backup" type="number" min="0" value="0"></label><div style="display:flex;gap:8px;margin-top:16px"><button type="button" class="btn btn-outline" onclick="document.getElementById('setup-overlay').style.display='none'">Later</button><button class="btn">Finish Setup</button></div></form></div>
 
     <script>
         let currentServer = null, currentPath = ".", currentFile = null, isAdmin = false;
@@ -2248,6 +2248,7 @@
                 showToast("Fill all fields", "error");
                 return;
             }
+            if (['forge', 'neoforge', 'spigot', 'arclight'].includes(wizardFork)) showToast('This software must be uploaded manually before the server can start.', 'info');
             if (!/^[A-Za-z0-9_-]+$/.test(name)) {
                 showToast("Server name cannot contain spaces (use letters, numbers, - or _)", "error");
                 return;
@@ -2293,6 +2294,7 @@
             const data = await response.json();
             const list = document.getElementById('backup-list');
             const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"></path><path d="M3 8h18"></path><path d="M10 12h4"></path><path d="M7 3h10l2 5H5z"></path></svg>';
+            if (data.backupLimit > 0 && data.backupBytes > data.backupLimit) list.insertAdjacentHTML('beforebegin', '<div class="limit-warning">Backups are over the warning limit.</div>');
             list.innerHTML = (data.backups || []).map(backup => {
                 const name = escapeHtml(backup.name);
                 const when = backup.created ? new Date(backup.created).toLocaleString() : 'Unknown date';
@@ -3407,7 +3409,8 @@
                 if (!response.ok) { showToast(await response.text(), 'error'); return; }
                 closeEditServer();
                 await refresh();
-                showToast('Server updated. Start it to apply the new settings.', 'success');
+                const known = ['vanilla','paper','purpur','fabric','quilt','folia','velocity','waterfall','travertine','bungeecord','nanolimbo','forge','neoforge','spigot','arclight','website','jda','discord4j','html','css','js','custom'];
+                showToast(known.includes(type) ? 'Server updated. Start it to apply the new settings.' : 'Custom server type saved. Plugin, mod, and version tools may not apply.', 'success');
             } catch (e) { showToast('Could not save server settings', 'error'); }
             finally { button.disabled = false; }
         }
