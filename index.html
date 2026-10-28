@@ -461,14 +461,31 @@
         .setup-overlay { position:fixed; inset:0; z-index:3000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.72); }
         .setup-card { width:min(560px, calc(100% - 32px)); background:var(--bg-panel); border:1px solid var(--border); border-radius:16px; padding:24px; }
         .limit-warning { margin-top:8px; color:var(--warning); font-size:12px; }
-        @media (max-width: 800px) {
-            .topbar, .dashboard-header, .sc-footer, .fm-toolbar, .wizard-footer { flex-wrap:wrap; height:auto; gap:8px; }
-            .dashboard-content, .console-layout { padding:12px; }
-            .server-grid, .sc-stats-row, .form-grid { grid-template-columns:1fr !important; }
-            .sidebar-left { width:100%; }
-            .console-layout, .view-wrapper, body { overflow:auto; }
-            .server-card, .backup-card { min-width:0; }
-            .sc-footer > div, .backup-actions { flex-wrap:wrap; }
+        @media (max-width: 900px) {
+            html, body, #app { width:100%; max-width:100%; overflow-x:hidden; }
+            body, #app { height:100dvh; }
+            .topbar { height:auto; display:grid; justify-content:stretch; align-items:stretch; gap:12px; padding:12px; }
+            .topbar-left, .topbar-right, .global-stats, .dashboard-header, .dashboard-header > div, .sc-footer, .sc-header, .fm-toolbar, .wizard-footer, .addons-head, .addons-head-actions, .backup-card, .manage-stats-banner { display:flex; flex-wrap:wrap; width:100%; height:auto; gap:8px; justify-content:flex-start; }
+            .global-stats, .topbar-right { justify-content:space-between; }
+            .stat-pill, .theme-picker { flex:1 1 auto; justify-content:center; }
+            .dashboard-content { width:100%; max-width:100%; margin:0 auto; padding:12px 12px 108px; overflow-x:hidden; }
+            .server-grid, .sc-stats-row, .form-grid, .software-grid, .config-grid, .addons-results, .status-actions { grid-template-columns:1fr !important; }
+            .server-card, .backup-card, .wizard-container, .login-box, .setup-card { width:100%; max-width:100%; min-width:0; margin-left:auto; margin-right:auto; }
+            .login-box { width:min(100% - 24px, 420px); padding:24px; }
+            .console-layout { display:flex; flex-direction:column; width:100%; min-height:0; padding:8px; gap:8px; overflow:auto; }
+            .sidebar-left { width:100%; max-height:none; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); overflow:visible; }
+            .sidebar-left .back-btn, .sidebar-left .server-status-box { grid-column:1 / -1; }
+            .nav-item { justify-content:center; min-width:0; padding:10px 6px; font-size:12px; border-radius:8px; }
+            .nav-item.active { border-left:none; outline:1px solid var(--accent); }
+            .content-center, .tab-container, .console-container, .fm-page, .addons-page { width:100%; min-width:0; overflow:auto; }
+            .console-container { min-height:52dvh; }
+            .addon-row { grid-template-columns:1fr; }
+            .fm-table { min-width:640px; }
+            .fm-table-wrap, .settings-tasks, .config-file-select, .config-search, .java-select, .java-custom, .version-search { width:100%; max-width:100%; min-width:0; }
+            .node-nav { bottom:12px; max-width:calc(50% - 16px); }
+            .node-nav.prev { left:8px; } .node-nav.next { right:8px; }
+            .toast-container, #toast-container { left:12px; right:12px; bottom:12px; }
+            button, .btn, input, select, textarea { max-width:100%; }
         }
         .settings-tasks { width:min(860px,100%); min-height:220px; margin:12px 0; padding:14px; border-radius:10px; border:1px solid var(--border); background:#111827; color:#d1d5db; font-family:var(--font-mono); }
         .restart-banner { display:none; margin-bottom:12px; padding:12px 14px; border-radius:10px; background:hsla(40,90%,60%,.15); color:var(--warning); }
