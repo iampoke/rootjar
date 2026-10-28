@@ -473,7 +473,8 @@
             .server-card, .backup-card, .wizard-container, .login-box, .setup-card { width:100%; max-width:100%; min-width:0; margin-left:auto; margin-right:auto; }
             .login-box { width:min(100% - 24px, 420px); padding:24px; }
             .console-layout { display:flex; flex-direction:column; width:100%; min-height:0; padding:8px; gap:8px; overflow:auto; }
-            .sidebar-left { width:100%; max-height:none; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); overflow:visible; }
+            .sidebar-left, .sidebar-right { width:100%; max-width:100%; max-height:none; }
+            .sidebar-left { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); overflow:visible; }
             .sidebar-left .back-btn, .sidebar-left .server-status-box { grid-column:1 / -1; }
             .nav-item { justify-content:center; min-width:0; padding:10px 6px; font-size:12px; border-radius:8px; }
             .nav-item.active { border-left:none; outline:1px solid var(--accent); }
@@ -607,6 +608,8 @@
                 <p class="version-note">Each task needs server, type (`restart`, `backup`, or `command`), and time (`HH:mm`). A backup task creates a scheduled backup.</p>
                 <textarea id="settings-tasks" class="settings-tasks" spellcheck="false"></textarea>
                 <button class="btn" onclick="saveTasks()">Save Schedules</button>
+                <h2 style="margin-top:28px">Audit Log</h2>
+                <div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody id="audit-tbody"></tbody></table></div>
             </div>
         </div>
 
@@ -871,6 +874,7 @@
                     <div id="tab-backups" class="tab-container">
                         <div class="fm-page">
                             <div class="fm-toolbar"><h2>Backups</h2><div class="fm-spacer"></div><button class="fm-btn fm-btn-accent" onclick="createBackup()">Create Backup</button></div>
+                            <div class="limit-warning" id="backup-limit-warning" style="display:none"></div>
                             <div class="backup-list" id="backup-list"></div>
                         </div>
                     </div>
@@ -1227,7 +1231,7 @@
 
     <button type="button" class="node-nav prev" id="node-prev-btn" onclick="openNodeLink('prev')" title="Open the previous node panel">&#8592; Previous Node</button>
     <button type="button" class="node-nav next" id="node-next-btn" onclick="openNodeLink('next')" title="Open the next node panel">Next Node &#8594;</button>
-    <div class="setup-overlay" id="setup-overlay"><form class="setup-card" onsubmit="finishSetup(event)"><h2>Panel Setup</h2><p class="version-note">Choose the ports servers may use and optional size warnings. You can change these later in Settings.</p><label>Available Ports<input id="setup-ports" placeholder="25565, 25566, 25567"></label><label>Server Disk Warning GB<input id="setup-disk" type="number" min="0" value="0"></label><label>Backup Warning GB<input id="setup-backup" type="number" min="0" value="0"></label><div style="display:flex;gap:8px;margin-top:16px"><button type="button" class="btn btn-outline" onclick="document.getElementById('setup-overlay').style.display='none'">Later</button><button class="btn">Finish Setup</button></div></form></div>
+    <div class="setup-overlay" id="setup-overlay"><form class="setup-card" onsubmit="finishSetup(event)"><h2>Panel Setup</h2><p class="version-note">Choose the ports servers may use and optional size warnings. You can change these later in Settings.</p><label>Available Ports<input id="setup-ports" placeholder="25565, 25566, 25567"></label><label>Server Disk Warning GB<input id="setup-disk" type="number" min="0" value="0"></label><label>Backup Warning GB<input id="setup-backup" type="number" min="0" value="0"></label><div style="display:flex;gap:8px;margin-top:16px"><button type="button" class="btn btn-outline" onclick="window.setupDismissed=true;document.getElementById('setup-overlay').style.display='none'">Later</button><button class="btn">Finish Setup</button></div></form></div>
 
     <script>
         let currentServer = null, currentPath = ".", currentFile = null, isAdmin = false;
@@ -1541,7 +1545,7 @@
         function switchView(v, id) {
             document.querySelectorAll('.view-wrapper').forEach(e => e.classList.remove('active'));
             document.getElementById('view-' + v).classList.add('active');
-            if (v === 'settings') loadSettings();
+            if (v === 'settings') { loadSettings(); loadAuditLog(); }
             if (v === 'manage') { document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span> / <span>Manage</span>`; renderManageList(); }
             if (v === 'users') { document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span> / <span>Users</span>`; loadGlobalUsers(); }
             const path = panelPath(v, id || (currentServer && currentServer.id));
@@ -1627,7 +1631,7 @@
             currentPublicIp = data.publicIp || "127.0.0.1";
             const ports = document.getElementById('available-ports');
             if (ports) ports.innerHTML = (data.availablePorts || []).map(port => `<option value="${port}"></option>`).join('');
-            if (isAdmin && data.setupComplete === false) document.getElementById('setup-overlay').style.display = 'flex';
+            if (isAdmin && data.setupComplete === false && !window.setupDismissed) document.getElementById('setup-overlay').style.display = 'flex';
             cpuMaxPct = data.cpuMax || 300;
             const storageMax = data.storageMax || 0;
             document.getElementById('create-btn').style.display = isAdmin ? 'block' : 'none';
@@ -1644,25 +1648,31 @@
                 fmtBytes(data.storageUsed) + (storageMax > 0 ? " / " + fmtBytes(storageMax) : " used");
 
             if (document.getElementById('view-manage').classList.contains('active')) {
-                renderManageList();
+                const manageSignature = JSON.stringify((data.servers || []).map(server => [server.id, server.type, server.port, server.ramMax, server.jar]));
+                if (!draggedServerId && window.manageRenderSignature !== manageSignature) {
+                    window.manageRenderSignature = manageSignature;
+                    renderManageList();
+                }
             }
 
             if (document.getElementById('view-dashboard').classList.contains('active')) {
-                const grid = document.getElementById('server-grid'); grid.innerHTML = '';
-                const signature = JSON.stringify(data.servers);
-                if (window.serverRenderSignature === signature) return;
+                const grid = document.getElementById('server-grid');
+                const signature = JSON.stringify((data.servers || []).map(server => [server.id, server.port, server.type, server.status, server.silent, server.ramMax, server.diskUsed]));
+                const cardsReady = grid.querySelector('.server-card') || data.servers.length === 0;
+                if (draggedServerId || (window.serverRenderSignature === signature && cardsReady)) updateLiveCardStats(data);
+                else {
                 window.serverRenderSignature = signature;
+                grid.innerHTML = '';
                 if (data.servers.length === 0) {
                     grid.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding:40px; color:var(--text-muted);">No servers running.</div>`;
-                    return;
-                }
+                } else {
                 const largestDisk = Math.max(...data.servers.map(server => Number(server.diskUsed) || 0), 1);
                 data.servers.forEach(s => {
                     const ramPct = Math.min((s.ramUsed / s.ramMax) * 100, 100);
                     const cpuPct = Math.min(s.cpuUsed, 100);
                     const diskPct = Math.min((s.diskUsed / largestDisk) * 100, 100);
                     
-                    grid.innerHTML += `<div class="server-card" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" onclick="openServerFromCard(event, '${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
+                    grid.innerHTML += `<div class="server-card" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" onclick="openServerFromCard(event, '${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')" onpointerdown="serverPointerDown(event)" onpointermove="serverPointerMove(event)" onpointerup="serverPointerUp(event)" onpointercancel="serverPointerUp(event)" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
                         <div class="sc-header">
                             <div>
                                 <div class="sc-name">${escapeHtml(s.id)}</div>
@@ -1678,8 +1688,8 @@
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect></svg>
                                     CPU
                                 </div>
-                                <div class="sc-stat-values"><span>${s.cpuUsed}%</span> <span>used</span></div>
-                                <div class="sc-bar-bg"><div class="sc-bar-fill" style="width: ${cpuPct}%; background: var(--accent);"></div></div>
+                                <div class="sc-stat-values"><span class="sc-cpu-value">${s.cpuUsed}%</span> <span>used</span></div>
+                                <div class="sc-bar-bg"><div class="sc-bar-fill sc-cpu-bar" style="width: ${cpuPct}%; background: var(--accent);"></div></div>
                             </div>
                             
                             <div class="sc-stat-box">
@@ -1687,8 +1697,8 @@
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="6" y1="10" x2="6" y2="14"></line><line x1="10" y1="10" x2="10" y2="14"></line><line x1="14" y1="10" x2="14" y2="14"></line><line x1="18" y1="10" x2="18" y2="14"></line></svg>
                                     Memory
                                 </div>
-                                <div class="sc-stat-values"><span>${s.ramUsed} MB</span> <span>/ ${s.ramMax} MB</span></div>
-                                <div class="sc-bar-bg"><div class="sc-bar-fill" style="width: ${ramPct}%; background: var(--success);"></div></div>
+                                <div class="sc-stat-values"><span class="sc-ram-value">${s.ramUsed} MB</span> <span>/ ${s.ramMax} MB</span></div>
+                                <div class="sc-bar-bg"><div class="sc-bar-fill sc-ram-bar" style="width: ${ramPct}%; background: var(--success);"></div></div>
                             </div>
                             
                             <div class="sc-stat-box">
@@ -1698,14 +1708,14 @@
                                 </div>
                                 <div class="sc-stat-values"><span>${fmtBytes(s.diskUsed)}</span> <span>used</span></div>
                                 ${data.diskLimit > 0 && s.diskUsed > data.diskLimit ? `<div class="limit-warning">Over disk warning limit</div>` : ''}
-                                <div class="sc-bar-bg"><div class="sc-bar-fill" style="width: ${diskPct}%; background: #8b5cf6;"></div></div>
+                                <div class="sc-bar-bg"><div class="sc-bar-fill sc-disk-bar" style="width: ${diskPct}%; background: #8b5cf6;"></div></div>
                             </div>
                         </div>
                         
                         <div class="sc-footer">
                             <div class="sc-uptime">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                                Uptime: ${s.uptime}
+                                Uptime: <span class="sc-uptime-value">${s.uptime}</span>
                             </div>
                             <div style="display:flex; gap:8px;">
                                 <button class="power-icon ${s.status === 'STOPPED' ? '' : 'stop'}" title="${s.status === 'STOPPED' ? 'Start' : 'Stop'}" aria-label="${s.status === 'STOPPED' ? 'Start' : 'Stop'}" onclick="dashboardPower('${escapeHtml(s.id)}', '${s.status === 'STOPPED' ? 'start' : 'stop'}')">${s.status === 'STOPPED' ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg>' : '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg>'}</button>
@@ -1716,6 +1726,8 @@
                         </div>
                     </div>`;
                 });
+                }
+                }
             }
 
             if (document.getElementById('view-console').classList.contains('active') && currentServer) {
@@ -1749,7 +1761,52 @@
             }
         }
 
+        function updateLiveCardStats(data) {
+            const largestDisk = Math.max(...(data.servers || []).map(server => Number(server.diskUsed) || 0), 1);
+            (data.servers || []).forEach(server => {
+                const card = document.querySelector(`.server-card[data-server-id="${CSS.escape(server.id)}"]`);
+                if (!card) return;
+                const cpu = Math.min(server.cpuUsed, 100);
+                const ram = Math.min((server.ramUsed / server.ramMax) * 100, 100);
+                const disk = Math.min((server.diskUsed / largestDisk) * 100, 100);
+                const set = (selector, value) => { const node = card.querySelector(selector); if (node) node.textContent = value; };
+                set('.sc-cpu-value', server.cpuUsed + '%');
+                set('.sc-ram-value', server.ramUsed + ' MB');
+                set('.sc-uptime-value', server.uptime);
+                const cpuBar = card.querySelector('.sc-cpu-bar'), ramBar = card.querySelector('.sc-ram-bar'), diskBar = card.querySelector('.sc-disk-bar');
+                if (cpuBar) cpuBar.style.width = cpu + '%';
+                if (ramBar) ramBar.style.width = ram + '%';
+                if (diskBar) diskBar.style.width = disk + '%';
+            });
+        }
+
         let draggedServerId = '';
+        let pointerDrag = null;
+        function serverPointerDown(event) {
+            if (!isAdmin || event.pointerType === 'mouse' || event.target.closest('button, a, input, select, textarea')) return;
+            pointerDrag = { id: event.currentTarget.dataset.serverId, x: event.clientX, y: event.clientY, moved: false, pointerId: event.pointerId };
+        }
+        function serverPointerMove(event) {
+            if (!pointerDrag || pointerDrag.pointerId !== event.pointerId) return;
+            if (Math.hypot(event.clientX - pointerDrag.x, event.clientY - pointerDrag.y) < 10) return;
+            pointerDrag.moved = true;
+            draggedServerId = pointerDrag.id;
+            serverDragMoved = true;
+            const under = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-server-id]');
+            document.querySelectorAll('.drop-target').forEach(item => item.classList.remove('drop-target'));
+            if (under && under.dataset.serverId !== draggedServerId) under.classList.add('drop-target');
+            event.preventDefault();
+        }
+        function serverPointerUp(event) {
+            if (!pointerDrag || pointerDrag.pointerId !== event.pointerId) return;
+            const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-server-id]');
+            const source = pointerDrag;
+            pointerDrag = null;
+            draggedServerId = '';
+            document.querySelectorAll('.drop-target').forEach(item => item.classList.remove('drop-target'));
+            setTimeout(() => { serverDragMoved = false; }, 0);
+            if (source.moved && target) moveServer(source.id, target.dataset.serverId);
+        }
         function serverDragStart(event) {
             serverDragMoved = true;
             draggedServerId = event.currentTarget.dataset.serverId;
@@ -1763,6 +1820,7 @@
             if (target.dataset.serverId !== draggedServerId) target.classList.add('drop-target');
         }
         function serverDragEnd(event) {
+            draggedServerId = '';
             setTimeout(() => { serverDragMoved = false; }, 0);
             event.currentTarget.classList.remove('dragging');
             document.querySelectorAll('.drop-target').forEach(item => item.classList.remove('drop-target'));
@@ -1773,12 +1831,18 @@
             target.classList.remove('drop-target');
             const targetId = target.dataset.serverId;
             if (!isAdmin || !draggedServerId || draggedServerId === targetId) return;
+            moveServer(draggedServerId, targetId);
+        }
+        async function moveServer(sourceId, targetId) {
+            draggedServerId = '';
+            if (!isAdmin || !sourceId || sourceId === targetId) return;
             const ids = currentServersList.map(server => server.id);
-            const from = ids.indexOf(draggedServerId), to = ids.indexOf(targetId);
+            const from = ids.indexOf(sourceId), to = ids.indexOf(targetId);
             if (from < 0 || to < 0) return;
             ids.splice(to, 0, ids.splice(from, 1)[0]);
             currentServersList = ids.map(id => currentServersList.find(server => server.id === id));
             window.serverRenderSignature = '';
+            window.manageRenderSignature = '';
             renderManageList();
             const response = await fetch('/api/server/reorder', { method: 'POST', body: JSON.stringify({ ids }) });
             if (!response.ok) showToast(await response.text(), 'error');
@@ -1789,7 +1853,7 @@
             const tbody = document.getElementById('manage-table-body');
             tbody.innerHTML = '';
             currentServersList.forEach(s => {
-                tbody.innerHTML += `<tr class="manage-row" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
+                tbody.innerHTML += `<tr class="manage-row" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" onpointerdown="serverPointerDown(event)" onpointermove="serverPointerMove(event)" onpointerup="serverPointerUp(event)" onpointercancel="serverPointerUp(event)" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
                     <td><strong>${escapeHtml(s.id)}</strong></td>
                     <td>${typeBadge(s.type)}</td>
                     <td>${s.port}</td>
@@ -1821,7 +1885,9 @@
             });
         }
 
-        async function loadActivity() { if (!currentServer) return; const response = await fetch('/api/activity?server=' + encodeURIComponent(currentServer.id)); if (!response.ok) return; const entries = await response.json(); document.getElementById('activity-tbody').innerHTML = entries.map(entry => `<tr><td>${escapeHtml(entry.time || '')}</td><td>${escapeHtml(entry.user || '')}</td><td>${escapeHtml(entry.action || '')}</td><td>${escapeHtml(entry.details || '')}</td></tr>`).join('') || '<tr><td colspan="4">No activity yet.</td></tr>'; }
+        function activityRows(entries) { return entries.map(entry => `<tr><td>${escapeHtml(entry.time || '')}</td><td>${escapeHtml(entry.user || '')}</td><td>${escapeHtml(entry.action || '')}</td><td>${escapeHtml(entry.details || '')}</td></tr>`).join('') || '<tr><td colspan="4">No activity yet.</td></tr>'; }
+        async function loadActivity() { if (!currentServer) return; const response = await fetch('/api/activity?server=' + encodeURIComponent(currentServer.id)); if (!response.ok) return; document.getElementById('activity-tbody').innerHTML = activityRows(await response.json()); }
+        async function loadAuditLog() { const response = await fetch('/api/activity'); if (!response.ok) return; document.getElementById('audit-tbody').innerHTML = activityRows(await response.json()); }
         async function loadServerUsers() {
             if (!currentServer) return;
             await loadGlobalUsers(); // Refresh the master list
@@ -2294,7 +2360,10 @@
             const data = await response.json();
             const list = document.getElementById('backup-list');
             const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8"></path><path d="M3 8h18"></path><path d="M10 12h4"></path><path d="M7 3h10l2 5H5z"></path></svg>';
-            if (data.backupLimit > 0 && data.backupBytes > data.backupLimit) list.insertAdjacentHTML('beforebegin', '<div class="limit-warning">Backups are over the warning limit.</div>');
+            const warning = document.getElementById('backup-limit-warning');
+            const overLimit = data.backupLimit > 0 && data.backupBytes > data.backupLimit;
+            warning.style.display = overLimit ? 'block' : 'none';
+            warning.textContent = overLimit ? 'Backups are over the warning limit.' : '';
             list.innerHTML = (data.backups || []).map(backup => {
                 const name = escapeHtml(backup.name);
                 const when = backup.created ? new Date(backup.created).toLocaleString() : 'Unknown date';
@@ -2468,7 +2537,7 @@
         function updateRestartBanner() { const banner = document.getElementById('config-restart-banner'); const server = currentServersList.find(item => currentServer && item.id === currentServer.id); if (banner) banner.style.display = server && server.restartRequired ? 'block' : 'none'; }
         async function loadSettings() { const response = await fetch('/api/settings'); if (!response.ok) return; const data = await response.json(); document.getElementById('settings-webhook').value = data.webhookUrl || ''; document.getElementById('settings-retention').value = data.backupRetention || 5; document.getElementById('settings-public').checked = data.publicStatus === true; document.getElementById('settings-prev-url').value = data.nodePreviousUrl || ''; document.getElementById('settings-next-url').value = data.nodeNextUrl || ''; document.getElementById('settings-prev-show').checked = data.nodeShowPrevious !== false; document.getElementById('settings-next-show').checked = data.nodeShowNext !== false; document.getElementById('settings-ports').value = data.ports || ''; document.getElementById('settings-disk-limit').value = data.diskLimitGb || 0; document.getElementById('settings-backup-limit').value = data.backupLimitGb || 0; document.getElementById('settings-tasks').value = await (await fetch('/api/tasks')).text(); }
         async function saveSettings() { const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({webhookUrl:document.getElementById('settings-webhook').value, backupRetention:document.getElementById('settings-retention').value, publicStatus:document.getElementById('settings-public').checked, nodePreviousUrl:document.getElementById('settings-prev-url').value, nodeNextUrl:document.getElementById('settings-next-url').value, nodeShowPrevious:document.getElementById('settings-prev-show').checked, nodeShowNext:document.getElementById('settings-next-show').checked, ports:document.getElementById('settings-ports').value, diskLimitGb:document.getElementById('settings-disk-limit').value, backupLimitGb:document.getElementById('settings-backup-limit').value, setupComplete:true})}); showToast(response.ok ? 'Settings saved' : await response.text(), response.ok ? 'success' : 'error'); }
-        async function finishSetup(event) { event.preventDefault(); const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({webhookUrl:'', backupRetention:5, publicStatus:false, ports:document.getElementById('setup-ports').value, diskLimitGb:document.getElementById('setup-disk').value, backupLimitGb:document.getElementById('setup-backup').value, setupComplete:true})}); if (!response.ok) return showToast(await response.text(), 'error'); document.getElementById('setup-overlay').style.display = 'none'; refresh(); }
+        async function finishSetup(event) { event.preventDefault(); const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({ports:document.getElementById('setup-ports').value, diskLimitGb:document.getElementById('setup-disk').value, backupLimitGb:document.getElementById('setup-backup').value, setupComplete:true})}); if (!response.ok) return showToast(await response.text(), 'error'); document.getElementById('setup-overlay').style.display = 'none'; refresh(); }
         async function saveTasks() { const response = await fetch('/api/tasks', {method:'POST', body:document.getElementById('settings-tasks').value}); showToast(response.ok ? 'Schedules saved' : await response.text(), response.ok ? 'success' : 'error'); }
         function downloadFile(path, directory) { window.open(`/api/files/${directory ? 'download-zip' : 'download'}/${currentServer.id}?path=${encodeURIComponent(path)}`); }
         async function createNewFile() {

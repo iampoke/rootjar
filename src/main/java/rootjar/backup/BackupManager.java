@@ -40,7 +40,8 @@ public final class BackupManager {
     public static BackupInfo create(ChildConfig child, String label, boolean includeLogs, int retention) throws IOException {
         String safeLabel = label == null ? "" : label.replaceAll("[^A-Za-z0-9._-]", "");
         if (safeLabel.toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) safeLabel = safeLabel.substring(0, safeLabel.length() - 4);
-        String prefix = safeLabel.isBlank() ? child.id() + "-" + LocalDateTime.now().format(STAMP) : safeLabel;
+        boolean automatic = safeLabel.isBlank() || safeLabel.equals("scheduled") || safeLabel.equals("pre-restore");
+        String prefix = automatic ? child.id() + "-" + (safeLabel.isBlank() ? "" : safeLabel + "-") + LocalDateTime.now().format(STAMP) : safeLabel;
         String name = prefix + ".zip";
         for (int suffix = 2; Files.exists(directory(child).resolve(name)); suffix++) name = prefix + "-" + suffix + ".zip";
         Path destination = directory(child).resolve(name);
@@ -61,7 +62,8 @@ public final class BackupManager {
                     return FileVisitResult.CONTINUE;
                 }
                 @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    if (Files.isSymbolicLink(file) || file.getFileName().toString().equals("backup.json")) return FileVisitResult.CONTINUE;
+                    String fileName = file.getFileName().toString();
+                    if (Files.isSymbolicLink(file) || fileName.equals("backup.json") || fileName.equals(".rootjar-permissions-repaired")) return FileVisitResult.CONTINUE;
                     out.putNextEntry(new ZipEntry(root.relativize(file).toString().replace('\\', '/')));
                     Files.copy(file, out);
                     out.closeEntry();

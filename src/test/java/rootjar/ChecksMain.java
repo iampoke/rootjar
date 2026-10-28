@@ -142,6 +142,10 @@ public final class ChecksMain {
         check(BackupManager.NAME.matcher(created.name()).matches(), "backup name is safe");
         BackupManager.BackupInfo second = BackupManager.create(child, "manual", false, 5);
         check(!second.name().equals(created.name()), "backups created in the same second have distinct names");
+        BackupManager.BackupInfo scheduled = BackupManager.create(child, "scheduled", true, 5);
+        check(scheduled.name().startsWith("paper1-scheduled-") && !scheduled.name().equals("scheduled.zip"), "scheduled backups keep dated names");
+        BackupManager.BackupInfo safety = BackupManager.create(child, "pre-restore", true, 5);
+        check(safety.name().startsWith("paper1-pre-restore-"), "pre-restore backups keep dated names");
         try (var archive = new java.util.zip.ZipFile(BackupManager.resolve(child, second.name()).toFile())) {
             check(archive.getEntry("backup.json") != null, "backup includes metadata");
             check(archive.getEntry("world.txt") != null, "backup includes server files");

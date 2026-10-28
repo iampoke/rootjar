@@ -19,11 +19,26 @@ public final class ActivityLog {
     }
 
     public static String recent(Path serverDir, int limit) throws IOException {
-        Path file = serverDir.resolve("activity.log");
-        if (!Files.isRegularFile(file)) return "[]";
-        java.util.List<String> lines = Files.readAllLines(file);
+        return recent(java.util.List.of(serverDir.resolve("activity.log")), limit);
+    }
+
+    /** Returns the newest records from one or more append-only logs, oldest first. */
+    public static String recent(java.util.List<Path> files, int limit) throws IOException {
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        for (Path file : files) {
+            if (Files.isRegularFile(file)) lines.addAll(Files.readAllLines(file));
+        }
+        lines.sort(java.util.Comparator.comparing(ActivityLog::timeOf));
         int start = Math.max(0, lines.size() - limit);
         return "[" + String.join(",", lines.subList(start, lines.size())) + "]";
+    }
+
+    private static String timeOf(String line) {
+        int start = line.indexOf("\"time\":\"");
+        if (start < 0) return "";
+        start += 8;
+        int end = line.indexOf('"', start);
+        return end < 0 ? "" : line.substring(start, end);
     }
 
     private static String json(String value) {

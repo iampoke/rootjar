@@ -752,7 +752,6 @@ public class WebServer {
 
         long pid = child.pid();
         // Files on disk are intentionally kept: this only removes the server from the panel/config.
-        activity(id, ex, "server.delete", "Removed from panel");
         supervisor.removeChild(id);
         lastCpuTime.remove(pid);
         lastWallTime.remove(pid);
@@ -762,6 +761,7 @@ public class WebServer {
         for (ChildProcess c : supervisor.children()) {
             newChildren.add(c.config());
         }
+        audit(ex, "server.delete", id);
         saveConfig(new RootConfig(config.server(), newChildren, config.baseDir()));
 
         send(ex, 200, "Deleted");
@@ -1042,7 +1042,7 @@ public class WebServer {
                 index++;
             }
             saveConfig(new RootConfig(config.server(), children, config.baseDir()));
-            for (String id : ids) activity(id, ex, "server.reorder", String.join(", ", ids));
+            audit(ex, "server.reorder", String.join(", ", ids));
         }
         send(ex, 200, "{\"saved\":true}");
     }
@@ -1745,6 +1745,7 @@ public class WebServer {
         if (child == null) { send(ex, 404, "Not found"); return; }
         if (child.isAlive() && !param(ex, "force", "").equals("1")) { send(ex, 409, "Server is running"); return; }
         BackupManager.BackupInfo info = BackupManager.create(child.config(), param(ex, "label", ""), param(ex, "include_logs", "1").equals("1"), config.server().backupRetention());
+        activity(server, ex, "backup.create", info.name());
         send(ex, 200, "{\"name\":\"" + jsonEscape(info.name()) + "\",\"size\":" + info.bytes() + "}");
     }
 
@@ -1768,8 +1769,10 @@ public class WebServer {
         if (child == null) { send(ex, 404, "Not found"); return; }
         if (child.isAlive()) child.stop();
         if (child.isAlive()) { send(ex, 409, "Could not stop server"); return; }
+        String name = param(ex, "name", "");
         BackupManager.create(child.config(), "pre-restore", true, config.server().backupRetention());
-        BackupManager.restore(child.config(), param(ex, "name", ""));
+        BackupManager.restore(child.config(), name);
+        activity(server, ex, "backup.restore", name);
         send(ex, 200, "Restored");
     }
 
@@ -1778,7 +1781,9 @@ public class WebServer {
         if (!requireOwner(ex, server)) return;
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null) { send(ex, 404, "Not found"); return; }
-        BackupManager.delete(child.config(), param(ex, "name", ""));
+        String name = param(ex, "name", "");
+        BackupManager.delete(child.config(), name);
+        activity(server, ex, "backup.delete", name);
         send(ex, 200, "Deleted");
     }
 
@@ -1800,10 +1805,15 @@ public class WebServer {
         }
         String body = new String(ex.getRequestBody().readNBytes(8193), StandardCharsets.UTF_8);
         if (body.length() > 8192) { send(ex, 413, "Request too large"); return; }
-        String webhook = extractJson(body, "webhookUrl");
+        ServerConfig old = config.server();
+        String webhook = jsonHas(body, "webhookUrl") ? extractJson(body, "webhookUrl") : old.webhookUrl();
         if (!webhook.isBlank() && !webhook.startsWith("https://")) { send(ex, 400, "Webhook must be an HTTPS URL"); return; }
-        int retention = Math.max(1, Math.min(50, Integer.parseInt(extractJson(body, "backupRetention"))));
-        boolean publicStatus = "true".equals(extractJson(body, "publicStatus"));
+        int retention = old.backupRetention();
+        if (jsonHas(body, "backupRetention")) {
+            try { retention = Math.max(1, Math.min(50, Integer.parseInt(extractJson(body, "backupRetention")))); }
+            catch (NumberFormatException e) { send(ex, 400, "Backup retention must be a number"); return; }
+        }
+        boolean publicStatus = jsonHas(body, "publicStatus") ? "true".equals(extractJson(body, "publicStatus")) : old.publicStatus();
         NodeButtons updatedButtons = null;
         if (jsonHas(body, "nodePreviousUrl") || jsonHas(body, "nodeNextUrl")
                 || jsonHas(body, "nodeShowPrevious") || jsonHas(body, "nodeShowNext")) {
@@ -1817,7 +1827,6 @@ public class WebServer {
                     "true".equals(extractJson(body, "nodeShowPrevious")),
                     "true".equals(extractJson(body, "nodeShowNext")));
         }
-        ServerConfig old = config.server();
         saveConfig(new RootConfig(new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(),
                 old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), old.passwordHash(),
                 old.trustedProxies(), old.diskMaxGb(), retention, webhook, publicStatus, old.users()), config.children(), config.baseDir()));
@@ -1827,8 +1836,8 @@ public class WebServer {
             PanelOptions updatedOptions = new PanelOptions(parsePorts(extractJson(body, "ports")), diskGb * 1073741824L, backupGb * 1073741824L, !"false".equals(extractJson(body, "setupComplete")));
             savePanelOptions(updatedOptions);
             panelOptions = updatedOptions;
-            try { ActivityLog.append(config.baseDir(), getSessionUser(ex), "settings.changed", "Panel options updated"); } catch (IOException ignored) {}
         }
+        audit(ex, "settings.changed", "Panel settings updated");
         if (updatedButtons != null) {
             try {
                 saveNodeButtons(updatedButtons);
@@ -1956,6 +1965,11 @@ public class WebServer {
         });
     }
 
+    private void audit(HttpExchange ex, String action, String details) {
+        try { ActivityLog.append(config.baseDir(), getSessionUser(ex), action, details); }
+        catch (IOException ignored) {}
+    }
+
     private void handleSessions(HttpExchange ex) throws IOException {
         if (!isAuthed(ex)) { send(ex, 401, "Unauthorized"); return; }
         if (ex.getRequestMethod().equals("GET")) {
@@ -2069,6 +2083,11 @@ public class WebServer {
 
     private void handleActivity(HttpExchange ex) throws IOException {
         String server = param(ex, "server", "");
+        if (server.isBlank()) {
+            if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
+            send(ex, 200, ActivityLog.recent(config.baseDir(), 100));
+            return;
+        }
         if (!requireServer(ex, server)) return;
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null) { send(ex, 404, "Not found"); return; }
