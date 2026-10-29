@@ -612,6 +612,7 @@
                 <textarea id="settings-tasks" class="settings-tasks" spellcheck="false"></textarea>
                 <button class="btn" onclick="saveTasks()">Save Schedules</button>
                 <h2 style="margin-top:28px">Audit Log</h2>
+                <div class="fm-toolbar"><input id="audit-search" placeholder="Search user, action, or details" onkeydown="if(event.key==='Enter')loadAuditLog()"><button class="btn" onclick="loadAuditLog()">Search</button></div>
                 <div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody id="audit-tbody"></tbody></table></div>
             </div>
         </div>
@@ -1952,7 +1953,7 @@
 
         function activityRows(entries) { return entries.map(entry => `<tr><td>${escapeHtml(entry.time || '')}</td><td>${escapeHtml(entry.user || '')}</td><td>${escapeHtml(entry.action || '')}</td><td>${escapeHtml(entry.details || '')}</td></tr>`).join('') || '<tr><td colspan="4">No activity yet.</td></tr>'; }
         async function loadActivity() { if (!currentServer) return; const response = await fetch('/api/activity?server=' + encodeURIComponent(currentServer.id)); if (!response.ok) return; document.getElementById('activity-tbody').innerHTML = activityRows(await response.json()); }
-        async function loadAuditLog() { const response = await fetch('/api/activity'); if (!response.ok) return; document.getElementById('audit-tbody').innerHTML = activityRows(await response.json()); }
+        async function loadAuditLog() { const query = document.getElementById('audit-search') ? document.getElementById('audit-search').value : ''; const response = await fetch('/api/activity?q=' + encodeURIComponent(query || '')); if (!response.ok) return; document.getElementById('audit-tbody').innerHTML = activityRows(await response.json()); }
         async function loadServerUsers() {
             if (!currentServer) return;
             await loadGlobalUsers(); // Refresh the master list
@@ -2734,7 +2735,11 @@
             if (!response.ok) return showToast('Could not read the latest log', 'error');
             const data = await response.json();
             const lines = [data.addon ? 'Possible addon: ' + data.addon : 'No addon was named in the recent log.', data.error || 'No recent error was found.'];
-            confirmPromise({ title: 'Crash diagnosis', body: lines.join('\n'), confirmText: 'Close' });
+            if (!data.addon) return confirmPromise({ title: 'Crash diagnosis', body: lines.join('\n'), confirmText: 'Close' });
+            if (!await confirmPromise({ title: 'Crash diagnosis', body: lines.join('\n') + '\n\nMove this addon aside?', confirmText: 'Move aside', danger: true })) return;
+            const disabled = await fetch('/api/crash/disable?server=' + encodeURIComponent(currentServer.id) + '&addon=' + encodeURIComponent(data.addon), { method: 'POST' });
+            showToast(disabled.ok ? data.addon + ' moved aside' : await disabled.text(), disabled.ok ? 'success' : 'error');
+            if (disabled.ok) { loadAddons('plugin'); loadAddons('mod'); }
         }
         async function saveAccessLists() {
             if (!currentServer) return;

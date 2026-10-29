@@ -185,6 +185,11 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - Operators and the whitelist can be edited from the Config tab.
 - The console recalls earlier commands with the up and down arrow keys.
 - An admin can change the panel password from Settings.
+- Rootjar creates a full backup before a modpack install or Update All.
+- Modrinth modpacks skip client-only mods.
+- Operator and whitelist names are saved with their Mojang UUIDs.
+- Crash diagnosis can move aside the exact plugin or mod named in the log.
+- The audit log can be searched by user, action, or details.
 
 ## Building
 

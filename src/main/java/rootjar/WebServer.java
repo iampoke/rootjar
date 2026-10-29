@@ -180,6 +180,7 @@ public class WebServer {
         route("/api/addons/update-all", this::handleAddonsUpdateAll);
         route("/api/modpack/install", this::handleModpackInstall);
         route("/api/crash/latest", this::handleCrashLatest);
+        route("/api/crash/disable", this::handleCrashDisable);
         route("/api/access/list", this::handleAccessList);
         route("/api/access/save", this::handleAccessSave);
         route("/api/password", this::handlePasswordChange);
@@ -2132,13 +2133,13 @@ public class WebServer {
         String server = param(ex, "server", "");
         if (server.isBlank()) {
             if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
-            send(ex, 200, ActivityLog.recent(config.baseDir(), 100));
+            send(ex, 200, ActivityLog.recent(config.baseDir(), 100, param(ex, "q", "")));
             return;
         }
         if (!requireServer(ex, server)) return;
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null) { send(ex, 404, "Not found"); return; }
-        send(ex, 200, ActivityLog.recent(child.config().dir(), 100));
+        send(ex, 200, ActivityLog.recent(child.config().dir(), 100, param(ex, "q", "")));
     }
 
     private void handleTasks(HttpExchange ex) throws IOException {
@@ -2685,6 +2686,7 @@ public class WebServer {
         if (!requireOperator(ex, server)) return;
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null || child.isAlive()) { send(ex, 409, "Stop the server before installing a modpack"); return; }
+        BackupManager.create(child.config(), "pre-modpack", true, config.server().backupRetention());
         Path pack = Files.createTempFile(child.config().dir(), ".modpack-", ".mrpack");
         try {
             try (InputStream in = ex.getRequestBody()) { Files.copy(in, pack, StandardCopyOption.REPLACE_EXISTING); }
@@ -2697,10 +2699,13 @@ public class WebServer {
             Path mods = child.config().dir().resolve("mods");
             Files.createDirectories(mods);
             int installed = 0;
-            Matcher files = Pattern.compile("\"path\"\\s*:\\s*\"(mods/[^\"]+\\.jar)\".*?\"url\"\\s*:\\s*\"(https:[^\"]+)\"", Pattern.DOTALL).matcher(json);
+            Matcher files = Pattern.compile("\"path\"\\s*:\\s*\"([^\"]+)\"[\\s\\S]{0,1200}?\"env\"\\s*:\\s*\\{([\\s\\S]*?)\\}[\\s\\S]{0,500}?\"url\"\\s*:\\s*\"(https:[^\"]+)\"", Pattern.DOTALL).matcher(json);
             while (files.find()) {
                 String relative = files.group(1);
-                String url = files.group(2).replace("\\/", "/");
+                String environment = files.group(2);
+                if (!relative.startsWith("mods/") || !relative.endsWith(".jar")) continue;
+                if (environment.contains("\"client\"") && !environment.contains("\"server\"")) continue;
+                String url = files.group(3).replace("\\/", "/");
                 if (!allowedDownloadUrl(url)) continue;
                 Path target = child.config().dir().resolve(relative).normalize();
                 if (!target.startsWith(mods)) continue;
@@ -2750,6 +2755,25 @@ public class WebServer {
         send(ex, 200, "{\"error\":\"" + jsonEscape(error) + "\",\"addon\":\"" + jsonEscape(addon) + "\"}");
     }
 
+    private void handleCrashDisable(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireOperator(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        String addon = param(ex, "addon", "");
+        if (!addon.matches("[A-Za-z0-9._ -]+\\.jar")) { send(ex, 400, "Invalid addon"); return; }
+        Path found = null;
+        for (String folder : java.util.List.of("plugins", "mods")) {
+            Path candidate = child.config().dir().resolve(folder).resolve(addon).normalize();
+            if (candidate.startsWith(child.config().dir().resolve(folder)) && Files.isRegularFile(candidate)) found = candidate;
+        }
+        if (found == null) { send(ex, 404, "Addon not found"); return; }
+        Path disabled = found.resolveSibling(found.getFileName() + ".disabled");
+        Files.move(found, disabled, StandardCopyOption.REPLACE_EXISTING);
+        audit(ex, server + ".crash.disable", disabled.getFileName().toString());
+        send(ex, 200, "{\"moved\":\"" + jsonEscape(disabled.getFileName().toString()) + "\"}");
+    }
+
     private void handleAccessList(HttpExchange ex) throws IOException {
         String server = param(ex, "server", "");
         if (!requireServer(ex, server)) return;
@@ -2780,7 +2804,16 @@ public class WebServer {
         return String.join("\n", values);
     }
 
-    private static void writeNameList(Path file, String text, boolean ops) throws IOException {
+    private String playerUuid(String name) {
+        try {
+            String body = modrinthGet("https://api.mojang.com/users/profiles/minecraft/" + urlEncode(name), HTTP_CACHE_MS);
+            String id = extractJson(body, "id");
+            if (!id.matches("[0-9a-fA-F]{32}")) return "";
+            return id.substring(0, 8) + "-" + id.substring(8, 12) + "-" + id.substring(12, 16) + "-" + id.substring(16, 20) + "-" + id.substring(20);
+        } catch (Exception e) { return ""; }
+    }
+
+    private void writeNameList(Path file, String text, boolean ops) throws IOException {
         StringBuilder json = new StringBuilder("[");
         boolean first = true;
         for (String raw : text.split("\\R")) {
@@ -2788,7 +2821,7 @@ public class WebServer {
             if (!name.matches("[A-Za-z0-9_]{1,16}")) continue;
             if (!first) json.append(',');
             first = false;
-            json.append("{\"uuid\":\"\",\"name\":\"").append(name).append("\"");
+            json.append("{\"uuid\":\"").append(playerUuid(name)).append("\",\"name\":\"").append(name).append("\"");
             if (ops) json.append(",\"level\":4,\"bypassesPlayerLimit\":false");
             json.append('}');
         }
@@ -2815,6 +2848,7 @@ public class WebServer {
         if (child == null) { send(ex, 404, "Not found"); return; }
         if (!requireOperator(ex, serverId)) return;
         if (!param(ex, "confirm", "").equals("1")) { send(ex, 400, "Confirm the update preview first"); return; }
+        BackupManager.create(child.config(), "pre-update", true, config.server().backupRetention());
         String mcVersion = detectMcVersion(child.config());
         int updated = 0;
         for (boolean mods : new boolean[]{false, true}) {
