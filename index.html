@@ -6,6 +6,7 @@
     <title>Panel</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://fonts.cdnfonts.com/css/minecraftia" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.css">
     <style>
         :root { --hue: 215; --bg-body: hsl(var(--hue), 20%, 8%); --bg-panel: hsl(var(--hue), 20%, 12%); --bg-card: hsl(var(--hue), 20%, 15%); --bg-hover: hsl(var(--hue), 20%, 20%); --bg-input: hsl(var(--hue), 20%, 10%); --text-main: hsl(var(--hue), 10%, 90%); --text-muted: hsl(var(--hue), 10%, 60%); --text-dark: hsl(var(--hue), 10%, 40%); --accent: hsl(var(--hue), 80%, 60%); --accent-hover: hsl(var(--hue), 80%, 50%); --success: hsl(150, 70%, 50%); --danger: hsl(350, 70%, 60%); --warning: hsl(40, 90%, 60%); --border: hsl(var(--hue), 20%, 18%); --border-light: hsl(var(--hue), 20%, 25%); --shadow: 0 8px 24px rgba(0,0,0,0.4); --font-main: 'Inter', sans-serif; --font-mono: monospace; }
         
@@ -293,7 +294,20 @@
         .fm-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 200; display: none; align-items: center; justify-content: center; }
         .fm-modal.active { display: flex; }
         .fm-modal-content { background: var(--bg-panel); border-radius: 16px; width: 90%; height: 85vh; display: flex; flex-direction: column; }
-        .fm-modal-textarea { flex: 1; background: #000; color: #a3be8c; padding: 20px; border: none; font-family: var(--font-mono); resize: none; outline: none; }
+        .fm-modal-textarea { display:none; }
+        .fm-editor { flex:1; min-height:0; overflow:hidden; background:#0b1020; }
+        .fm-editor .CodeMirror { height:100%; font-family:var(--font-mono); font-size:13px; line-height:1.55; background:#0b1020; color:#d7deea; }
+        .fm-editor .CodeMirror-gutters { background:#0d1326; border-right:1px solid #243049; }
+        .fm-editor .CodeMirror-linenumber { color:#66758f; }
+        .fm-editor .CodeMirror-cursor { border-left-color:#d7deea; }
+        .fm-editor .CodeMirror-selected { background:rgba(96,165,250,.22); }
+        .fm-editor .cm-keyword,.fm-editor .cm-atom { color:#7dd3fc; }
+        .fm-editor .cm-string,.fm-editor .cm-string-2 { color:#86efac; }
+        .fm-editor .cm-number { color:#fbbf24; }
+        .fm-editor .cm-comment { color:#71809a; font-style:italic; }
+        .fm-editor .cm-property,.fm-editor .cm-attribute,.fm-editor .cm-tag { color:#c4b5fd; }
+        .fm-editor .cm-variable,.fm-editor .cm-variable-2 { color:#d7deea; }
+        .fm-editor .cm-builtin { color:#67e8f9; }
 
         /* Visual config editor */
         .config-editor-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 14px; padding: 4px 2px 8px; }
@@ -1141,6 +1155,7 @@
                 </div>
             </div>
             <textarea class="fm-modal-textarea" id="fm-modal-textarea" spellcheck="false"></textarea>
+            <div id="fm-editor" class="fm-editor"></div>
         </div>
     </div>
 
@@ -2683,13 +2698,37 @@
             loadFileList(currentPath);
         }
 
+        let fileEditor = null;
+        function fileEditorMode(path) {
+            const name = String(path || '').toLowerCase();
+            if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'yaml';
+            if (name.endsWith('.json') || name === 'ops.json' || name === 'whitelist.json') return { name: 'javascript', json: true };
+            if (name.endsWith('.js')) return 'javascript';
+            if (name.endsWith('.css')) return 'css';
+            if (name.endsWith('.html') || name.endsWith('.htm')) return 'htmlmixed';
+            if (name.endsWith('.xml') || name.endsWith('.svg')) return 'xml';
+            if (name.endsWith('.properties') || name.endsWith('.conf') || name.endsWith('.ini') || name.endsWith('.toml')) return 'properties';
+            if (name.endsWith('.sh')) return 'shell';
+            return 'properties';
+        }
+        function ensureFileEditor() {
+            if (fileEditor) return fileEditor;
+            fileEditor = CodeMirror(document.getElementById('fm-editor'), { value:'', lineNumbers:true, lineWrapping:true, tabSize:2, indentUnit:2 });
+            fileEditor.on('change', () => { document.getElementById('fm-modal-textarea').value = fileEditor.getValue(); });
+            return fileEditor;
+        }
         async function openFile(path) {
             const response = await fetch(`/api/files/read/${currentServer.id}?path=${encodeURIComponent(path)}`);
             if (!response.ok) return showToast('Cannot read file', 'error');
             currentFile = path;
             document.getElementById('fm-modal-filename').textContent = path.split('/').pop();
-            document.getElementById('fm-modal-textarea').value = await response.text();
+            const text = await response.text();
+            document.getElementById('fm-modal-textarea').value = text;
+            const editor = ensureFileEditor();
+            editor.setOption('mode', fileEditorMode(path));
+            editor.setValue(text);
             document.getElementById('fm-modal').classList.add('active');
+            setTimeout(() => editor.refresh(), 0);
         }
         async function saveFile() {
             const res = await fetch(`/api/files/write/${currentServer.id}?path=${encodeURIComponent(currentFile)}`, { method: 'POST', body: document.getElementById('fm-modal-textarea').value });
@@ -4545,5 +4584,13 @@
             location.reload();
         }
     </script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/yaml/yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/javascript/javascript.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/css/css.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/xml/xml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/properties/properties.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/shell/shell.min.js"></script>
 </body>
 </html>

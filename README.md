@@ -193,6 +193,7 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - The dashboard can switch between a compact server list and the original cards. The selected layout is remembered.
 - Server names display spaces in the panel. `Sky_Block` appears as `Sky Block`.
 - Each server can save a custom IP or domain. `stellarfall.net` is shown as `stellarfall.net:25569` instead of the numeric IP.
+- The file editor highlights YAML, JSON, JavaScript, HTML, CSS, XML, properties, TOML, and shell files, and shows line numbers.
 
 ## Building
 
