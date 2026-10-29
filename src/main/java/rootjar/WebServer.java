@@ -178,6 +178,11 @@ public class WebServer {
         route("/api/addons/delete", this::handleAddonsDelete);
         route("/api/addons/backup", this::handleAddonsBackup);
         route("/api/addons/update-all", this::handleAddonsUpdateAll);
+        route("/api/modpack/install", this::handleModpackInstall);
+        route("/api/crash/latest", this::handleCrashLatest);
+        route("/api/access/list", this::handleAccessList);
+        route("/api/access/save", this::handleAccessSave);
+        route("/api/password", this::handlePasswordChange);
         route("/api/server/safe-mode", this::handleSafeMode);
         route("/api/files/usage", this::handleFileUsage);
         route("/api/version/check", this::handleVersionCheck);
@@ -2673,6 +2678,135 @@ public class WebServer {
         } catch (Exception e) {
             send(ex, 500, "{\"error\":\"" + jsonEscape(e.getMessage()) + "\"}");
         }
+    }
+
+    private void handleModpackInstall(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireOperator(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null || child.isAlive()) { send(ex, 409, "Stop the server before installing a modpack"); return; }
+        Path pack = Files.createTempFile(child.config().dir(), ".modpack-", ".mrpack");
+        try {
+            try (InputStream in = ex.getRequestBody()) { Files.copy(in, pack, StandardCopyOption.REPLACE_EXISTING); }
+            if (Files.size(pack) <= 0 || Files.size(pack) > 200L * 1024 * 1024) throw new IOException("Modpack is empty or too large");
+            Path staging = child.config().dir().resolve(".modpack-" + System.currentTimeMillis());
+            FileOps.extract(pack, staging);
+            Path index = staging.resolve("modrinth.index.json");
+            if (!Files.isRegularFile(index)) throw new IOException("This is not a Modrinth .mrpack");
+            String json = Files.readString(index);
+            Path mods = child.config().dir().resolve("mods");
+            Files.createDirectories(mods);
+            int installed = 0;
+            Matcher files = Pattern.compile("\"path\"\\s*:\\s*\"(mods/[^\"]+\\.jar)\".*?\"url\"\\s*:\\s*\"(https:[^\"]+)\"", Pattern.DOTALL).matcher(json);
+            while (files.find()) {
+                String relative = files.group(1);
+                String url = files.group(2).replace("\\/", "/");
+                if (!allowedDownloadUrl(url)) continue;
+                Path target = child.config().dir().resolve(relative).normalize();
+                if (!target.startsWith(mods)) continue;
+                Path part = Files.createTempFile(mods, ".modpack-", ".jar");
+                HttpRequest request = HttpRequest.newBuilder(URI.create(url)).header("User-Agent", panelUserAgent()).timeout(Duration.ofMinutes(5)).build();
+                HttpResponse<Path> response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(part));
+                if (response.statusCode() == 200 && Files.size(part) > 0) {
+                    Files.createDirectories(target.getParent());
+                    Files.move(part, target, StandardCopyOption.REPLACE_EXISTING);
+                    installed++;
+                } else Files.deleteIfExists(part);
+            }
+            Path overrides = staging.resolve("overrides");
+            if (Files.isDirectory(overrides)) FileOps.copyRecursive(overrides, child.config().dir());
+            deleteTree(staging);
+            audit(ex, server + ".modpack.install", installed + " mods");
+            send(ex, 200, "{\"installed\":" + installed + "}");
+        } catch (Exception e) {
+            send(ex, 400, e.getMessage() == null ? "Modpack install failed" : e.getMessage());
+        } finally { Files.deleteIfExists(pack); }
+    }
+
+    private static void deleteTree(Path root) throws IOException {
+        if (!Files.exists(root)) return;
+        try (var walk = Files.walk(root)) {
+            for (Path path : walk.sorted(java.util.Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
+        }
+    }
+
+    private void handleCrashLatest(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireServer(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        Path latest = child.config().dir().resolve("logs/latest.log");
+        String error = "";
+        String addon = "";
+        if (Files.isRegularFile(latest)) {
+            List<String> lines = Files.readAllLines(latest);
+            for (int i = lines.size() - 1; i >= Math.max(0, lines.size() - 300); i--) {
+                String line = lines.get(i);
+                if (error.isEmpty() && line.matches("(?i).*(\\berror\\b|exception|caused by:).*")) error = line;
+                Matcher named = Pattern.compile("(?i)(plugins|mods)[/\\\\]([^\\s:]+\\.jar)").matcher(line);
+                if (addon.isEmpty() && named.find()) addon = named.group(2);
+            }
+        }
+        send(ex, 200, "{\"error\":\"" + jsonEscape(error) + "\",\"addon\":\"" + jsonEscape(addon) + "\"}");
+    }
+
+    private void handleAccessList(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireServer(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        send(ex, 200, "{\"ops\":\"" + jsonEscape(readNameList(child.config().dir().resolve("ops.json")))
+                + "\",\"whitelist\":\"" + jsonEscape(readNameList(child.config().dir().resolve("whitelist.json"))) + "\"}");
+    }
+
+    private void handleAccessSave(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireOperator(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        String body = new String(ex.getRequestBody().readNBytes(65537), StandardCharsets.UTF_8);
+        if (body.length() > 65536) { send(ex, 413, "Request too large"); return; }
+        writeNameList(child.config().dir().resolve("ops.json"), extractJson(body, "ops"), true);
+        writeNameList(child.config().dir().resolve("whitelist.json"), extractJson(body, "whitelist"), false);
+        audit(ex, server + ".access.save", "ops and whitelist updated");
+        send(ex, 200, "{\"saved\":true}");
+    }
+
+    private static String readNameList(Path file) throws IOException {
+        if (!Files.isRegularFile(file)) return "";
+        Matcher names = Pattern.compile("\"name\"\\s*:\\s*\"([^\"]+)\"").matcher(Files.readString(file));
+        List<String> values = new ArrayList<>();
+        while (names.find()) values.add(names.group(1));
+        return String.join("\n", values);
+    }
+
+    private static void writeNameList(Path file, String text, boolean ops) throws IOException {
+        StringBuilder json = new StringBuilder("[");
+        boolean first = true;
+        for (String raw : text.split("\\R")) {
+            String name = raw.trim();
+            if (!name.matches("[A-Za-z0-9_]{1,16}")) continue;
+            if (!first) json.append(',');
+            first = false;
+            json.append("{\"uuid\":\"\",\"name\":\"").append(name).append("\"");
+            if (ops) json.append(",\"level\":4,\"bypassesPlayerLimit\":false");
+            json.append('}');
+        }
+        Files.writeString(file, json.append(']').toString());
+    }
+
+    private void handlePasswordChange(HttpExchange ex) throws IOException {
+        if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
+        String body = new String(ex.getRequestBody().readNBytes(4097), StandardCharsets.UTF_8);
+        String current = extractJson(body, "current");
+        String next = extractJson(body, "next");
+        if (next.length() < 8) { send(ex, 400, "Password must be at least 8 characters"); return; }
+        ServerConfig old = config.server();
+        if (!rootjar.config.PasswordHasher.verify(current.toCharArray(), old.passwordHash())) { send(ex, 403, "Current password is wrong"); return; }
+        String hash = rootjar.config.PasswordHasher.hash(next.toCharArray());
+        saveConfig(new RootConfig(new ServerConfig(old.bind(), old.publicIp(), old.port(), old.sessionTtlSeconds(), old.loginRateLimitPerIpPerMinute(), old.loginLockoutAfterFailures(), old.loginLockoutSeconds(), hash, old.trustedProxies(), old.diskMaxGb(), old.backupRetention(), old.webhookUrl(), old.publicStatus(), old.users()), config.children(), config.baseDir()));
+        audit(ex, "password.change", "admin password changed");
+        send(ex, 200, "{\"saved\":true}");
     }
 
     private void handleAddonsUpdateAll(HttpExchange ex) throws IOException {

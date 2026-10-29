@@ -76,7 +76,12 @@ public final class ConfigEditor {
         String type = detectType(cfg);
         LinkedHashMap<String, String> known = new LinkedHashMap<>();
 
-        if (minecraftLike(type)) known.put("server.properties", "Server");
+        if (minecraftLike(type)) {
+            known.put("server.properties", "Server");
+            known.put("ops.json", "Operators");
+            known.put("whitelist.json", "Whitelist");
+            known.put("banned-players.json", "Banned players");
+        }
         if (type.equals("paper") || type.equals("purpur") || type.equals("spigot") || type.equals("bukkit")) {
             known.put("bukkit.yml", "Bukkit");
             known.put("spigot.yml", "Spigot");

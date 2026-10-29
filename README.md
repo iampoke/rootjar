@@ -180,6 +180,11 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - Discord bots do not require a port. Escape closes an open panel popup.
 - Rootjar corrects `server-port` in `server.properties` before a Minecraft server starts.
 - The Minecraft-style font includes lowercase letters.
+- A stopped server can install a Modrinth `.mrpack`, including its server mods and override files.
+- Crash diagnosis shows the latest error and names the plugin or mod identified in the log.
+- Operators and the whitelist can be edited from the Config tab.
+- The console recalls earlier commands with the up and down arrow keys.
+- An admin can change the panel password from Settings.
 
 ## Building
 

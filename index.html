@@ -603,7 +603,9 @@
                     <label>Available Ports<input id="settings-ports" placeholder="25565, 25566, 25567"></label>
                     <label>Server Disk Warning (GB, 0 disables)<input id="settings-disk-limit" type="number" min="0"></label>
                     <label>Backup Warning (GB, 0 disables)<input id="settings-backup-limit" type="number" min="0"></label>
-                    <div><button class="btn" onclick="saveSettings()">Save Settings</button></div>
+                    <label>Current password<input id="password-current" type="password" autocomplete="current-password"></label>
+                    <label>New password<input id="password-next" type="password" autocomplete="new-password"></label>
+                    <div><button class="btn" onclick="changePassword()">Change password</button><button class="btn" onclick="saveSettings()">Save Settings</button></div>
                 </div>
                 <h2>Schedules</h2>
                 <p class="version-note">Each task needs server, type (`restart`, `backup`, or `command`), and time (`HH:mm`). A backup task creates a scheduled backup.</p>
@@ -900,6 +902,11 @@
                                 <select id="config-file" class="config-file-select" onchange="loadConfig()"></select>
                                 <input type="text" id="config-search" class="config-search" placeholder="Search config options..." oninput="filterConfigEntries()">
                                 <button class="btn btn-outline config-raw-btn" id="config-raw-btn" onclick="toggleConfigRaw()">Raw</button>
+                            </div>
+                            <div id="access-editor" class="settings-grid" style="display:none">
+                                <label>Operators<textarea id="ops-list" class="settings-tasks" placeholder="One player name per line"></textarea></label>
+                                <label>Whitelist<textarea id="whitelist-list" class="settings-tasks" placeholder="One player name per line"></textarea></label>
+                                <button class="btn" onclick="saveAccessLists()">Save operators and whitelist</button>
                             </div>
                             <div id="config-hint" class="config-hint"></div>
                             <div id="config-restart-banner" class="restart-banner">Restart required for these config changes. <button class="btn" onclick="powerAction('restart')">Restart</button></div>
@@ -1591,7 +1598,7 @@
             
             if (t === 'files') loadFileList('.');
             if (t === 'backups') loadBackups();
-            if (t === 'config') { loadConfigFiles(); updateRestartBanner(); }
+            if (t === 'config') { loadConfigFiles(); loadAccessLists(); updateRestartBanner(); }
             if (t === 'users') loadServerUsers();
             if (t === 'activity') loadActivity();
             if (t === 'players') loadPlayers();
@@ -2679,6 +2686,8 @@
                     <h2>${label}<span class="addons-context" id="addons-context-${key}"></span></h2>
                     <div class="addons-head-actions">
                         <button class="btn btn-outline" onclick="backupAddons('${key}')">Backup folder</button>
+                        <button class="btn btn-outline" onclick="document.getElementById('modpack-input').click()">Install modpack</button>
+                        <button class="btn btn-outline" onclick="showCrashDiagnosis()">Crash diagnosis</button>
                         <button class="btn btn-outline" onclick="updateAllAddons()">Update all</button>
                         <button class="btn btn-outline" onclick="runSafeMode()">Safe mode</button>
                         <button class="btn btn-outline" onclick="loadAddons('${key}', true)">Refresh</button>
@@ -2705,10 +2714,50 @@
                         <span id="addons-page-${key}">Page 1</span>
                         <button class="btn btn-outline" onclick="addonsPage('${key}', 1)">Next</button>
                     </div>
+                    <input id="modpack-input" type="file" accept=".mrpack" hidden onchange="installModpack(this.files[0])">
                 </div>`;
             state.built = true;
         }
 
+        async function installModpack(file) {
+            if (!currentServer || !file) return;
+            if (!file.name.toLowerCase().endsWith('.mrpack')) return showToast('Choose a .mrpack file', 'error');
+            if (!await confirmPromise({ title: 'Install modpack', body: 'Install ' + file.name + ' into the stopped server? Existing mods with the same names will be replaced.', confirmText: 'Install', danger: true })) return;
+            const response = await fetch('/api/modpack/install?server=' + encodeURIComponent(currentServer.id), { method: 'POST', body: file });
+            const data = response.ok ? await response.json().catch(() => ({})) : {};
+            showToast(response.ok ? (data.installed || 0) + ' mods installed' : await response.text(), response.ok ? 'success' : 'error');
+            if (response.ok) loadAddons('mod', true);
+        }
+        async function showCrashDiagnosis() {
+            if (!currentServer) return;
+            const response = await fetch('/api/crash/latest?server=' + encodeURIComponent(currentServer.id));
+            if (!response.ok) return showToast('Could not read the latest log', 'error');
+            const data = await response.json();
+            const lines = [data.addon ? 'Possible addon: ' + data.addon : 'No addon was named in the recent log.', data.error || 'No recent error was found.'];
+            confirmPromise({ title: 'Crash diagnosis', body: lines.join('\n'), confirmText: 'Close' });
+        }
+        async function saveAccessLists() {
+            if (!currentServer) return;
+            const response = await fetch('/api/access/save?server=' + encodeURIComponent(currentServer.id), { method: 'POST', body: JSON.stringify({ ops: document.getElementById('ops-list').value, whitelist: document.getElementById('whitelist-list').value }) });
+            showToast(response.ok ? 'Operators and whitelist saved' : await response.text(), response.ok ? 'success' : 'error');
+        }
+        async function loadAccessLists() {
+            if (!currentServer) return;
+            const response = await fetch('/api/access/list?server=' + encodeURIComponent(currentServer.id));
+            if (!response.ok) return;
+            const data = await response.json();
+            document.getElementById('ops-list').value = data.ops || '';
+            document.getElementById('whitelist-list').value = data.whitelist || '';
+            document.getElementById('access-editor').style.display = 'grid';
+        }
+        async function changePassword() {
+            const current = document.getElementById('password-current').value;
+            const next = document.getElementById('password-next').value;
+            if (next.length < 8) return showToast('Password must be at least 8 characters', 'error');
+            const response = await fetch('/api/password', { method: 'POST', body: JSON.stringify({ current, next }) });
+            showToast(response.ok ? 'Password changed' : await response.text(), response.ok ? 'success' : 'error');
+            if (response.ok) { document.getElementById('password-current').value = ''; document.getElementById('password-next').value = ''; }
+        }
         async function showDiskUsage() {
             if (!currentServer) return;
             const response = await fetch('/api/files/usage?server=' + encodeURIComponent(currentServer.id));
