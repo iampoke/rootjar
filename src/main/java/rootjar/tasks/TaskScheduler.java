@@ -42,6 +42,7 @@ public final class TaskScheduler {
         this.retention = retention;
         this.auditDir = auditDir;
         executor.scheduleAtFixedRate(this::tick, 30, 30, TimeUnit.SECONDS);
+        executor.scheduleAtFixedRate(this::idleShutdowns, 15, 15, TimeUnit.SECONDS);
     }
 
     public String read() throws IOException {
@@ -52,6 +53,15 @@ public final class TaskScheduler {
         Object parsed = MiniYaml.parse(text);
         if (!(parsed instanceof Map<?, ?> map) || !(map.get("tasks") instanceof List<?>)) throw new IOException("tasks.yml must contain a tasks list");
         Files.writeString(file, text);
+    }
+
+    private void idleShutdowns() {
+        for (rootjar.supervisor.ChildProcess child : supervisor.children()) {
+            if (child.idleShutdownRemainingMillis() != 0) continue;
+            ConsoleOutput.root(child.id() + " reached its idle shutdown time with no players; stopping");
+            try { if (auditDir != null) rootjar.security.ActivityLog.append(auditDir, "scheduler", child.id() + ".idle.stop", "No players"); } catch (IOException ignored) {}
+            supervisor.requestLifecycle(child.id(), "stop");
+        }
     }
 
     private void tick() {

@@ -36,6 +36,7 @@ public final class ChildProcess {
     private volatile OutputStream stdin;
     private volatile boolean startDisabled;
     private volatile int playerCount = 0;
+    private volatile long idleSinceMillis = System.currentTimeMillis();
     /** Java executable the live process was started with; used to tell whether a restart is needed. */
     private volatile String runningJava;
 
@@ -92,6 +93,12 @@ public final class ChildProcess {
     public synchronized boolean isAlive() { return process != null && process.isAlive(); }
     public synchronized long pid() { return process == null ? -1 : process.pid(); }
     public synchronized long uptimeMillis() { return isAlive() ? System.currentTimeMillis() - startedAtMillis : 0; }
+    public long idleShutdownRemainingMillis() {
+        int limit = cfg.idleShutdownSeconds();
+        if (limit <= 0 || !isAlive()) return -1;
+        if (playerCount > 0) return -2;
+        return Math.max(0, limit * 1000L - (System.currentTimeMillis() - idleSinceMillis));
+    }
 
     public void disableStart() { startDisabled = true; }
 
@@ -135,6 +142,7 @@ public final class ChildProcess {
         intentionalStop = false;
         stopInProgress = false;
         playerCount = 0;
+        idleSinceMillis = System.currentTimeMillis();
         state = ChildState.STARTING;
 
         Thread pump = daemon(() -> pumpOutput(p), "out-" + id());
@@ -273,10 +281,12 @@ public final class ChildProcess {
         sb.setLength(0);
         
         // Track players
+        int previousPlayers = playerCount;
         if (line.contains(" joined the game")) playerCount++;
         if (line.contains(" left the game")) playerCount = Math.max(0, playerCount - 1);
         java.util.regex.Matcher listed = java.util.regex.Pattern.compile("There are (\\d+) of a max of (\\d+) players online").matcher(line);
         if (listed.find()) playerCount = Integer.parseInt(listed.group(1));
+        if (previousPlayers > 0 && playerCount == 0) idleSinceMillis = System.currentTimeMillis();
 
         if (!silent) {
             ConsoleOutput.line(id(), line);

@@ -77,6 +77,7 @@ public class ConfigSaver {
             if (!javaPath.isEmpty()) sb.append("    java: ").append(javaPath).append("\n"); // NEW
             if (!c.autoStart()) sb.append("    auto_start: false\n"); // only written when the operator stopped it
             if (c.displayHost() != null && !c.displayHost().isBlank()) sb.append("    display_host: ").append(c.displayHost()).append("\n");
+            if (c.idleShutdownSeconds() > 0) sb.append("    idle_shutdown_seconds: ").append(c.idleShutdownSeconds()).append("\n");
         }
         Files.writeString(file, sb.toString());
     }

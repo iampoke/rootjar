@@ -85,7 +85,8 @@ public final class ConfigLoader {
                 bool(m, "silent", false, w), // NEW
                 str(m, "java", "", w), // NEW: "" means the panel's own JVM
                 bool(m, "auto_start", true, w), // NEW: old configs keep starting on boot
-                str(m, "display_host", "", w)
+                str(m, "display_host", "", w),
+                Math.max(0, num(m, "idle_shutdown_seconds", 0, w))
         );
     }
 

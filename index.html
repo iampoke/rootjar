@@ -784,6 +784,7 @@
                                   <div class="form-group"><label>Server Type</label><input id="edit-server-type" type="text" placeholder="manual"></div>
                                   <div class="form-group"><label>Port</label><input id="edit-server-port" type="number" min="0" max="65535"></div>
                                   <div class="form-group"><label>Custom IP or Domain</label><input id="edit-server-host" type="text" placeholder="stellarfall.net" maxlength="253" autocomplete="off" spellcheck="false"></div>
+                                  <div class="form-group"><label>Auto Shutdown</label><div style="display:flex;gap:8px"><input id="edit-server-idle-amount" type="number" min="0" value="0" style="flex:1"><select id="edit-server-idle-unit"><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option></select></div><span class="version-note">Stops the server after this long with no players. Zero disables it.</span></div>
                                   <div class="form-group"><label>RAM (MB)</label><input id="edit-server-ram" type="number" min="128"></div>
                                   <div class="form-group" id="edit-server-jar-group"><label>Server Jar File</label><input id="edit-server-jar" type="text" placeholder="server.jar"></div>
                               </div>
@@ -1068,6 +1069,10 @@
                                 <span class="info-label">UPTIME</span>
                                 <span class="info-val" id="sidebar-uptime">0h 0m 0s</span>
                             </div>
+                            <div class="info-item" style="grid-column:1 / -1">
+                                <span class="info-label">AUTOMATIC SHUTDOWN IN</span>
+                                <span class="info-val" id="sidebar-idle">Off</span>
+                            </div>
                             <div class="info-item">
                                 <span class="info-label">PLAYERS</span>
                                 <span class="info-val" id="sidebar-players">0</span>
@@ -1153,7 +1158,8 @@
         <div class="fm-modal-content">
             <div style="padding:16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between;">
                 <span id="fm-modal-filename">File</span>
-                <div>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <select id="fm-language" aria-label="File language" onchange="setFileLanguage(this.value)"><option value="auto">Auto</option><option value="yaml">YAML</option><option value="python">Python</option><option value="javascript">JavaScript</option><option value="json">JSON</option><option value="htmlmixed">HTML</option><option value="css">CSS</option><option value="xml">XML</option><option value="properties">Properties</option><option value="shell">Shell</option><option value="text">Plain text</option></select>
                     <button class="btn" onclick="saveFile()">Save</button>
                     <button class="btn btn-outline" onclick="document.getElementById('fm-modal').classList.remove('active')">Close</button>
                 </div>
@@ -1551,6 +1557,8 @@
         }
 
         let allowPanelIpView = true;
+        function idleEditorValue(seconds) { if (seconds >= 86400 && seconds % 86400 === 0) return { amount: seconds / 86400, unit: 'days' }; if (seconds >= 3600 && seconds % 3600 === 0) return { amount: seconds / 3600, unit: 'hours' }; return { amount: Math.round(seconds / 60), unit: 'minutes' }; }
+        function idleShutdownText(server) { const remaining = Number(server.idleRemainingMillis); if (!server.idleShutdownSeconds) return 'Off'; if (remaining === -2) return 'Paused'; if (remaining < 0 || server.status === 'STOPPED') return 'Off'; const total = Math.ceil(remaining / 1000); const days = Math.floor(total / 86400), hours = Math.floor(total % 86400 / 3600), minutes = Math.floor(total % 3600 / 60), seconds = total % 60; return [days ? days + 'd' : '', hours || days ? hours + 'h' : '', minutes || hours || days ? minutes + 'm' : '', seconds + 's'].filter(Boolean).join(' '); }
         function displayAddress(port, host) { const target = host && String(host).trim() ? String(host).trim() : currentPublicIp; return allowPanelIpView ? (Number(port) === 0 ? target : target + ':' + port) : 'Hidden'; }
         async function copyServerAddress(port, host) {
             const address = displayAddress(port, host);
@@ -1833,6 +1841,7 @@
                     document.getElementById('sidebar-status').innerText = s.status;
                     document.getElementById('sidebar-status-2').innerText = s.status;
                     document.getElementById('sidebar-uptime').innerText = s.uptime;
+                    document.getElementById('sidebar-idle').innerText = idleShutdownText(s);
                     document.getElementById('sidebar-players').innerText = s.players;
                     
                     document.getElementById('res-cpu-txt').innerText = s.cpuUsed + '%';
@@ -2716,13 +2725,19 @@
             const name = String(path || '').toLowerCase();
             if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'yaml';
             if (name.endsWith('.json') || name === 'ops.json' || name === 'whitelist.json') return { name: 'javascript', json: true };
+            if (name.endsWith('.py')) return 'python';
             if (name.endsWith('.js')) return 'javascript';
             if (name.endsWith('.css')) return 'css';
             if (name.endsWith('.html') || name.endsWith('.htm')) return 'htmlmixed';
             if (name.endsWith('.xml') || name.endsWith('.svg')) return 'xml';
             if (name.endsWith('.properties') || name.endsWith('.conf') || name.endsWith('.ini') || name.endsWith('.toml')) return 'properties';
             if (name.endsWith('.sh')) return 'shell';
-            return 'properties';
+            return 'text';
+        }
+        function setFileLanguage(language) {
+            if (!fileEditor) return;
+            const mode = language === 'auto' ? fileEditorMode(currentFile) : language === 'json' ? { name: 'javascript', json: true } : language;
+            fileEditor.setOption('mode', mode);
         }
         function ensureFileEditor() {
             if (fileEditor) return fileEditor;
@@ -2738,6 +2753,7 @@
             const text = await response.text();
             document.getElementById('fm-modal-textarea').value = text;
             const editor = ensureFileEditor();
+            document.getElementById('fm-language').value = 'auto';
             editor.setOption('mode', fileEditorMode(path));
             editor.setValue(text);
             document.getElementById('fm-modal').classList.add('active');
@@ -3736,6 +3752,9 @@
             document.getElementById('edit-server-type').value = server.type || 'custom';
             document.getElementById('edit-server-port').value = server.port;
             document.getElementById('edit-server-host').value = server.displayHost || '';
+            const idle = idleEditorValue(server.idleShutdownSeconds || 0);
+            document.getElementById('edit-server-idle-amount').value = idle.amount;
+            document.getElementById('edit-server-idle-unit').value = idle.unit;
             document.getElementById('edit-server-ram').value = server.ramMax;
             document.getElementById('edit-server-jar').value = server.jar || 'server.jar';
             document.getElementById('edit-server-jar-group').style.display = server.type === 'website' ? 'none' : '';
@@ -3752,6 +3771,8 @@
             const jar = document.getElementById('edit-server-jar').value.trim();
             const type = document.getElementById('edit-server-type').value.trim().toLowerCase();
             const displayHost = document.getElementById('edit-server-host').value.trim().replace(/\.$/, '');
+            const idleAmount = document.getElementById('edit-server-idle-amount').value;
+            const idleUnit = document.getElementById('edit-server-idle-unit').value;
             const server = currentServersList.find(s => s.id === editingServerId);
             const bot = type === 'discord_bot';
             if (!/^[A-Za-z0-9_-]+$/.test(name) || !Number.isInteger(port) || (bot ? port < 0 : port < 1) || port > 65535 || !Number.isInteger(ram) || ram < 128) {
@@ -3769,7 +3790,7 @@
             const button = document.getElementById('edit-server-save');
             button.disabled = true;
             try {
-                const response = await fetch('/api/server/edit', {method:'POST', body:JSON.stringify({id:editingServerId, name, port, ram, jar, type, displayHost})});
+                const response = await fetch('/api/server/edit', {method:'POST', body:JSON.stringify({id:editingServerId, name, port, ram, jar, type, displayHost, idleAmount, idleUnit})});
                 if (!response.ok) { showToast(await response.text(), 'error'); return; }
                 closeEditServer();
                 await refresh();
@@ -4599,6 +4620,7 @@
     </script>
 <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/yaml/yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/python/python.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/javascript/javascript.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/css/css.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/mode/xml/xml.min.js"></script>

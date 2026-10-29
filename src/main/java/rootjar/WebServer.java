@@ -720,6 +720,8 @@ public class WebServer {
               .append("\",\"silent\":").append(k.silent()).append(",")
               .append("\"uptime\":\"").append(formatDuration(c.uptimeMillis())).append("\",")
               .append("\"players\":").append(c.playerCount()).append(",")
+              .append("\"idleShutdownSeconds\":").append(k.idleShutdownSeconds()).append(",")
+              .append("\"idleRemainingMillis\":").append(c.idleShutdownRemainingMillis()).append(",")
               .append("\"ramUsed\":").append(s.ramMb()).append(",\"ramMax\":").append(parseRam(k.heap()))
               .append(",\"diskUsed\":").append(s.diskBytes())
               .append(",\"restartRequired\":").append(configRestartRequired.contains(c.id()))
@@ -1010,7 +1012,7 @@ public class WebServer {
             String type = website ? "website" : (serverType != null && !serverType.isBlank() && !serverType.equals("minecraft") ? serverType : (fork != null ? fork : "paper"));
 
             ChildConfig newChild = new ChildConfig(name, type, dir, jar, ram + "M", true, port, "0.0.0.0",
-                website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, "", true, "");
+                website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, "", true, "", 0);
             supervisor.addChild(newChild);
 
             saveConfig(new RootConfig(config.server(),
@@ -1071,6 +1073,18 @@ public class WebServer {
     }
 
     /** Change allocation or rename a stopped server without touching its world/site files. */
+    private static int idleSeconds(String body, int fallback) {
+        if (!jsonHas(body, "idleAmount")) return Math.max(0, fallback);
+        int amount;
+        try { amount = Integer.parseInt(extractJson(body, "idleAmount")); }
+        catch (NumberFormatException e) { return -1; }
+        String unit = extractJson(body, "idleUnit");
+        long multiplier = switch (unit) { case "hours" -> 3600L; case "days" -> 86400L; default -> 60L; };
+        long seconds = amount * multiplier;
+        if (amount < 0 || seconds > Integer.MAX_VALUE) return -1;
+        return (int) seconds;
+    }
+
     /** Accepts a blank value or one hostname/IP label sequence. Rejects URLs, ports, paths, and whitespace. */
     private static String normalizeDisplayHost(String raw) {
         if (raw == null || raw.isBlank()) return "";
@@ -1124,10 +1138,11 @@ public class WebServer {
             }
             String displayHost = normalizeDisplayHost(extractJson(body, "displayHost"));
             if (displayHost == null) { send(ex, 400, "Custom IP must be a hostname such as play.example.net"); return; }
+            if (idleSeconds(body, 0) < 0) { send(ex, 400, "Idle shutdown time is invalid"); return; }
             ChildConfig updated = new ChildConfig(name, type.isBlank() ? old.type() : type, newDir, jar == null ? old.jar() : jar, ram + "M", old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(), old.startOrder(),
                 old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(), old.extraFlags(),
-                old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), displayHost);
+                old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), displayHost, idleSeconds(body, old.idleShutdownSeconds()));
             List<ChildConfig> children = supervisor.children().stream()
                 .map(c -> c.id().equals(id) ? updated : c.config()).toList();
             try { ConfigValidator.validate(new RootConfig(config.server(), children, config.baseDir())); }
@@ -1448,7 +1463,7 @@ public class WebServer {
             ChildConfig newCfg = new ChildConfig(old.id(), old.type(), old.dir(), jar, heap, old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(),
                 old.startOrder(), old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(),
-                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), old.displayHost());
+                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), old.displayHost(), old.idleShutdownSeconds());
             supervisor.updateChildConfig(id, newCfg);
             saveConfig(new RootConfig(config.server(),
                     supervisor.children().stream().map(ChildProcess::config).toList(), config.baseDir()));
@@ -3597,7 +3612,7 @@ public class WebServer {
                         liveCfg.stopStrategy(), liveCfg.stopCommand(), liveCfg.stopTimeoutSeconds(),
                         liveCfg.startOrder(), liveCfg.stopOrder(), liveCfg.restartOnCrash(),
                         liveCfg.restartBackoffSeconds(), liveCfg.extraFlags(), liveCfg.consoleEnabled(),
-                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath(), liveCfg.autoStart(), liveCfg.displayHost());
+                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath(), liveCfg.autoStart(), liveCfg.displayHost(), liveCfg.idleShutdownSeconds());
                 supervisor.updateChildConfig(serverId, newCfg);
                 owner[0] = supervisor.child(serverId).orElse(null); // updateChildConfig installs a new instance
                 persistConfig();
