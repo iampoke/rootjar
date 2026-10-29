@@ -13,7 +13,13 @@ import java.util.regex.Pattern;
 public final class ConfigValidator {
     private static final Pattern HEAP = Pattern.compile("\\d+[KkMmGg]");
     private static final Pattern ID = Pattern.compile("[A-Za-z0-9_-]+");
-    private static final Set<String> RESERVED_IDS = Set.of("status", "help", "stop");
+    private static final Set<String> RESERVED_IDS = Set.of("status", "help", "stop", "list");
+
+    /** Turns spaces into underscores so the name is safe as a folder and console command. */
+    public static String normalizeId(String name) {
+        if (name == null) return "";
+        return name.trim().replaceAll(" +", "_");
+    }
 
     private ConfigValidator() {}
 
@@ -49,7 +55,7 @@ public final class ConfigValidator {
             if (!ID.matcher(c.id()).matches()) {
                 problems.add(w + ": id may only contain letters, digits, '-' and '_'");
             } else if (RESERVED_IDS.contains(c.id().toLowerCase(Locale.ROOT))) {
-                problems.add(w + ": id is reserved for a console command (status, help, stop)");
+                problems.add(w + ": id is reserved for a console command (status, help, stop, list)");
             }
             if (!ids.add(c.id())) problems.add(w + ": duplicate id");
             if (!validPort(c.port())) problems.add(w + ": port must be 1-65535 (got " + c.port() + ")");

@@ -249,6 +249,9 @@ public final class ChecksMain {
     private static void router() {
         StdinRouter r = new StdinRouter(Set.of("velocity", "nanolimbo"));
         check(r.parse("status").kind() == Kind.STATUS, "status");
+        check(r.parse("LIST").kind() == Kind.LIST, "list case-insensitive");
+        check(r.parse("list players").kind() == Kind.FALLBACK, "'list players' is not bare list");
+        check(ConfigValidator.normalizeId(" Sky   Block ").equals("Sky_Block"), "server names turn spaces into underscores");
         check(r.parse("HELP").kind() == Kind.HELP, "help case-insensitive");
         check(r.parse("stop").kind() == Kind.STOP_ALL, "bare stop");
         check(r.parse("  ").kind() == Kind.NONE, "blank");
@@ -259,6 +262,8 @@ public final class ChecksMain {
         check(c.kind() == Kind.LIFECYCLE && c.text().equals("mute"), "id.mute");
         c = r.parse("velocity.unmute");
         check(c.kind() == Kind.LIFECYCLE && c.text().equals("unmute"), "id.unmute");
+        c = r.parse("VELOCITY.RESTART");
+        check(c.kind() == Kind.LIFECYCLE && c.childId().equals("velocity") && c.text().equals("restart"), "server commands ignore case");
         c = r.parse("velocity plist");
         check(c.kind() == Kind.SEND && c.childId().equals("velocity") && c.text().equals("plist"), "id command");
         c = r.parse("nanolimbo say hello world\r");

@@ -27,6 +27,7 @@ public final class CommandHandler {
             case STATUS -> supervisor.printStatus();
             case HELP -> printHelp();
             case STOP_ALL -> stopEverything.run();
+            case LIST -> supervisor.printPlayers();
             case LIFECYCLE -> handleLifecycle(cmd);
             case SEND -> send(cmd.childId(), cmd.text());
             case FALLBACK -> {
@@ -69,6 +70,7 @@ public final class CommandHandler {
         ConsoleOutput.root("  <id>.start|stop|restart   control one child");
         ConsoleOutput.root("  <id>.mute|unmute      mute or unmute that child's logs on the main console");
         ConsoleOutput.root("  status                show every child's state");
+        ConsoleOutput.root("  list                  show the player count of every running child");
         ConsoleOutput.root("  stop                  stop ALL children gracefully, then exit the root");
         ConsoleOutput.root("  help                  this list");
         ConsoleOutput.root("  anything else         sent to the first console-enabled child");

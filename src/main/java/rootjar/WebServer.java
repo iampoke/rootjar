@@ -948,8 +948,9 @@ public class WebServer {
         String serverType = extractJson(body, "server_type");
         String downloadUrl = extractJson(body, "download_url");
 
-        if (!name.matches("^[a-zA-Z0-9_-]+$") || Set.of("status", "help", "stop").contains(name.toLowerCase(java.util.Locale.ROOT))) {
-            send(ex, 400, "Invalid name."); return;
+        name = rootjar.config.ConfigValidator.normalizeId(name);
+        if (!name.matches("^[a-zA-Z0-9_-]+$") || Set.of("status", "help", "stop", "list").contains(name.toLowerCase(java.util.Locale.ROOT))) {
+            send(ex, 400, "Invalid name. Use letters, numbers, spaces, - or _."); return;
         }
         if (supervisor.child(name).isPresent() || Files.exists(config.baseDir().resolve(name))) {
             send(ex, 400, "A server or folder with this name already exists."); return;
@@ -1063,9 +1064,9 @@ public class WebServer {
         if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
         String body = new String(ex.getRequestBody().readNBytes(8193), StandardCharsets.UTF_8);
         if (body.length() > 8192) { send(ex, 413, "Request too large"); return; }
-        String id = extractJson(body, "id"), name = extractJson(body, "name"), jar = extractJson(body, "jar"), type = extractJson(body, "type");
+        String id = extractJson(body, "id"), name = rootjar.config.ConfigValidator.normalizeId(extractJson(body, "name")), jar = extractJson(body, "jar"), type = extractJson(body, "type");
         if (!id.matches("[A-Za-z0-9_-]+") || !name.matches("[A-Za-z0-9_-]+")
-                || Set.of("status", "help", "stop").contains(name.toLowerCase(java.util.Locale.ROOT))) {
+                || Set.of("status", "help", "stop", "list").contains(name.toLowerCase(java.util.Locale.ROOT))) {
             send(ex, 400, "Invalid server name"); return;
         }
         int port, ram;

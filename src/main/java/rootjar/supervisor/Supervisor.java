@@ -298,6 +298,20 @@ public final class Supervisor implements ChildProcess.ExitListener {
         catch (InterruptedException e) { Thread.currentThread().interrupt(); return true; }
     }
 
+    public void printPlayers() {
+        int total = 0;
+        int running = 0;
+        for (ChildProcess c : children()) {
+            if (!c.isAlive()) continue;
+            running++;
+            int players = c.playerCount();
+            total += players;
+            ConsoleOutput.root(c.id() + ": " + players + (players == 1 ? " player" : " players"));
+        }
+        if (running == 0) ConsoleOutput.root("no child servers are running");
+        else ConsoleOutput.root("total: " + total + (total == 1 ? " player" : " players") + " across " + running + (running == 1 ? " server" : " servers"));
+    }
+
     public void printStatus() {
         for (ChildProcess c : children()) {
             ChildConfig k = c.config();

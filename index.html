@@ -698,8 +698,8 @@
                                   <h3 style="margin-bottom: 16px;">Server Configuration</h3>
                                   <div class="form-grid">
                                       <div class="form-group">
-                                          <label>Server Name (No Spaces)</label>
-                                          <input type="text" id="wizard-name" placeholder="my-server" pattern="[A-Za-z0-9_-]+" title="Letters, numbers, - and _ only">
+                                          <label>Server Name</label>
+                                          <input type="text" id="wizard-name" placeholder="Sky Block" title="Letters, numbers, spaces, - and _. Spaces become underscores.">
                                       </div>
                                       <div class="form-group">
                                           <label>Port</label>
@@ -1547,6 +1547,10 @@
             if (settings) settings.textContent = label ? 'Rootjar ' + label : '';
         }
 
+        function serverId(value) {
+            return String(value || '').trim().replace(/ +/g, '_');
+        }
+
         function panelPath(view, id) {
             if (view === 'console' && id) return '/server/' + encodeURIComponent(id);
             if (view === 'manage') return '/manage/server';
@@ -2316,7 +2320,7 @@
 
         function updateReview() {
             const typeName = wizardGameType === 'minecraft' ? 'Minecraft' : (wizardGameType === 'discord_bot' ? 'Discord Bot' : (wizardGameType === 'website' ? 'Website' : 'Custom'));
-            const name = document.getElementById('wizard-name').value || 'untitled';
+            const name = serverId(document.getElementById('wizard-name').value) || 'untitled';
             const port = document.getElementById('wizard-port').value || '25565';
             const ram = document.getElementById('wizard-ram').value || '1024';
             const jar = document.getElementById('wizard-jar').value || 'server.jar';
@@ -2357,7 +2361,7 @@
         }
 
         async function wizardCreateServer() {
-            const name = document.getElementById('wizard-name').value;
+            const name = serverId(document.getElementById('wizard-name').value);
             const port = document.getElementById('wizard-port').value;
             const ram = document.getElementById('wizard-ram').value;
             const jar = document.getElementById('wizard-jar').value;
@@ -2368,7 +2372,7 @@
             }
             if (['forge', 'neoforge', 'spigot', 'arclight'].includes(wizardFork)) showToast('This software must be uploaded manually before the server can start.', 'info');
             if (!/^[A-Za-z0-9_-]+$/.test(name)) {
-                showToast("Server name cannot contain spaces (use letters, numbers, - or _)", "error");
+                showToast("Server name may contain letters, numbers, spaces, - or _", "error");
                 return;
             }
 
@@ -3509,7 +3513,7 @@
             editingServerId = '';
         }
         async function saveEditServer() {
-            const name = document.getElementById('edit-server-name').value.trim();
+            const name = serverId(document.getElementById('edit-server-name').value);
             const port = Number(document.getElementById('edit-server-port').value);
             const ram = Number(document.getElementById('edit-server-ram').value);
             const jar = document.getElementById('edit-server-jar').value.trim();

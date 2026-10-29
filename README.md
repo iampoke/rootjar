@@ -68,6 +68,7 @@ Put the printed hash in `config.yml` as `password_hash`. A value of `placeholder
 ### Server creation
 
 - Guided choices for server type, software, version, name, port, and memory.
+- Spaces in a server name become underscores, so `Sky Block` is saved as `Sky_Block`.
 - Supports Paper, Purpur, Velocity, Waterfall, BungeeCord, Travertine, NanoLimbo, JDA Discord bots, and a simple HTML site.
 - Downloads the selected server jar automatically when an upstream source is available.
 - Shows a preview before creating the server.
@@ -140,6 +141,7 @@ Put the printed hash in `config.yml` as `password_hash`. A value of `placeholder
 | Command | Action |
 |---|---|
 | `status` | Show every child's state, process ID, and uptime |
+| `list` | Show the player count of every running child |
 | `help` | Show the command list |
 | `stop` | Stop every child, then stop Rootjar |
 | `velocity plist` | Send `plist` to the child named `velocity` |
@@ -149,7 +151,7 @@ Put the printed hash in `config.yml` as `password_hash`. A value of `placeholder
 | `paper1.mute` | Hide that child in the host console |
 | `paper1.unmute` | Show that child in the host console again |
 
-Unrecognized text goes to the first child whose console is enabled. Child names are reread for every command, so a server created in the panel can be controlled immediately.
+Unrecognized text goes to the first child whose console is enabled. Child names are reread for every command, so a server created in the panel can be controlled immediately. Command names and server names are not case-sensitive: `sky_block.restart` controls `Sky_Block`.
 
 ## Previous and Next Node buttons
 
@@ -168,6 +170,9 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - Backup actions target the selected archive when the same name exists in both current and older backup folders.
 - The audit log records file, config, backup, plugin, and version changes.
 - The panel shows its version, and failed backup writes no longer leave partial archives.
+- A server name may contain spaces. Rootjar saves them as underscores, so `Sky Block` becomes the folder and command `Sky_Block`.
+- The host console command `list` shows the player count for every running child server.
+- Console commands and server names are not case-sensitive, so `sky_block.restart` controls `Sky_Block`.
 
 ## Building
 
