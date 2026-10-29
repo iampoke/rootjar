@@ -491,6 +491,11 @@
         .fm-search-row input { flex:1; min-width:180px; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-main); }
         .fm-progress { font-size:12px; color:var(--text-muted); }
         .fm-table-wrap { flex:1; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:10px; }
+        .settings-menu { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; max-width:980px; }
+        .settings-menu button { min-height:92px; padding:16px; display:grid; align-content:center; gap:6px; border:1px solid var(--border); border-radius:14px; background:var(--bg-panel); text-align:left; cursor:pointer; }
+        .settings-menu button:hover { border-color:var(--accent); }
+        .settings-menu strong { font-size:15px; } .settings-menu span { color:var(--text-muted); font-size:12px; }
+        .settings-section { display:none; max-width:860px; } .settings-section.active { display:block; }
         .settings-grid { display:grid; gap:14px; max-width:680px; margin-bottom:28px; }
         .settings-grid label { display:grid; gap:6px; color:var(--text-muted); font-size:13px; }
         .settings-grid input { padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-main); }
@@ -630,29 +635,42 @@
 
         <div id="view-settings" class="view-wrapper">
             <div class="dashboard-content">
-                <div class="dashboard-header"><h1>Settings</h1><span id="settings-version" class="version-note"></span></div>
-                <div class="settings-grid">
+                <div class="dashboard-header"><div><button class="btn btn-outline" id="settings-back" style="display:none;margin-bottom:12px" onclick="openSettingsSection('menu')">← Settings</button><h1 id="settings-title">Settings</h1></div><span id="settings-version" class="version-note"></span></div>
+                <div id="settings-menu" class="settings-menu">
+                    <button onclick="openSettingsSection('general')"><strong>General</strong><span>Webhook, backups, and status page</span></button>
+                    <button onclick="openSettingsSection('nodes')"><strong>Nodes</strong><span>Previous and next node buttons</span></button>
+                    <button onclick="openSettingsSection('limits')"><strong>Ports and Limits</strong><span>Available ports and size warnings</span></button>
+                    <button onclick="openSettingsSection('password')"><strong>Password</strong><span>Change the admin password</span></button>
+                    <button onclick="openSettingsSection('schedules')"><strong>Schedules</strong><span>Restarts, backups, and commands</span></button>
+                    <button onclick="openSettingsSection('audit')"><strong>Audit Log</strong><span>Search panel activity</span></button>
+                </div>
+                <section id="settings-general" class="settings-section"><div class="settings-grid">
                     <label>Webhook URL<input id="settings-webhook" type="url" placeholder="https://discord.com/api/webhooks/..."></label>
                     <label>Backup retention<input id="settings-retention" type="number" min="1" max="50"></label>
                     <label class="settings-check"><input id="settings-public" type="checkbox"> Enable public status page</label>
+                    <div><button class="btn" onclick="saveSettings()">Save General</button></div></div></section>
+                <section id="settings-nodes" class="settings-section"><div class="settings-grid">
                     <label>Previous Node URL<input id="settings-prev-url" type="url" placeholder="http://192.168.1.10:25568"></label>
                     <label>Next Node URL<input id="settings-next-url" type="url" placeholder="http://192.168.1.11:25568"></label>
                     <label class="settings-check"><input id="settings-prev-show" type="checkbox"> Show Previous Node button</label>
                     <label class="settings-check"><input id="settings-next-show" type="checkbox"> Show Next Node button</label>
+                    <div><button class="btn" onclick="saveSettings()">Save Nodes</button></div></div></section>
+                <section id="settings-limits" class="settings-section"><div class="settings-grid">
                     <label>Available Ports<input id="settings-ports" placeholder="25565, 25566, 25567"></label>
                     <label>Server Disk Warning (GB, 0 disables)<input id="settings-disk-limit" type="number" min="0"></label>
                     <label>Backup Warning (GB, 0 disables)<input id="settings-backup-limit" type="number" min="0"></label>
+                    <div><button class="btn" onclick="saveSettings()">Save Limits</button></div></div></section>
+                <section id="settings-password" class="settings-section"><div class="settings-grid">
                     <label>Current password<input id="password-current" type="password" autocomplete="current-password"></label>
                     <label>New password<input id="password-next" type="password" autocomplete="new-password"></label>
-                    <div><button class="btn" onclick="changePassword()">Change password</button><button class="btn" onclick="saveSettings()">Save Settings</button></div>
-                </div>
-                <h2>Schedules</h2>
+                    <div><button class="btn" onclick="changePassword()">Change password</button></div></div></section>
+                <section id="settings-schedules" class="settings-section"><h2>Schedules</h2>
                 <p class="version-note">Each task needs server, type (`restart`, `backup`, or `command`), and time (`HH:mm`). A backup task creates a scheduled backup.</p>
                 <textarea id="settings-tasks" class="settings-tasks" spellcheck="false"></textarea>
-                <button class="btn" onclick="saveTasks()">Save Schedules</button>
-                <h2 style="margin-top:28px">Audit Log</h2>
+                <button class="btn" onclick="saveTasks()">Save Schedules</button></section>
+                <section id="settings-audit" class="settings-section"><h2>Audit Log</h2>
                 <div class="fm-toolbar"><input id="audit-search" placeholder="Search user, action, or details" onkeydown="if(event.key==='Enter')loadAuditLog()"><button class="btn" onclick="loadAuditLog()">Search</button></div>
-                <div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody id="audit-tbody"></tbody></table></div>
+                <div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody id="audit-tbody"></tbody></table></div></section>
             </div>
         </div>
 
@@ -1631,7 +1649,7 @@
         function switchView(v, id) {
             document.querySelectorAll('.view-wrapper').forEach(e => e.classList.remove('active'));
             document.getElementById('view-' + v).classList.add('active');
-            if (v === 'settings') { loadSettings(); loadAuditLog(); }
+            if (v === 'settings') { openSettingsSection('menu'); loadSettings(); loadAuditLog(); }
             if (v === 'manage') { document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span> / <span>Manage</span>`; renderManageList(); }
             if (v === 'users') { document.getElementById('breadcrumbs').innerHTML = `<span>Servers</span> / <span>Users</span>`; loadGlobalUsers(); }
             const path = panelPath(v, id || (currentServer && currentServer.id));
@@ -2677,6 +2695,7 @@
         async function bulkMove() { const destination = await promptModal({title:'Move Selected', label:'Destination folder', value:currentPath, confirmText:'Move'}); if (!destination) return; for (const path of [...fileSelection]) await fetch('/api/files/move/' + currentServer.id + '?old=' + encodeURIComponent(path) + '&new=' + encodeURIComponent(destination.replace(/\/$/, '') + '/' + path.split('/').pop()), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
         async function bulkTrash() { if (!await confirmPromise({title:'Move to Trash', body:'Move ' + fileSelection.size + ' selected item(s) to Trash?', confirmText:'Move to Trash', danger:true})) return; for (const path of [...fileSelection]) await fetch('/api/files/trash/' + currentServer.id + '?path=' + encodeURIComponent(path), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
         function updateRestartBanner() { const banner = document.getElementById('config-restart-banner'); const server = currentServersList.find(item => currentServer && item.id === currentServer.id); if (banner) banner.style.display = server && server.restartRequired ? 'block' : 'none'; }
+        function openSettingsSection(name) { document.getElementById('settings-menu').style.display = name === 'menu' ? 'grid' : 'none'; document.getElementById('settings-back').style.display = name === 'menu' ? 'none' : ''; document.getElementById('settings-title').textContent = name === 'menu' ? 'Settings' : name[0].toUpperCase() + name.slice(1); document.querySelectorAll('.settings-section').forEach(section => section.classList.toggle('active', section.id === 'settings-' + name)); }
         async function loadSettings() { const response = await fetch('/api/settings'); if (!response.ok) return; const data = await response.json(); document.getElementById('settings-webhook').value = data.webhookUrl || ''; document.getElementById('settings-retention').value = data.backupRetention || 5; document.getElementById('settings-public').checked = data.publicStatus === true; document.getElementById('settings-prev-url').value = data.nodePreviousUrl || ''; document.getElementById('settings-next-url').value = data.nodeNextUrl || ''; document.getElementById('settings-prev-show').checked = data.nodeShowPrevious !== false; document.getElementById('settings-next-show').checked = data.nodeShowNext !== false; document.getElementById('settings-ports').value = data.ports || ''; document.getElementById('settings-disk-limit').value = data.diskLimitGb || 0; document.getElementById('settings-backup-limit').value = data.backupLimitGb || 0; document.getElementById('settings-tasks').value = await (await fetch('/api/tasks')).text(); }
         async function saveSettings() { const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({webhookUrl:document.getElementById('settings-webhook').value, backupRetention:document.getElementById('settings-retention').value, publicStatus:document.getElementById('settings-public').checked, nodePreviousUrl:document.getElementById('settings-prev-url').value, nodeNextUrl:document.getElementById('settings-next-url').value, nodeShowPrevious:document.getElementById('settings-prev-show').checked, nodeShowNext:document.getElementById('settings-next-show').checked, ports:document.getElementById('settings-ports').value, diskLimitGb:document.getElementById('settings-disk-limit').value, backupLimitGb:document.getElementById('settings-backup-limit').value, setupComplete:true})}); showToast(response.ok ? 'Settings saved' : await response.text(), response.ok ? 'success' : 'error'); if (response.ok) { localStorage.removeItem('rootjar-setup-dismissed'); loadAuditLog(); refresh(); } }
         async function finishSetup(event) { event.preventDefault(); const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({ports:document.getElementById('setup-ports').value, diskLimitGb:document.getElementById('setup-disk').value, backupLimitGb:document.getElementById('setup-backup').value, setupComplete:true})}); if (!response.ok) return showToast(await response.text(), 'error'); localStorage.removeItem('rootjar-setup-dismissed'); document.getElementById('setup-overlay').style.display = 'none'; refresh(); }
