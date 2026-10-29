@@ -2093,7 +2093,7 @@
 
         let serverDragMoved = false;
         function openServerFromCard(event, id, port, type) {
-            if (serverDragMoved || event.target.closest('button, a, input, select, textarea')) return;
+            if (serverDragMoved || event.target.closest('.power-icon, a, input, select, textarea')) return;
             openServer(id, port, type);
         }
 
