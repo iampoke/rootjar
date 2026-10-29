@@ -196,6 +196,8 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - The file editor highlights YAML, Python, JSON, JavaScript, HTML, CSS, XML, properties, TOML, and shell files. Its language menu can change the highlighting without renaming the file.
 - Each server can set an idle shutdown time in minutes, hours, or days. It stops after that time with no players, and the countdown pauses while a player is online.
 - Settings opens as a menu. General, Nodes, Ports and Limits, Password, Schedules, and Audit Log each open in their own editor.
+- Operators and the whitelist are managed from Players. Select a player name, add them, then remove them or change an operator level.
+- Start, Stop, Restart, and Kill highlight when the pointer is over them.
 
 ## Building
 

@@ -2072,7 +2072,8 @@ public class WebServer {
             ChildProcess child = supervisor.child(server).orElse(null);
             if (child == null) { send(ex, 404, "Not found"); return; }
             if (child.isAlive()) child.sendLine("list");
-            send(ex, 200, "{\"count\":" + child.playerCount() + ",\"players\":[]}");
+            String names = child.onlinePlayers().stream().map(name -> "\"" + jsonEscape(name) + "\"").collect(java.util.stream.Collectors.joining(","));
+            send(ex, 200, "{\"count\":" + child.playerCount() + ",\"players\":[" + names + "]}");
             return;
         }
         if (!requireOperator(ex, server)) return;
@@ -2806,8 +2807,8 @@ public class WebServer {
         if (!requireServer(ex, server)) return;
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null) { send(ex, 404, "Not found"); return; }
-        send(ex, 200, "{\"ops\":\"" + jsonEscape(readNameList(child.config().dir().resolve("ops.json")))
-                + "\",\"whitelist\":\"" + jsonEscape(readNameList(child.config().dir().resolve("whitelist.json"))) + "\"}");
+        send(ex, 200, "{\"ops\":" + readAccessEntries(child.config().dir().resolve("ops.json"), true)
+                + ",\"whitelist\":" + readAccessEntries(child.config().dir().resolve("whitelist.json"), false) + "}");
     }
 
     private void handleAccessSave(HttpExchange ex) throws IOException {
@@ -2817,10 +2818,61 @@ public class WebServer {
         if (child == null) { send(ex, 404, "Not found"); return; }
         String body = new String(ex.getRequestBody().readNBytes(65537), StandardCharsets.UTF_8);
         if (body.length() > 65536) { send(ex, 413, "Request too large"); return; }
-        writeNameList(child.config().dir().resolve("ops.json"), extractJson(body, "ops"), true);
-        writeNameList(child.config().dir().resolve("whitelist.json"), extractJson(body, "whitelist"), false);
+        if (jsonHas(body, "ops")) writeAccessEntries(child.config().dir().resolve("ops.json"), extractJsonArray(body, "ops"), true);
+        if (jsonHas(body, "whitelist")) writeAccessEntries(child.config().dir().resolve("whitelist.json"), extractJsonArray(body, "whitelist"), false);
         audit(ex, server + ".access.save", "ops and whitelist updated");
         send(ex, 200, "{\"saved\":true}");
+    }
+
+    private static String readAccessEntries(Path file, boolean ops) throws IOException {
+        if (!Files.isRegularFile(file)) return "[]";
+        String text = Files.readString(file);
+        Matcher entries = Pattern.compile("\\{[^{}]*\"name\"\\s*:\\s*\"([A-Za-z0-9_]{1,16})\"[^{}]*").matcher(text);
+        StringBuilder json = new StringBuilder("[");
+        boolean first = true;
+        while (entries.find()) {
+            String object = entries.group();
+            int level = 4;
+            Matcher levelMatch = Pattern.compile("\"level\"\\s*:\\s*(\\d+)").matcher(object);
+            if (levelMatch.find()) level = Math.max(1, Math.min(4, Integer.parseInt(levelMatch.group(1))));
+            if (!first) json.append(',');
+            first = false;
+            json.append("{\"name\":\"").append(jsonEscape(entries.group(1))).append("\"");
+            if (ops) json.append(",\"level\":").append(level);
+            json.append('}');
+        }
+        return json.append(']').toString();
+    }
+
+    private void writeAccessEntries(Path file, String array, boolean ops) throws IOException {
+        Matcher entries = Pattern.compile("\\{[^{}]*\"name\"\\s*:\\s*\"([A-Za-z0-9_]{1,16})\"[^{}]*").matcher(array == null ? "" : array);
+        StringBuilder json = new StringBuilder("[");
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        boolean first = true;
+        while (entries.find()) {
+            if (!seen.add(entries.group(1).toLowerCase(Locale.ROOT))) continue;
+            int level = 4;
+            Matcher levelMatch = Pattern.compile("\"level\"\\s*:\\s*(\\d+)").matcher(entries.group());
+            if (levelMatch.find()) level = Math.max(1, Math.min(4, Integer.parseInt(levelMatch.group(1))));
+            if (!first) json.append(',');
+            first = false;
+            json.append("{\"uuid\":\"").append(playerUuid(entries.group(1))).append("\",\"name\":\"").append(entries.group(1)).append("\"");
+            if (ops) json.append(",\"level\":").append(level).append(",\"bypassesPlayerLimit\":false");
+            json.append('}');
+        }
+        Files.writeString(file, json.append(']').toString());
+    }
+
+    private static String extractJsonArray(String json, String key) {
+        int keyAt = json.indexOf("\"" + key + "\"");
+        int start = keyAt < 0 ? -1 : json.indexOf('[', keyAt);
+        if (start < 0) return "[]";
+        int depth = 0;
+        for (int i = start; i < json.length(); i++) {
+            if (json.charAt(i) == '[') depth++;
+            else if (json.charAt(i) == ']' && --depth == 0) return json.substring(start, i + 1);
+        }
+        return "[]";
     }
 
     private static String readNameList(Path file) throws IOException {

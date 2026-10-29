@@ -36,6 +36,7 @@ public final class ChildProcess {
     private volatile OutputStream stdin;
     private volatile boolean startDisabled;
     private volatile int playerCount = 0;
+    private final java.util.Set<String> onlinePlayers = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile long idleSinceMillis = System.currentTimeMillis();
     /** Java executable the live process was started with; used to tell whether a restart is needed. */
     private volatile String runningJava;
@@ -57,6 +58,7 @@ public final class ChildProcess {
     public ChildState state() { return state; }
     public LogRingBuffer log() { return log; }
     public int playerCount() { return playerCount; }
+    public java.util.List<String> onlinePlayers() { return onlinePlayers.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList(); }
 
     public void setSilent(boolean isSilent) {
         synchronized (this) {
@@ -142,6 +144,7 @@ public final class ChildProcess {
         intentionalStop = false;
         stopInProgress = false;
         playerCount = 0;
+        onlinePlayers.clear();
         idleSinceMillis = System.currentTimeMillis();
         state = ChildState.STARTING;
 
@@ -282,10 +285,16 @@ public final class ChildProcess {
         
         // Track players
         int previousPlayers = playerCount;
-        if (line.contains(" joined the game")) playerCount++;
-        if (line.contains(" left the game")) playerCount = Math.max(0, playerCount - 1);
-        java.util.regex.Matcher listed = java.util.regex.Pattern.compile("There are (\\d+) of a max of (\\d+) players online").matcher(line);
-        if (listed.find()) playerCount = Integer.parseInt(listed.group(1));
+        java.util.regex.Matcher joined = java.util.regex.Pattern.compile("^([A-Za-z0-9_]{1,16}) joined the game").matcher(line.replaceFirst("^\\[[^\\]]*]\\s*", ""));
+        java.util.regex.Matcher left = java.util.regex.Pattern.compile("^([A-Za-z0-9_]{1,16}) left the game").matcher(line.replaceFirst("^\\[[^\\]]*]\\s*", ""));
+        if (joined.find()) { playerCount++; onlinePlayers.add(joined.group(1)); }
+        if (left.find()) { playerCount = Math.max(0, playerCount - 1); onlinePlayers.remove(left.group(1)); }
+        java.util.regex.Matcher listed = java.util.regex.Pattern.compile("There are (\\d+) of a max of (\\d+) players online(?::\\s*(.*))?").matcher(line);
+        if (listed.find()) {
+            playerCount = Integer.parseInt(listed.group(1));
+            onlinePlayers.clear();
+            if (listed.group(3) != null) java.util.Arrays.stream(listed.group(3).split(",")).map(String::trim).filter(name -> name.matches("[A-Za-z0-9_]{1,16}")).forEach(onlinePlayers::add);
+        }
         if (previousPlayers > 0 && playerCount == 0) idleSinceMillis = System.currentTimeMillis();
 
         if (!silent) {

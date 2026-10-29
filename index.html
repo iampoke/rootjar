@@ -217,6 +217,16 @@
         .status-btn.stop { background: hsla(40,90%,60%,0.2); color: var(--warning); }
         .status-btn.restart { background: hsla(215,80%,60%,0.2); color: var(--accent); }
         .status-btn.kill { background: hsla(350,70%,60%,0.2); color: var(--danger); }
+        .status-btn.start:hover, .power-icon:hover { background:var(--success); color:var(--bg-body); border-color:var(--success); }
+        .status-btn.stop:hover, .power-icon.stop:hover { background:var(--warning); color:var(--bg-body); border-color:var(--warning); }
+        .status-btn.restart:hover { background:var(--accent); color:var(--bg-body); border-color:var(--accent); }
+        .status-btn.kill:hover { background:var(--danger); color:white; border-color:var(--danger); }
+        .player-choice, .player-row { display:flex; align-items:center; gap:8px; }
+        .player-choices, .player-list { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+        .player-choice { border:1px solid var(--border); border-radius:999px; background:var(--bg-panel); color:var(--text-main); padding:6px 10px; cursor:pointer; }
+        .player-choice.selected { border-color:var(--accent); color:var(--accent); }
+        .player-row { width:100%; justify-content:space-between; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-panel); }
+        .access-columns { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:18px; }
         .status-text { font-size: 11px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
         .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); display: inline-block; margin-right: 6px; box-shadow: 0 0 8px var(--success); }
 
@@ -963,11 +973,6 @@
                                 <input type="text" id="config-search" class="config-search" placeholder="Search config options..." oninput="filterConfigEntries()">
                                 <button class="btn btn-outline config-raw-btn" id="config-raw-btn" onclick="toggleConfigRaw()">Raw</button>
                             </div>
-                            <div id="access-editor" class="settings-grid" style="display:none">
-                                <label>Operators<textarea id="ops-list" class="settings-tasks" placeholder="One player name per line"></textarea></label>
-                                <label>Whitelist<textarea id="whitelist-list" class="settings-tasks" placeholder="One player name per line"></textarea></label>
-                                <button class="btn" onclick="saveAccessLists()">Save operators and whitelist</button>
-                            </div>
                             <div id="config-hint" class="config-hint"></div>
                             <div id="config-restart-banner" class="restart-banner">Restart required for these config changes. <button class="btn" onclick="powerAction('restart')">Restart</button></div>
                             <div class="config-editor-body">
@@ -978,7 +983,7 @@
                     </div>
                     
                     <!-- NEW SERVER USERS TAB CONTENT -->
-                    <div id="tab-players" class="tab-container"><div class="fm-page"><div class="fm-toolbar"><h2>Players</h2><span id="player-count"></span><div class="fm-spacer"></div><button class="fm-btn" onclick="loadPlayers()">Refresh</button></div><p class="version-note">Player actions send normal Minecraft commands and work only while the server is running.</p><div class="fm-toolbar"><input id="player-name" placeholder="Player name"><button class="fm-btn" onclick="playerAction('kick')">Kick</button><button class="fm-btn" onclick="playerAction('ban')">Ban</button><button class="fm-btn" onclick="playerAction('pardon')">Pardon</button><button class="fm-btn" onclick="playerAction('op')">Op</button><button class="fm-btn" onclick="playerAction('deop')">Deop</button></div></div></div>
+                    <div id="tab-players" class="tab-container"><div class="fm-page"><div class="fm-toolbar"><h2>Players</h2><span id="player-count"></span><div class="fm-spacer"></div><button class="fm-btn" onclick="loadPlayers()">Refresh</button></div><p class="version-note">Select a player, then use Add. Kick and ban commands still require the server to be running.</p><div id="player-choices" class="player-choices"></div><div class="fm-toolbar"><input id="player-name" placeholder="Player name"><button class="fm-btn" onclick="addSelectedPlayer('ops')">Add Operator</button><button class="fm-btn" onclick="addSelectedPlayer('whitelist')">Add Whitelist</button><button class="fm-btn" onclick="playerAction('kick')">Kick</button><button class="fm-btn" onclick="playerAction('ban')">Ban</button><button class="fm-btn" onclick="playerAction('pardon')">Pardon</button></div><div class="access-columns"><section><h3>Operators</h3><div id="ops-list" class="player-list"></div></section><section><h3>Whitelist</h3><div id="whitelist-list" class="player-list"></div></section></div></div></div>
                     <div id="tab-activity" class="tab-container"><div class="fm-page"><h2>Activity</h2><div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody id="activity-tbody"></tbody></table></div></div></div>
                     <div id="tab-users" class="tab-container">
                         <div class="fm-container" style="padding:20px;">
@@ -1676,7 +1681,8 @@
             
             if (t === 'files') loadFileList('.');
             if (t === 'backups') loadBackups();
-            if (t === 'config') { loadConfigFiles(); loadAccessLists(); updateRestartBanner(); }
+            if (t === 'config') { loadConfigFiles(); updateRestartBanner(); }
+            if (t === 'players') loadPlayers();
             if (t === 'users') loadServerUsers();
             if (t === 'activity') loadActivity();
             if (t === 'players') loadPlayers();
@@ -2674,7 +2680,15 @@
         }
 
         function fmToggleSearch() { const row = document.getElementById('fm-search-row'); row.style.display = row.style.display === 'none' ? 'flex' : 'none'; }
-        async function loadPlayers() { if (!currentServer) return; const response = await fetch('/api/players?server=' + encodeURIComponent(currentServer.id)); if (!response.ok) return; const data = await response.json(); document.getElementById('player-count').textContent = data.count + ' online'; }
+        let accessState = { ops: [], whitelist: [] };
+        function selectedPlayerName() { return document.getElementById('player-name').value.trim(); }
+        function renderPlayerChoices(players) { const selected = selectedPlayerName(); document.getElementById('player-choices').innerHTML = (players || []).map(name => `<button class="player-choice ${name === selected ? 'selected' : ''}" onclick="selectPlayer('${escapeHtml(name)}')">${escapeHtml(name)}</button>`).join('') || '<span class="version-note">No online players. Type a name to add someone offline.</span>'; }
+        function selectPlayer(name) { document.getElementById('player-name').value = name; document.querySelectorAll('.player-choice').forEach(button => button.classList.toggle('selected', button.textContent === name)); }
+        function renderAccessLists() { document.getElementById('ops-list').innerHTML = accessState.ops.map(player => `<div class="player-row"><button class="player-choice ${player.name === selectedPlayerName() ? 'selected' : ''}" onclick="selectPlayer('${escapeHtml(player.name)}')">${escapeHtml(player.name)}</button><select onchange="updateOperatorLevel('${escapeHtml(player.name)}', this.value)">${[1,2,3,4].map(level => `<option value="${level}" ${Number(player.level) === level ? 'selected' : ''}>Level ${level}</option>`).join('')}</select><button class="fm-btn" onclick="removeAccessPlayer('ops','${escapeHtml(player.name)}')">Remove</button></div>`).join('') || '<span class="version-note">No operators.</span>'; document.getElementById('whitelist-list').innerHTML = accessState.whitelist.map(player => `<div class="player-row"><button class="player-choice ${player.name === selectedPlayerName() ? 'selected' : ''}" onclick="selectPlayer('${escapeHtml(player.name)}')">${escapeHtml(player.name)}</button><button class="fm-btn" onclick="removeAccessPlayer('whitelist','${escapeHtml(player.name)}')">Remove</button></div>`).join('') || '<span class="version-note">No whitelisted players.</span>'; }
+        async function loadPlayers() { if (!currentServer) return; const response = await fetch('/api/players?server=' + encodeURIComponent(currentServer.id)); if (response.ok) { const data = await response.json(); document.getElementById('player-count').textContent = data.count + ' online'; renderPlayerChoices(data.players || []); } await loadAccessLists(); }
+        async function addSelectedPlayer(list) { const name = selectedPlayerName(); if (!/^[A-Za-z0-9_]{1,16}$/.test(name)) return showToast('Enter a valid Minecraft player name', 'error'); if (accessState[list].some(player => player.name.toLowerCase() === name.toLowerCase())) return showToast('Player is already on this list', 'error'); accessState[list].push(list === 'ops' ? { name, level: 4 } : { name }); await saveAccessLists(); }
+        async function removeAccessPlayer(list, name) { accessState[list] = accessState[list].filter(player => player.name !== name); await saveAccessLists(); }
+        async function updateOperatorLevel(name, level) { const player = accessState.ops.find(entry => entry.name === name); if (player) player.level = Number(level); await saveAccessLists(); }
         async function playerAction(action) { const player = document.getElementById('player-name').value.trim(); if (!/^[A-Za-z0-9_]{1,16}$/.test(player)) return showToast('Enter a valid Minecraft player name', 'error'); const response = await fetch('/api/players?server=' + encodeURIComponent(currentServer.id), {method:'POST', body:JSON.stringify({action, player})}); showToast(response.ok ? 'Command sent' : await response.text(), response.ok ? 'success' : 'error'); }
         async function fmSearch() {
             const query = document.getElementById('fm-search-input').value;
@@ -2862,17 +2876,18 @@
         }
         async function saveAccessLists() {
             if (!currentServer) return;
-            const response = await fetch('/api/access/save?server=' + encodeURIComponent(currentServer.id), { method: 'POST', body: JSON.stringify({ ops: document.getElementById('ops-list').value, whitelist: document.getElementById('whitelist-list').value }) });
+            const response = await fetch('/api/access/save?server=' + encodeURIComponent(currentServer.id), { method: 'POST', body: JSON.stringify(accessState) });
             showToast(response.ok ? 'Operators and whitelist saved' : await response.text(), response.ok ? 'success' : 'error');
+            if (response.ok) await loadAccessLists();
         }
         async function loadAccessLists() {
             if (!currentServer) return;
             const response = await fetch('/api/access/list?server=' + encodeURIComponent(currentServer.id));
             if (!response.ok) return;
-            const data = await response.json();
-            document.getElementById('ops-list').value = data.ops || '';
-            document.getElementById('whitelist-list').value = data.whitelist || '';
-            document.getElementById('access-editor').style.display = 'grid';
+            accessState = await response.json();
+            accessState.ops = accessState.ops || [];
+            accessState.whitelist = accessState.whitelist || [];
+            renderAccessLists();
         }
         async function changePassword() {
             const current = document.getElementById('password-current').value;
