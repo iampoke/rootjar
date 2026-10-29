@@ -214,6 +214,14 @@ public final class Supervisor implements ChildProcess.ExitListener {
         }
         if (uptimeMillis >= STABLE_RUN_MS) backoff.reset();
         int delay = backoff.next();
+        if (backoff.attempts() == 3) {
+            try {
+                String disabled = rootjar.addons.Addons.disableNewest(c.config().dir());
+                if (disabled != null) ConsoleOutput.root(id + " safe mode moved " + disabled + " aside after repeated crashes");
+            } catch (java.io.IOException e) {
+                ConsoleOutput.root(id + " safe mode could not move an addon: " + e.getMessage());
+            }
+        }
         c.markRestarting();
         ConsoleOutput.root(id + " crashed (exit code " + exitCode + ", ran " + formatDuration(uptimeMillis)
                 + "); restarting in " + delay + "s (attempt " + backoff.attempts() + ")");

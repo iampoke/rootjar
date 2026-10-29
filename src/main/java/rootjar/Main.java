@@ -240,14 +240,14 @@ public final class Main {
             }
             usedStop.add(newStop);
 
-            // Fix duplicate ports
-            if (usedPorts.contains(newPort) || newPort == config.server().port()) {
+            // Fix duplicate ports. Port 0 means a Discord bot has no listening port, so several bots may share it.
+            if (newPort != 0 && (usedPorts.contains(newPort) || newPort == config.server().port())) {
                 newPort = 25565;
                 while (usedPorts.contains(newPort) || newPort == config.server().port()) newPort++;
                 childChanged = true;
                 ConsoleOutput.root("Auto-Fix: Changed conflicting port for '" + newId + "' to " + newPort);
             }
-            usedPorts.add(newPort);
+            if (newPort != 0) usedPorts.add(newPort);
 
             if (childChanged) {
                 changed = true;

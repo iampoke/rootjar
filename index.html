@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.cdnfonts.com/css/minecraft-4" rel="stylesheet">
+    <link href="https://fonts.cdnfonts.com/css/minecraftia" rel="stylesheet">
     <style>
         :root { --hue: 215; --bg-body: hsl(var(--hue), 20%, 8%); --bg-panel: hsl(var(--hue), 20%, 12%); --bg-card: hsl(var(--hue), 20%, 15%); --bg-hover: hsl(var(--hue), 20%, 20%); --bg-input: hsl(var(--hue), 20%, 10%); --text-main: hsl(var(--hue), 10%, 90%); --text-muted: hsl(var(--hue), 10%, 60%); --text-dark: hsl(var(--hue), 10%, 40%); --accent: hsl(var(--hue), 80%, 60%); --accent-hover: hsl(var(--hue), 80%, 50%); --success: hsl(150, 70%, 50%); --danger: hsl(350, 70%, 60%); --warning: hsl(40, 90%, 60%); --border: hsl(var(--hue), 20%, 18%); --border-light: hsl(var(--hue), 20%, 25%); --shadow: 0 8px 24px rgba(0,0,0,0.4); --font-main: 'Inter', sans-serif; --font-mono: monospace; }
         
-        body.mc-font { font-family: 'Minecraft', monospace; font-variant: normal; text-transform: none; -webkit-font-smoothing: none; image-rendering: pixelated; font-size: 16px; }
+        body.mc-font { font-family: 'Minecraftia', monospace; font-variant: normal; text-transform: none; -webkit-font-smoothing: none; image-rendering: pixelated; font-size: 16px; }
         body.mc-font * { font-weight: normal !important; }
         
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -740,7 +740,7 @@
                               <div class="form-grid">
                                   <div class="form-group"><label>Server Name</label><input id="edit-server-name" type="text"></div>
                                   <div class="form-group"><label>Server Type</label><input id="edit-server-type" type="text" placeholder="manual"></div>
-                                  <div class="form-group"><label>Port</label><input id="edit-server-port" type="number" min="1" max="65535"></div>
+                                  <div class="form-group"><label>Port</label><input id="edit-server-port" type="number" min="0" max="65535"></div>
                                   <div class="form-group"><label>RAM (MB)</label><input id="edit-server-ram" type="number" min="128"></div>
                                   <div class="form-group" id="edit-server-jar-group"><label>Server Jar File</label><input id="edit-server-jar" type="text" placeholder="server.jar"></div>
                               </div>
@@ -843,6 +843,7 @@
                                 <button class="fm-btn" onclick="document.getElementById('fm-file-input').click()">Upload</button>
                                 <button class="fm-btn" onclick="document.getElementById('fm-folder-input').click()">Upload Folder</button>
                                 <div class="fm-spacer"></div>
+                                <button class="fm-btn" onclick="showDiskUsage()">Largest files</button>
                                 <button class="fm-btn fm-btn-accent" onclick="promptMkdir()">Create Folder</button>
                                 <button class="fm-btn fm-btn-accent" onclick="createNewFile()">New File</button>
                             </div>
@@ -874,7 +875,7 @@
                     </div>
                     <div id="tab-backups" class="tab-container">
                         <div class="fm-page">
-                            <div class="fm-toolbar"><h2>Backups</h2><div class="fm-spacer"></div><button class="fm-btn fm-btn-accent" onclick="createBackup()">Create Backup</button></div>
+                            <div class="fm-toolbar"><h2>Backups</h2><input id="backup-schedule-time" type="time"><button class="fm-btn" onclick="saveServerBackupSchedule()">Daily backup</button><div class="fm-spacer"></div><button class="fm-btn fm-btn-accent" onclick="createBackup()">Create Backup</button></div>
                             <div class="limit-warning" id="backup-limit-warning" style="display:none"></div>
                             <div class="backup-list" id="backup-list"></div>
                         </div>
@@ -892,6 +893,7 @@
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                                     <h2>Config Editor</h2>
                                 </div>
+                                <button class="btn btn-outline" onclick="showConfigDiff()">Review changes</button>
                                 <button class="btn" id="config-save-btn" onclick="saveConfig()">Save</button>
                             </div>
                             <div class="config-toolbar">
@@ -2293,6 +2295,11 @@
             const versionProgress = document.querySelector('.progress-step[data-step="3"]');
             if (versionProgress) versionProgress.style.display = minecraft ? '' : 'none';
             document.getElementById('wizard-jar-group').style.display = wizardGameType === 'website' ? 'none' : '';
+            const portInput = document.getElementById('wizard-port');
+            portInput.required = wizardGameType !== 'discord_bot';
+            portInput.placeholder = wizardGameType === 'discord_bot' ? 'Optional for a bot' : '25565';
+            if (wizardGameType === 'discord_bot' && portInput.value === '25565') portInput.value = '';
+            if (wizardGameType !== 'discord_bot' && !portInput.value) portInput.value = '25565';
 
             document.getElementById('wizard-step-' + wizardStep).classList.add('active');
             const activeProgress = document.querySelector('.progress-step[data-step="' + wizardStep + '"]');
@@ -2321,7 +2328,8 @@
         function updateReview() {
             const typeName = wizardGameType === 'minecraft' ? 'Minecraft' : (wizardGameType === 'discord_bot' ? 'Discord Bot' : (wizardGameType === 'website' ? 'Website' : 'Custom'));
             const name = serverId(document.getElementById('wizard-name').value) || 'untitled';
-            const port = document.getElementById('wizard-port').value || '25565';
+            const bot = wizardGameType === 'discord_bot';
+            const port = bot && !document.getElementById('wizard-port').value ? 'Not required' : (document.getElementById('wizard-port').value || '25565');
             const ram = document.getElementById('wizard-ram').value || '1024';
             const jar = document.getElementById('wizard-jar').value || 'server.jar';
             const rows = [
@@ -2366,7 +2374,7 @@
             const ram = document.getElementById('wizard-ram').value;
             const jar = document.getElementById('wizard-jar').value;
 
-            if (!name || !port || !ram || (wizardGameType !== 'website' && !jar)) {
+            if (!name || (!port && wizardGameType !== 'discord_bot') || !ram || (wizardGameType !== 'website' && !jar)) {
                 showToast("Fill all fields", "error");
                 return;
             }
@@ -2378,7 +2386,7 @@
 
             const payload = {
                 name: name,
-                port: parseInt(port),
+                port: wizardGameType === 'discord_bot' && !port ? 0 : parseInt(port),
                 ram: parseInt(ram),
                 jar: jar,
                 fork: wizardFork,
@@ -2671,6 +2679,8 @@
                     <h2>${label}<span class="addons-context" id="addons-context-${key}"></span></h2>
                     <div class="addons-head-actions">
                         <button class="btn btn-outline" onclick="backupAddons('${key}')">Backup folder</button>
+                        <button class="btn btn-outline" onclick="updateAllAddons()">Update all</button>
+                        <button class="btn btn-outline" onclick="runSafeMode()">Safe mode</button>
                         <button class="btn btn-outline" onclick="loadAddons('${key}', true)">Refresh</button>
                     </div>
                 </div>
@@ -2699,6 +2709,62 @@
             state.built = true;
         }
 
+        async function showDiskUsage() {
+            if (!currentServer) return;
+            const response = await fetch('/api/files/usage?server=' + encodeURIComponent(currentServer.id));
+            if (!response.ok) return showToast('Could not read disk usage', 'error');
+            const data = await response.json();
+            const rows = (data.items || []).map(item => item.path + ' — ' + fmtBytes(item.bytes)).join('\n');
+            await confirmPromise({ title: 'Largest files and folders', body: rows || 'This server folder is empty.', confirmText: 'Close' });
+        }
+        async function saveServerBackupSchedule() {
+            if (!currentServer) return;
+            const time = document.getElementById('backup-schedule-time').value;
+            if (!/^\d{2}:\d{2}$/.test(time)) return showToast('Choose a backup time', 'error');
+            const current = await (await fetch('/api/tasks')).text();
+            const entry = '  - server: "' + currentServer.id + '"\n    type: backup\n    time: "' + time + '"\n';
+            const marker = 'server: "' + currentServer.id + '"';
+            if (current.includes(marker) && current.includes('time: "' + time + '"')) return showToast('That daily backup already exists', 'info');
+            let base = current.trim();
+            if (!base || base === 'tasks: []' || base === 'tasks:[]') base = 'tasks:';
+            else if (!base.includes('tasks:')) base = 'tasks:\n' + base;
+            const body = base.replace(/\n?tasks:\s*\[\]/, '\ntasks:').trimEnd() + '\n' + entry;
+            const response = await fetch('/api/tasks', { method: 'POST', body });
+            showToast(response.ok ? 'Daily backup saved' : await response.text(), response.ok ? 'success' : 'error');
+        }
+        function showConfigDiff() {
+            const changes = [];
+            if (configRawMode) {
+                if (document.getElementById('config-raw').value !== configRawContent) changes.push('Raw file text changed');
+            } else {
+                document.querySelectorAll('#config-editor [data-path]').forEach(el => {
+                    const value = el.dataset.type === 'boolean' ? (el.checked ? 'true' : 'false') : el.value;
+                    if (value !== el.dataset.original) changes.push(el.dataset.path + ': ' + el.dataset.original + ' → ' + value);
+                });
+            }
+            confirmPromise({ title: 'Config changes', body: changes.join('\n') || 'No unsaved changes.', confirmText: 'Close' });
+        }
+        async function updateAllAddons() {
+            if (!currentServer) return;
+            const preview = await fetch('/api/modrinth/updates?server=' + encodeURIComponent(currentServer.id));
+            if (!preview.ok) return showToast('Could not check for updates', 'error');
+            const data = await preview.json();
+            const count = (data.updates || []).length;
+            if (!count) return showToast('No updates are available', 'info');
+            if (!await confirmPromise({ title: 'Update addons', body: count + ' update(s) will replace the current jars. Continue?', confirmText: 'Update', danger: true })) return;
+            const response = await fetch('/api/addons/update-all?server=' + encodeURIComponent(currentServer.id) + '&confirm=1', { method: 'POST' });
+            const result = response.ok ? await response.json() : {};
+            showToast(response.ok && result.updated > 0 ? result.updated + ' addon(s) updated' : (response.ok ? 'No addon could be updated' : 'Update failed'), response.ok && result.updated > 0 ? 'success' : 'error');
+            if (response.ok) { loadAddons('plugin', true); loadAddons('mod', true); }
+        }
+        async function runSafeMode() {
+            if (!currentServer) return;
+            if (!await confirmPromise({ title: 'Safe mode', body: 'Move the newest plugin or mod aside so the server can start?', confirmText: 'Move aside', danger: true })) return;
+            const response = await fetch('/api/server/safe-mode?server=' + encodeURIComponent(currentServer.id), { method: 'POST' });
+            const data = response.ok ? await response.json() : {};
+            showToast(response.ok ? (data.moved ? 'Moved ' + data.moved : 'No addon needed to be moved') : 'Safe mode failed', response.ok ? 'success' : 'error');
+            if (response.ok) { loadAddons('plugin'); loadAddons('mod'); }
+        }
         async function loadAddons(kind, updates = false) {
             const key = addonsKey(kind);
             if (!currentServer) return;
@@ -3262,6 +3328,34 @@
                 document.getElementById('del-confirm-input').value !== deleteTarget;
         }
 
+        function popupOpen(id) {
+            const popup = document.getElementById(id);
+            if (!popup) return false;
+            const shown = window.getComputedStyle(popup).display;
+            return popup.classList.contains('active') || (shown !== 'none' && shown !== '');
+        }
+
+        function closeTopPopup() {
+            if (popupOpen('confirm-modal')) { closeConfirm(false); return; }
+            if (popupOpen('prompt-modal')) { closePrompt(null); return; }
+            if (popupOpen('delete-modal')) { closeDeleteModal(); return; }
+            if (popupOpen('version-picker-modal')) { closeVersionPicker(); return; }
+            if (popupOpen('version-modal')) { closeVersionModal(); return; }
+            if (popupOpen('fm-modal')) { document.getElementById('fm-modal').classList.remove('active'); return; }
+            if (popupOpen('edit-server-overlay')) { closeEditServer(); return; }
+            if (popupOpen('create-wizard-overlay')) { closeCreateWizard(); return; }
+            if (popupOpen('setup-overlay')) {
+                localStorage.setItem('rootjar-setup-dismissed', 'true');
+                document.getElementById('setup-overlay').style.display = 'none';
+            }
+        }
+
+        document.addEventListener('keydown', event => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            closeTopPopup();
+        });
+
         function closeDeleteModal() {
             clearInterval(deleteCountdown);
             document.getElementById('delete-modal').classList.remove('active');
@@ -3519,7 +3613,8 @@
             const jar = document.getElementById('edit-server-jar').value.trim();
             const type = document.getElementById('edit-server-type').value.trim().toLowerCase();
             const server = currentServersList.find(s => s.id === editingServerId);
-            if (!/^[A-Za-z0-9_-]+$/.test(name) || !Number.isInteger(port) || port < 1 || port > 65535 || !Number.isInteger(ram) || ram < 128) {
+            const bot = type === 'discord_bot';
+            if (!/^[A-Za-z0-9_-]+$/.test(name) || !Number.isInteger(port) || (bot ? port < 0 : port < 1) || port > 65535 || !Number.isInteger(ram) || ram < 128) {
                 showToast('Enter a valid name, port (1-65535), and RAM (at least 128 MB)', 'error'); return;
             }
             if (!/^[a-z0-9_-]{1,32}$/.test(type)) {

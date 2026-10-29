@@ -177,6 +177,9 @@ public class WebServer {
         route("/api/addons/toggle", this::handleAddonsToggle);
         route("/api/addons/delete", this::handleAddonsDelete);
         route("/api/addons/backup", this::handleAddonsBackup);
+        route("/api/addons/update-all", this::handleAddonsUpdateAll);
+        route("/api/server/safe-mode", this::handleSafeMode);
+        route("/api/files/usage", this::handleFileUsage);
         route("/api/version/check", this::handleVersionCheck);
 
         // Phase 3: Change Version + per-server Java
@@ -964,15 +967,17 @@ public class WebServer {
         }
         if (ramStr == null || ramStr.isEmpty()) { ramStr = "1024"; }
 
+        boolean bot = "discord_bot".equals(serverType);
         int port, ram;
         try {
-            port = Integer.parseInt(portStr);
+            port = bot && (portStr == null || portStr.isBlank()) ? 0 : Integer.parseInt(portStr);
             ram = Integer.parseInt(ramStr);
         } catch (NumberFormatException e) { send(ex, 400, "Bad numbers"); return; }
-        if (port < 1 || port > 65535) { send(ex, 400, "Port must be 1-65535"); return; }
-        if (port == config.server().port()) { send(ex, 400, "Port is used by the web panel"); return; }
+        if (!bot && (port < 1 || port > 65535)) { send(ex, 400, "Port must be 1-65535"); return; }
+        if (bot && port != 0 && (port < 1 || port > 65535)) { send(ex, 400, "Bot port must be empty or 1-65535"); return; }
+        if (port != 0 && port == config.server().port()) { send(ex, 400, "Port is used by the web panel"); return; }
         for (ChildProcess c : supervisor.children()) {
-            if (c.config().port() == port) { send(ex, 400, "Port in use"); return; }
+            if (port != 0 && c.config().port() == port) { send(ex, 400, "Port in use"); return; }
         }
         if (ram < 128 || ram > 1048576) { send(ex, 400, "RAM must be between 128 and 1048576 MB"); return; }
 
@@ -988,7 +993,7 @@ public class WebServer {
                 Files.writeString(site.resolve("index.html"), html);
                 Files.writeString(site.resolve("style.css"), "body { font-family: system-ui, sans-serif; max-width: 700px; margin: 80px auto; padding: 20px; background: #111827; color: #f9fafb; }\nh1 { color: #60a5fa; }\n");
                 Files.writeString(site.resolve("script.js"), fork.equals("js") ? "document.querySelector('#message').addEventListener('click', () => alert('Hello from your website!'));\n" : "// Your website's JavaScript goes here.\n");
-            } else {
+            } else if (!bot) {
                 Files.writeString(dir.resolve("eula.txt"), "eula=true");
                 generateServerProperties(dir.resolve("server.properties"), port);
             }
@@ -1072,7 +1077,8 @@ public class WebServer {
         int port, ram;
         try { port = Integer.parseInt(extractJson(body, "port")); ram = Integer.parseInt(extractJson(body, "ram")); }
         catch (NumberFormatException e) { send(ex, 400, "Invalid port or RAM"); return; }
-        if (port < 1 || port > 65535 || port == config.server().port() || ram < 128 || ram > 1048576) {
+        boolean editedBot = "discord_bot".equals(type);
+        if ((editedBot ? port < 0 || port > 65535 : port < 1 || port > 65535) || (port != 0 && port == config.server().port()) || ram < 128 || ram > 1048576) {
             send(ex, 400, "Port or RAM outside allowed range"); return;
         }
         if (!type.isBlank() && !type.matches("[a-z0-9_-]{1,32}")) { send(ex, 400, "Invalid server type"); return; }
@@ -1092,7 +1098,7 @@ public class WebServer {
             }
             if (!name.equals(id) && supervisor.child(name).isPresent()) { send(ex, 409, "Name is already in use"); return; }
             for (ChildProcess other : supervisor.children()) {
-                if (!other.id().equals(id) && other.config().port() == port) { send(ex, 409, "Port is already in use"); return; }
+                if (port != 0 && !other.id().equals(id) && other.config().port() == port) { send(ex, 409, "Port is already in use"); return; }
             }
             ChildConfig old = child.config();
             Path oldDir = old.dir();
@@ -1409,10 +1415,11 @@ public class WebServer {
         if (child == null) { send(ex, 404, "Not found"); return; }
         try {
             int port = Integer.parseInt(portStr);
-            if (port < 1 || port > 65535) { send(ex, 400, "Port must be 1-65535"); return; }
-            if (port == config.server().port()) { send(ex, 400, "Port is used by the web panel"); return; }
+            boolean bot = "discord_bot".equals(child.config().type());
+            if (bot ? port < 0 || port > 65535 : port < 1 || port > 65535) { send(ex, 400, "Port must be 1-65535"); return; }
+            if (port != 0 && port == config.server().port()) { send(ex, 400, "Port is used by the web panel"); return; }
             for (ChildProcess c : supervisor.children()) {
-                if (!c.id().equals(id) && c.config().port() == port) { send(ex, 400, "Port in use"); return; }
+                if (port != 0 && !c.id().equals(id) && c.config().port() == port) { send(ex, 400, "Port in use"); return; }
             }
             // Re-read the live instance right before mutating: a concurrent version change may have replaced
             // this child (new process + new config) while the port checks ran, and must not be reverted.
@@ -2666,6 +2673,101 @@ public class WebServer {
         } catch (Exception e) {
             send(ex, 500, "{\"error\":\"" + jsonEscape(e.getMessage()) + "\"}");
         }
+    }
+
+    private void handleAddonsUpdateAll(HttpExchange ex) throws IOException {
+        String serverId = param(ex, "server", "");
+        ChildProcess child = supervisor.child(serverId).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        if (!requireOperator(ex, serverId)) return;
+        if (!param(ex, "confirm", "").equals("1")) { send(ex, 400, "Confirm the update preview first"); return; }
+        String mcVersion = detectMcVersion(child.config());
+        int updated = 0;
+        for (boolean mods : new boolean[]{false, true}) {
+            if (mods ? !Addons.supportsMods(child.config().type()) : !Addons.supportsPlugins(child.config().type())) continue;
+            Path folder = child.config().dir().resolve(Addons.folder(mods));
+            List<Path> jars = listJars(folder);
+            List<String> hashes = new ArrayList<>();
+            for (Path jar : jars) { try { hashes.add(hashFor(jar)); } catch (Exception e) { hashes.add(""); } }
+            Map<String, String> updates = lookupUpdates(hashes, child.config().type(), mods, mcVersion);
+            for (int i = 0; i < jars.size(); i++) {
+                String update = updates.get(hashes.get(i));
+                if (update == null) continue;
+                String versionId = extractJson("{" + update + "}", "updateVersionId");
+                if (!versionId.matches("[A-Za-z0-9_-]{1,40}")) continue;
+                Path old = jars.get(i);
+                Path part = null;
+                try {
+                    String json = modrinthGet("https://api.modrinth.com/v2/version/" + versionId, HTTP_CACHE_MS);
+                    String[] file = primaryFile(json);
+                    String downloadedName = file == null ? null : Addons.sanitizeJar(file[1]);
+                    if (file == null || downloadedName == null || !allowedDownloadUrl(file[0])) continue;
+                    long expected = 0;
+                    try { expected = Long.parseLong(file[2]); } catch (Exception ignored) {}
+                    part = Files.createTempFile(folder, ".update-", ".jar");
+                    HttpRequest dl = HttpRequest.newBuilder(URI.create(file[0])).header("User-Agent", panelUserAgent()).timeout(Duration.ofMinutes(5)).build();
+                    HttpResponse<Path> res = httpClient.send(dl, HttpResponse.BodyHandlers.ofFile(part));
+                    long size = Files.size(part);
+                    if (res.statusCode() != 200 || size <= 0 || size > 200L * 1024 * 1024 || (expected > 0 && size != expected)) {
+                        Files.deleteIfExists(part);
+                        continue;
+                    }
+                    Path backup = old.resolveSibling(old.getFileName() + ".old");
+                    Files.move(old, backup, StandardCopyOption.REPLACE_EXISTING);
+                    try {
+                        Files.move(part, old, StandardCopyOption.ATOMIC_MOVE);
+                    } catch (IOException moveFailed) {
+                        Files.move(backup, old, StandardCopyOption.REPLACE_EXISTING);
+                        throw moveFailed;
+                    }
+                    updated++;
+                    audit(ex, serverId + (mods ? ".mod.update" : ".plugin.update"), old.getFileName().toString());
+                } catch (Exception e) {
+                    if (part != null) Files.deleteIfExists(part);
+                }
+            }
+        }
+        send(ex, 200, "{\"updated\":" + updated + "}");
+    }
+
+    private void handleSafeMode(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireOperator(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        String moved = Addons.disableNewest(child.config().dir());
+        audit(ex, server + ".safe-mode", moved == null ? "nothing to disable" : moved);
+        send(ex, 200, "{\"moved\":\"" + jsonEscape(moved == null ? "" : moved) + "\"}");
+    }
+
+    private void handleFileUsage(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireServer(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        record Usage(String path, long bytes) {}
+        List<Usage> usage = new ArrayList<>();
+        try (var entries = Files.list(child.config().dir())) {
+            for (Path entry : entries.toList()) {
+                long bytes = Files.isDirectory(entry) ? directorySize(entry) : Files.size(entry);
+                usage.add(new Usage(entry.getFileName().toString(), bytes));
+            }
+        }
+        usage.sort((a, b) -> Long.compare(b.bytes(), a.bytes()));
+        StringBuilder json = new StringBuilder("{\"items\":[");
+        for (int i = 0; i < Math.min(20, usage.size()); i++) {
+            if (i > 0) json.append(',');
+            json.append("{\"path\":\"").append(jsonEscape(usage.get(i).path())).append("\",\"bytes\":").append(usage.get(i).bytes()).append('}');
+        }
+        send(ex, 200, json.append("]}").toString());
+    }
+
+    private static long directorySize(Path root) {
+        long total = 0;
+        try (var walk = Files.walk(root)) {
+            for (Path path : walk.filter(Files::isRegularFile).toList()) total += Files.size(path);
+        } catch (IOException ignored) {}
+        return total;
     }
 
     private void handleAddonsDelete(HttpExchange ex) throws IOException {

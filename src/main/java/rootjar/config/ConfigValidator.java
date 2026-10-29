@@ -58,9 +58,10 @@ public final class ConfigValidator {
                 problems.add(w + ": id is reserved for a console command (status, help, stop, list)");
             }
             if (!ids.add(c.id())) problems.add(w + ": duplicate id");
-            if (!validPort(c.port())) problems.add(w + ": port must be 1-65535 (got " + c.port() + ")");
-            if (!ports.add(c.port())) problems.add(w + ": port " + c.port() + " is used by another child");
-            if (c.port() == s.port()) {
+            boolean bot = "discord_bot".equals(c.type());
+            if (!(bot && c.port() == 0) && !validPort(c.port())) problems.add(w + ": port must be 1-65535, or 0 for a Discord bot (got " + c.port() + ")");
+            if (c.port() != 0 && !ports.add(c.port())) problems.add(w + ": port " + c.port() + " is used by another child");
+            if (c.port() != 0 && c.port() == s.port()) {
                 problems.add(w + ": port " + c.port() + " collides with the web panel port (server.port)");
             }
             if (!startOrders.add(c.startOrder())) problems.add(w + ": start_order " + c.startOrder() + " is used twice");

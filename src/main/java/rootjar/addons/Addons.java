@@ -79,6 +79,26 @@ public final class Addons {
         };
     }
 
+    /** Moves the newest enabled plugin or mod jar aside after repeated crashes. Returns its relative name, or null. */
+    public static String disableNewest(Path serverDir) throws IOException {
+        Path newest = null;
+        for (String folderName : List.of("plugins", "mods")) {
+            Path folder = serverDir.resolve(folderName);
+            if (!Files.isDirectory(folder)) continue;
+            try (var entries = Files.list(folder)) {
+                for (Path file : entries.toList()) {
+                    String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                    if (!name.endsWith(".jar") || name.endsWith(".jar.old") || name.endsWith(".jar.disabled") || !Files.isRegularFile(file)) continue;
+                    if (newest == null || Files.getLastModifiedTime(file).compareTo(Files.getLastModifiedTime(newest)) > 0) newest = file;
+                }
+            }
+        }
+        if (newest == null) return null;
+        Path disabled = newest.resolveSibling(newest.getFileName() + ".disabled");
+        Files.move(newest, disabled, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        return serverDir.relativize(disabled).toString().replace('\\', '/');
+    }
+
     /** Folder name for the addon kind: {@code plugins} or {@code mods}. */
     public static String folder(boolean mods) { return mods ? "mods" : "plugins"; }
 

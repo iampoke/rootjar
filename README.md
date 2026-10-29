@@ -173,6 +173,13 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - A server name may contain spaces. Rootjar saves them as underscores, so `Sky Block` becomes the folder and command `Sky_Block`.
 - The host console command `list` shows the player count for every running child server.
 - Console commands and server names are not case-sensitive, so `sky_block.restart` controls `Sky_Block`.
+- Safe mode moves one plugin or mod aside after repeated crashes, and it can also be started from the panel.
+- Update all previews plugin and mod updates, then replaces only the selected jars after confirmation.
+- Files can show the largest files and folders. Each server can save its own daily backup time.
+- The config editor can review unsaved changes before saving.
+- Discord bots do not require a port. Escape closes an open panel popup.
+- Rootjar corrects `server-port` in `server.properties` before a Minecraft server starts.
+- The Minecraft-style font includes lowercase letters.
 
 ## Building
 

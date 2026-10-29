@@ -115,6 +115,7 @@ public final class ChildProcess {
             cmd = CommandLineBuilder.build(cfg, javaFor(cfg));
         }
         ConsoleOutput.root("starting " + id() + " in " + cfg.dir() + ": " + String.join(" ", cmd));
+        alignServerPort();
         if (PermissionRepair.repairOnce(cfg.dir(), id())) ConsoleOutput.root("repaired copied file permissions in " + id());
         Process p;
         try {
@@ -316,6 +317,25 @@ public final class ChildProcess {
         Thread t = new Thread(r, name);
         t.setDaemon(true);
         return t;
+    }
+
+    /** Makes server.properties use the port assigned in Rootjar before the process starts. */
+    private void alignServerPort() {
+        if (cfg.port() <= 0 || "website".equals(cfg.type()) || "discord_bot".equals(cfg.type())) return;
+        Path file = cfg.dir().resolve("server.properties");
+        if (!Files.isRegularFile(file)) return;
+        try {
+            String text = Files.readString(file);
+            String updated = text.replaceAll("(?m)^server-port=.*$", "server-port=" + cfg.port());
+            if (updated.equals(text)) {
+                if (!text.contains("server-port=")) updated = text.stripTrailing() + "\nserver-port=" + cfg.port() + "\n";
+                else return;
+            }
+            Files.writeString(file, updated);
+            ConsoleOutput.root(id() + " server-port set to " + cfg.port());
+        } catch (IOException e) {
+            ConsoleOutput.root(id() + " could not update server-port: " + e.getMessage());
+        }
     }
 
     /** Java executable for a child: an explicit configured path, else the panel's own JVM. */
