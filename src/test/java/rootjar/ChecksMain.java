@@ -140,7 +140,7 @@ public final class ChecksMain {
         Path root = Files.createTempDirectory("backup-check");
         Files.writeString(root.resolve("world.txt"), "safe");
         ChildConfig child = new ChildConfig("paper1", "paper", root, "server.jar", "1024M", true, 25565, "127.0.0.1",
-                StopStrategy.STDIN, "stop", 30, 1, 1, false, List.of(5), List.of(), true, false, false, "", true);
+                StopStrategy.STDIN, "stop", 30, 1, 1, false, List.of(5), List.of(), true, false, false, "", true, "");
         BackupManager.BackupInfo created = BackupManager.create(child, "manual", false, 5);
         check(BackupManager.NAME.matcher(created.name()).matches(), "backup name is safe");
         BackupManager.BackupInfo second = BackupManager.create(child, "manual", false, 5);

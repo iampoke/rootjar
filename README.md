@@ -190,6 +190,9 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - Operator and whitelist names are saved with their Mojang UUIDs.
 - Crash diagnosis can move aside the exact plugin or mod named in the log.
 - The audit log can be searched by user, action, or details.
+- The dashboard can switch between a compact server list and the original cards. The selected layout is remembered.
+- Server names display spaces in the panel. `Sky_Block` appears as `Sky Block`.
+- Each server can save a custom IP or domain. `stellarfall.net` is shown as `stellarfall.net:25569` instead of the numeric IP.
 
 ## Building
 

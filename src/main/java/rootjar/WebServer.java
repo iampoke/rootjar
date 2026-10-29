@@ -712,6 +712,7 @@ public class WebServer {
             ChildConfig k = c.config();
             if (!first) sb.append(","); first = false;
             sb.append("{\"id\":\"").append(jsonEscape(k.id())).append("\",\"port\":").append(k.port())
+              .append(",\"displayHost\":\"").append(jsonEscape(k.displayHost() == null ? "" : k.displayHost())).append("\"")
               .append(",\"type\":\"").append(jsonEscape(k.type()))
               .append("\",\"jar\":\"").append(jsonEscape(k.jar())).append("\",\"heap\":\"").append(jsonEscape(k.heap()))
               .append("\",\"useAikarFlags\":").append(k.useAikarFlags()).append(",\"extraFlags\":\"")
@@ -1009,7 +1010,7 @@ public class WebServer {
             String type = website ? "website" : (serverType != null && !serverType.isBlank() && !serverType.equals("minecraft") ? serverType : (fork != null ? fork : "paper"));
 
             ChildConfig newChild = new ChildConfig(name, type, dir, jar, ram + "M", true, port, "0.0.0.0",
-                website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, "", true);
+                website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, "", true, "");
             supervisor.addChild(newChild);
 
             saveConfig(new RootConfig(config.server(),
@@ -1070,6 +1071,15 @@ public class WebServer {
     }
 
     /** Change allocation or rename a stopped server without touching its world/site files. */
+    /** Accepts a blank value or one hostname/IP label sequence. Rejects URLs, ports, paths, and whitespace. */
+    private static String normalizeDisplayHost(String raw) {
+        if (raw == null || raw.isBlank()) return "";
+        String host = raw.trim().toLowerCase(java.util.Locale.ROOT);
+        if (host.endsWith(".")) host = host.substring(0, host.length() - 1);
+        if (host.length() > 253 || !host.matches("(?i)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?){0,15}")) return null;
+        return host;
+    }
+
     private void handleEditServer(HttpExchange ex) throws IOException {
         if (!ex.getRequestMethod().equals("POST")) { send(ex, 405, "Method not allowed"); return; }
         if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
@@ -1112,10 +1122,12 @@ public class WebServer {
             if (!name.equals(id) && (Files.exists(newDir) || !oldDir.toAbsolutePath().normalize().getParent().equals(newDir.toAbsolutePath().normalize().getParent()))) {
                 send(ex, 409, "Destination folder already exists or is outside the server directory"); return;
             }
+            String displayHost = normalizeDisplayHost(extractJson(body, "displayHost"));
+            if (displayHost == null) { send(ex, 400, "Custom IP must be a hostname such as play.example.net"); return; }
             ChildConfig updated = new ChildConfig(name, type.isBlank() ? old.type() : type, newDir, jar == null ? old.jar() : jar, ram + "M", old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(), old.startOrder(),
                 old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(), old.extraFlags(),
-                old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart());
+                old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), displayHost);
             List<ChildConfig> children = supervisor.children().stream()
                 .map(c -> c.id().equals(id) ? updated : c.config()).toList();
             try { ConfigValidator.validate(new RootConfig(config.server(), children, config.baseDir())); }
@@ -1436,7 +1448,7 @@ public class WebServer {
             ChildConfig newCfg = new ChildConfig(old.id(), old.type(), old.dir(), jar, heap, old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(),
                 old.startOrder(), old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(),
-                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart());
+                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), old.displayHost());
             supervisor.updateChildConfig(id, newCfg);
             saveConfig(new RootConfig(config.server(),
                     supervisor.children().stream().map(ChildProcess::config).toList(), config.baseDir()));
@@ -3585,7 +3597,7 @@ public class WebServer {
                         liveCfg.stopStrategy(), liveCfg.stopCommand(), liveCfg.stopTimeoutSeconds(),
                         liveCfg.startOrder(), liveCfg.stopOrder(), liveCfg.restartOnCrash(),
                         liveCfg.restartBackoffSeconds(), liveCfg.extraFlags(), liveCfg.consoleEnabled(),
-                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath(), liveCfg.autoStart());
+                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath(), liveCfg.autoStart(), liveCfg.displayHost());
                 supervisor.updateChildConfig(serverId, newCfg);
                 owner[0] = supervisor.child(serverId).orElse(null); // updateChildConfig installs a new instance
                 persistConfig();

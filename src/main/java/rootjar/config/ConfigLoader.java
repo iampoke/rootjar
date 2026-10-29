@@ -84,7 +84,8 @@ public final class ConfigLoader {
                 bool(m, "console_enabled", true, w), bool(m, "use_aikar_flags", true, w),
                 bool(m, "silent", false, w), // NEW
                 str(m, "java", "", w), // NEW: "" means the panel's own JVM
-                bool(m, "auto_start", true, w) // NEW: old configs keep starting on boot
+                bool(m, "auto_start", true, w), // NEW: old configs keep starting on boot
+                str(m, "display_host", "", w)
         );
     }
 

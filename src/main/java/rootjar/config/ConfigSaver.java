@@ -76,6 +76,7 @@ public class ConfigSaver {
             String javaPath = c.javaPath() == null ? "" : c.javaPath().replace("\r", "").replace("\n", "").trim();
             if (!javaPath.isEmpty()) sb.append("    java: ").append(javaPath).append("\n"); // NEW
             if (!c.autoStart()) sb.append("    auto_start: false\n"); // only written when the operator stopped it
+            if (c.displayHost() != null && !c.displayHost().isBlank()) sb.append("    display_host: ").append(c.displayHost()).append("\n");
         }
         Files.writeString(file, sb.toString());
     }
