@@ -135,18 +135,23 @@
         .layout-switch svg { width:16px; height:16px; }
         .layout-switch button.active { background:var(--accent); color:var(--bg-body); }
         body.layout-compact .server-grid { display:grid; grid-template-columns:1fr; gap:12px; }
-        body.layout-compact .server-card { min-height:76px; padding:12px 16px; display:grid; grid-template-columns:220px minmax(150px,1fr) repeat(3,minmax(168px,1.15fr)) auto; gap:14px; align-items:center; }
-        body.layout-compact .sc-header, body.layout-compact .sc-footer, body.layout-compact .sc-footer > div { display:contents; }
-        body.layout-compact .sc-name { grid-column:1; font-size:15px; }
-        body.layout-compact .server-address { grid-column:2; justify-self:start; }
-        body.layout-compact .sc-type:not(.server-address), body.layout-compact .sc-status, body.layout-compact .sc-uptime { display:none; }
-        body.layout-compact .sc-stats-row { display:contents; background:transparent; padding:0; }
-        body.layout-compact .sc-stat-box { min-width:0; display:grid; gap:6px; padding:7px 8px; border:1px solid var(--border); border-radius:8px; background:var(--bg-body); }
-        body.layout-compact .sc-meter-line { display:flex; align-items:center; gap:6px; min-width:0; }
-        body.layout-compact .sc-stat-header { flex:0 1 auto; }
-        body.layout-compact .sc-stat-values { margin-left:auto; }
-        body.layout-compact .sc-stat-values span:last-child, body.layout-compact .sc-disk-warning { display:none; }
-        body.layout-compact .power-icon, body.layout-compact .server-card .btn { grid-row:1; }
+        .compact-row { display:none; }
+        body.layout-compact .server-card { display:none; }
+        body.layout-compact .compact-row { min-height:76px; padding:12px 16px; display:grid; grid-template-columns:220px minmax(150px,1fr) repeat(3,minmax(168px,1.15fr)) 168px; gap:14px; align-items:center; border:1px solid var(--border); border-radius:14px; background:var(--bg-panel); cursor:pointer; }
+        body.layout-compact .compact-row[draggable="true"] { cursor:grab; }
+        .compact-identity { display:flex; align-items:center; gap:11px; min-width:0; }
+        .compact-status { width:9px; height:9px; flex:0 0 9px; border-radius:50%; background:var(--danger); }
+        .compact-row.RUNNING .compact-status { background:var(--success); }
+        .compact-row.RESTARTING .compact-status { background:var(--warning); }
+        .compact-copy { min-width:0; }
+        .compact-name { overflow:hidden; font-size:15px; font-weight:750; text-overflow:ellipsis; white-space:nowrap; }
+        .compact-meta { display:flex; gap:7px; margin-top:3px; color:var(--text-muted); font-size:12px; }
+        .compact-address { justify-self:start; width:max-content; max-width:100%; padding:0; border:0; background:transparent; color:var(--text-muted); font-family:var(--font-mono); cursor:pointer; }
+        .compact-meter { min-width:0; display:grid; gap:6px; padding:7px 8px; border:1px solid var(--border); border-radius:8px; background:var(--bg-body); }
+        .compact-meter-top { display:flex; align-items:center; gap:6px; min-width:0; color:var(--text-muted); font-size:10px; font-weight:800; letter-spacing:.04em; }
+        .compact-meter-top svg { width:13px; height:13px; flex:0 0 13px; }
+        .compact-meter-top b { margin-left:auto; color:var(--text-main); font-family:var(--font-mono); font-size:12px; }
+        .compact-actions { display:flex; justify-content:flex-end; align-items:center; gap:8px; }
         .server-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
         .server-card[draggable="true"], .manage-row[draggable="true"] { cursor: grab; touch-action: pan-y; }
         .server-card.dragging, .manage-row.dragging { opacity: .45; }
@@ -502,9 +507,8 @@
             .stat-pill, .theme-picker { flex:1 1 auto; justify-content:center; }
             .dashboard-content { width:100%; max-width:100%; margin:0 auto; padding:12px 12px 108px; overflow-x:hidden; }
             .server-grid, .sc-stats-row, .form-grid, .software-grid, .config-grid, .addons-results, .status-actions { grid-template-columns:1fr !important; }
-            body.layout-compact .server-card { grid-template-columns:1fr auto !important; }
-            body.layout-compact .sc-name, body.layout-compact .server-address, body.layout-compact .sc-stat-box { grid-column:1 !important; }
-            body.layout-compact .power-icon, body.layout-compact .server-card .btn { grid-column:2; grid-row:auto; }
+            body.layout-compact .compact-row { grid-template-columns:1fr !important; }
+            body.layout-compact .compact-actions { justify-content:flex-start; }
             .server-card, .backup-card, .wizard-container, .login-box, .setup-card { width:100%; max-width:100%; min-width:0; margin-left:auto; margin-right:auto; }
             .login-box { width:min(100% - 24px, 420px); padding:24px; }
             .console-layout { display:flex; flex-direction:column; width:100%; min-height:0; padding:8px; gap:8px; overflow:auto; }
@@ -1808,7 +1812,15 @@
                                 <button class="btn" onclick="openServer('${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')">Manage</button>
                             </div>
                         </div>
-                    </div>`;
+                    </div>
+                    <article class="compact-row ${s.status}" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" onclick="openServerFromCard(event, '${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')" onpointerdown="serverPointerDown(event)" onpointermove="serverPointerMove(event)" onpointerup="serverPointerUp(event)" onpointercancel="serverPointerCancel(event)" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
+                        <div class="compact-identity"><span class="compact-status"></span><div class="compact-copy"><div class="compact-name">${escapeHtml(String(s.id).replaceAll('_', ' '))}</div><div class="compact-meta"><span class="type-badge">${escapeHtml(typeLabel(s.type))}</span><span>${escapeHtml(s.players || '')}</span></div></div></div>
+                        <button type="button" class="compact-address" onclick="copyServerAddress('${s.port}', '${escapeHtml(s.displayHost || '')}')">${escapeHtml(displayAddress(s.port, s.displayHost))}</button>
+                        <div class="compact-meter"><div class="compact-meter-top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect></svg><span>CPU</span><b class="sc-cpu-value">${s.cpuUsed}%</b></div><div class="sc-bar-bg"><div class="sc-bar-fill sc-cpu-bar" style="width:${cpuPct}%;background:var(--accent)"></div></div></div>
+                        <div class="compact-meter"><div class="compact-meter-top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="6" y1="10" x2="6" y2="14"></line><line x1="10" y1="10" x2="10" y2="14"></line><line x1="14" y1="10" x2="14" y2="14"></line><line x1="18" y1="10" x2="18" y2="14"></line></svg><span>MEM</span><b class="sc-ram-value">${s.ramUsed} MB</b></div><div class="sc-bar-bg"><div class="sc-bar-fill sc-ram-bar" style="width:${ramPct}%;background:var(--success)"></div></div></div>
+                        <div class="compact-meter"><div class="compact-meter-top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg><span>DISK</span><b class="sc-disk-value">${fmtBytes(s.diskUsed)}</b></div><div class="sc-bar-bg"><div class="sc-bar-fill sc-disk-bar" style="width:${diskPct}%;background:#8b5cf6"></div></div></div>
+                        <div class="compact-actions">${s.type === 'website' && allowPanelIpView ? `<a class="btn btn-outline" href="http://${escapeHtml(currentPublicIp)}:${s.port}/" target="_blank" rel="noopener">Open</a>` : ''}<button class="power-icon ${s.status === 'STOPPED' ? '' : 'stop'}" title="${s.status === 'STOPPED' ? 'Start' : 'Stop'}" aria-label="${s.status === 'STOPPED' ? 'Start' : 'Stop'}" onclick="dashboardPower('${escapeHtml(s.id)}', '${s.status === 'STOPPED' ? 'start' : 'stop'}')">${s.status === 'STOPPED' ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"></path></svg>' : '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg>'}</button><button class="power-icon" title="Restart" aria-label="Restart" onclick="dashboardPower('${escapeHtml(s.id)}', 'restart')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.2-5.8"></path><polyline points="21 3 21 9 15 9"></polyline></svg></button><button class="btn" onclick="openServer('${escapeHtml(s.id)}', '${s.port}', '${escapeHtml(s.type || '')}')">Manage</button></div>
+                    </article>`;
                 });
                 }
                 updateLiveCardStats(data);
@@ -1849,7 +1861,7 @@
         function updateLiveCardStats(data) {
             const largestDisk = Math.max(...(data.servers || []).map(server => Number(server.diskUsed) || 0), 1);
             (data.servers || []).forEach(server => {
-                const card = document.querySelector(`.server-card[data-server-id="${CSS.escape(server.id)}"]`);
+                document.querySelectorAll(`[data-server-id="${CSS.escape(server.id)}"]`).forEach(card => {
                 if (!card) return;
                 const cpu = Math.min(server.cpuUsed, 100);
                 const ram = Math.min((server.ramUsed / server.ramMax) * 100, 100);
@@ -1859,7 +1871,7 @@
                 set('.sc-ram-value', server.ramUsed + ' MB');
                 set('.sc-disk-value', fmtBytes(server.diskUsed));
                 set('.sc-uptime-value', server.uptime);
-                set('.server-address', displayAddress(server.port, server.displayHost));
+                set('.server-address, .compact-address', displayAddress(server.port, server.displayHost));
                 const warning = card.querySelector('.sc-disk-warning');
                 const overDisk = data.diskLimit > 0 && server.diskUsed > data.diskLimit;
                 if (warning) { warning.style.display = overDisk ? 'block' : 'none'; warning.textContent = overDisk ? 'Over disk warning limit' : ''; }
@@ -1867,6 +1879,7 @@
                 if (cpuBar) cpuBar.style.width = cpu + '%';
                 if (ramBar) ramBar.style.width = ram + '%';
                 if (diskBar) diskBar.style.width = disk + '%';
+                });
             });
         }
 
