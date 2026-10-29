@@ -153,6 +153,8 @@
         .compact-meter-top b { margin-left:auto; color:var(--text-main); font-family:var(--font-mono); font-size:12px; }
         .compact-actions { display:flex; justify-content:flex-end; align-items:center; gap:8px; }
         .server-card { background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+        .server-card:hover, body.layout-compact .compact-row:hover { border-color:var(--accent); background:var(--bg-hover); }
+        .server-card:hover .sc-name, body.layout-compact .compact-row:hover .compact-name { color:var(--accent); }
         .server-card[draggable="true"], .manage-row[draggable="true"] { cursor: grab; touch-action: pan-y; }
         .server-card.dragging, .manage-row.dragging { opacity: .45; }
         .drop-target { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -502,9 +504,9 @@
         .fm-progress { font-size:12px; color:var(--text-muted); }
         .fm-table-wrap { flex:1; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:10px; }
         .settings-menu { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; max-width:980px; }
-        .settings-menu button { min-height:92px; padding:16px; display:grid; align-content:center; gap:6px; border:1px solid var(--border); border-radius:14px; background:var(--bg-panel); text-align:left; cursor:pointer; }
-        .settings-menu button:hover { border-color:var(--accent); }
-        .settings-menu strong { font-size:15px; } .settings-menu span { color:var(--text-muted); font-size:12px; }
+        .settings-menu button { min-height:92px; padding:16px; display:grid; align-content:center; gap:6px; border:1px solid var(--border); border-radius:14px; background:var(--bg-panel); color:var(--text-main); text-align:left; cursor:pointer; }
+        .settings-menu button:hover { border-color:var(--accent); background:var(--bg-hover); }
+        .settings-menu strong { color:var(--accent); font-size:15px; } .settings-menu span { color:var(--text-muted); font-size:12px; }
         .settings-section { display:none; max-width:860px; } .settings-section.active { display:block; }
         .settings-grid { display:grid; gap:14px; max-width:680px; margin-bottom:28px; }
         .settings-grid label { display:grid; gap:6px; color:var(--text-muted); font-size:13px; }
