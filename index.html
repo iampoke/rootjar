@@ -376,8 +376,9 @@
         .copy-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; transition: 0.2s; display: flex; align-items: center; }
         .copy-btn:hover { color: var(--accent); }
         
-        .info-grid { display: flex; justify-content: space-between; font-size: 12px; padding: 0 4px; }
-        .info-item { display: flex; flex-direction: column; gap: 6px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; font-size: 12px; padding: 0 4px; }
+        .info-item { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+        .info-item.wide { grid-column: 1 / -1; }
         .info-label { color: var(--text-muted); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;}
         .info-val { font-weight: 700; color: var(--text-main); font-size: 13px; font-family: var(--font-mono); }
 
@@ -1094,7 +1095,7 @@
                                 <span class="info-label">UPTIME</span>
                                 <span class="info-val" id="sidebar-uptime">0h 0m 0s</span>
                             </div>
-                            <div class="info-item" style="grid-column:1 / -1">
+                            <div class="info-item wide">
                                 <span class="info-label">AUTOMATIC SHUTDOWN IN</span>
                                 <span class="info-val" id="sidebar-idle">Off</span>
                             </div>
@@ -1125,8 +1126,7 @@
                                     <span class="res-pct" id="res-cpu-txt">0%</span>
                                 </div>
                                 <div class="res-bottom">
-                                    <span class="res-val" id="res-cpu-val">0.00%</span>
-                                    <span class="res-max">/ 200%</span>
+                                    <span class="res-val" id="res-cpu-val">0%</span>
                                 </div>
                                 <div class="res-bar-bg"><div class="res-bar-fill" id="res-cpu-bar" style="width: 0%;"></div></div>
                             </div>

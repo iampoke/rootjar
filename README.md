@@ -198,6 +198,7 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - Settings opens as a menu. General, Nodes, Ports and Limits, Password, Schedules, and Audit Log each open in their own editor.
 - Operators and the whitelist are managed from Players. Select a player name, add them, then remove them or change an operator level.
 - Start, Stop, Restart, and Kill highlight when the pointer is over them.
+- Uptime, automatic shutdown, players, and status have separate spacing in the server sidebar. CPU no longer shows a fixed 200% limit.
 
 ## Building
 
