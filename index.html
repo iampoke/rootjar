@@ -32,6 +32,7 @@
         .topbar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; border-bottom: 1px solid var(--border); background: var(--bg-body); }
         .topbar-left { display: flex; align-items: center; gap: 32px; }
         .logo { font-weight: 700; font-size: 20px; color: var(--accent); cursor: pointer; }
+        .panel-version { margin-left: 6px; font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); vertical-align: middle; }
         .breadcrumbs { display: flex; gap: 8px; font-size: 13px; color: var(--text-muted); }
         
         .global-stats { display: flex; gap: 12px; }
@@ -518,7 +519,7 @@
     <div id="app">
         <div class="topbar">
             <div class="topbar-left">
-                <div class="logo" onclick="switchView('dashboard')">Panel</div>
+                <div class="logo" onclick="switchView('dashboard')">Rootjar <span id="panel-version" class="panel-version"></span></div>
                 <div class="breadcrumbs" id="breadcrumbs"><span>Servers</span></div>
                 
                 <div class="global-stats" id="global-stats-container">
@@ -590,7 +591,7 @@
 
         <div id="view-settings" class="view-wrapper">
             <div class="dashboard-content">
-                <div class="dashboard-header"><h1>Settings</h1></div>
+                <div class="dashboard-header"><h1>Settings</h1><span id="settings-version" class="version-note"></span></div>
                 <div class="settings-grid">
                     <label>Webhook URL<input id="settings-webhook" type="url" placeholder="https://discord.com/api/webhooks/..."></label>
                     <label>Backup retention<input id="settings-retention" type="number" min="1" max="50"></label>
@@ -1514,6 +1515,7 @@
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('app').style.display = 'flex';
                 document.getElementById('avatar-name').innerText = u.charAt(0).toUpperCase();
+                showPanelVersion(await res.json().catch(() => ({})));
                 await refresh();
                 openPanelPath();
                 setInterval(refresh, 2000);
@@ -1525,14 +1527,25 @@
             restoreFont();
             const res = await fetch('/api/status');
             if (res.ok) {
+                const status = await res.json().catch(() => ({}));
                 document.getElementById('login-screen').style.display = 'none';
                 document.getElementById('app').style.display = 'flex';
+                showPanelVersion(status);
                 await refresh();
                 openPanelPath();
                 setInterval(refresh, 2000);
                 window.addEventListener('popstate', openPanelPath);
             }
         };
+
+        function showPanelVersion(status) {
+            const version = status && status.version ? status.version : '';
+            const label = version ? 'v' + version : '';
+            const badge = document.getElementById('panel-version');
+            const settings = document.getElementById('settings-version');
+            if (badge) badge.textContent = label;
+            if (settings) settings.textContent = label ? 'Rootjar ' + label : '';
+        }
 
         function panelPath(view, id) {
             if (view === 'console' && id) return '/server/' + encodeURIComponent(id);
@@ -1623,6 +1636,7 @@
             if (!res.ok) return;
             const data = await res.json();
             if (!data || !Array.isArray(data.servers)) return;
+            showPanelVersion(data);
             applyNodeButtons(data);
             isAdmin = data.isAdmin;
             window.csrfToken = data.csrfToken || '';

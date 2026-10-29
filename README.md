@@ -160,6 +160,15 @@ The panel can show two optional links:
 
 An admin pastes each destination into Settings and enables its checkbox. Clicking a button opens that saved `http` or `https` address. These are navigation links only. Their settings are stored in `node-buttons.properties` beside `config.yml`.
 
+## 1.0.1
+
+- Permission repair now records the current machine. A copied server folder, including one carrying an older marker, is repaired again instead of being skipped.
+- Plugin and mod archives are stored separately and can no longer appear as, replace, or delete full server backups.
+- Restoring an older backup keeps that archive while the automatic pre-restore backup is created.
+- Backup actions target the selected archive when the same name exists in both current and older backup folders.
+- The audit log records file, config, backup, plugin, and version changes.
+- The panel shows its version, and failed backup writes no longer leave partial archives.
+
 ## Building
 
 Build with JDK 17 or newer:

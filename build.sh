@@ -17,7 +17,7 @@ FLAGS=(-source 17 -target 17 -encoding UTF-8 -Xlint:-options)
 "${JAVAC[@]}" "${FLAGS[@]}" -d "$OUT/classes" $(find src/main/java -name '*.java')
 # Bundle the panel UI inside the jar (Frontend serves it on first run if no index.html sits next to the jar).
 cp index.html "$OUT/classes/index.html"
-printf 'Main-Class: rootjar.Main\nImplementation-Version: 0.2.0-M3\n' > "$OUT/manifest.txt"
+printf 'Main-Class: rootjar.Main\nImplementation-Version: 1.0.1\n' > "$OUT/manifest.txt"
 "${JAR[@]}" --create --file "$OUT/server.jar" --manifest "$OUT/manifest.txt" -C "$OUT/classes" .
 
 "${JAVAC[@]}" "${FLAGS[@]}" -cp "$OUT/classes" -d "$OUT/test-classes" $(find src/test/java -name '*.java')

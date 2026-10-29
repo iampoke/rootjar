@@ -386,7 +386,7 @@ public class WebServer {
         Cached hit = httpCache.get(url);
         if (hit != null && now - hit.at() < ttlMs) return hit.body();
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                .header("User-Agent", "childserversjar-panel/0.2.0")
+                .header("User-Agent", panelUserAgent())
                 .header("Accept", "application/json")
                 .timeout(Duration.ofSeconds(15))
                 .build();
@@ -401,7 +401,7 @@ public class WebServer {
     private String modrinthPost(String url, String body) {
         try {
             HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                    .header("User-Agent", "childserversjar-panel/0.2.0")
+                    .header("User-Agent", panelUserAgent())
                     .header("Content-Type", "application/json")
                     .timeout(Duration.ofSeconds(15))
                     .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
@@ -672,7 +672,8 @@ public class WebServer {
 
         StringBuilder sb = new StringBuilder();
         Session sess = sessionOf(ex);
-        sb.append("{\"publicIp\":\"").append(jsonEscape(config.server().publicIp())).append("\",")
+        sb.append("{\"version\":\"").append(jsonEscape(Main.VERSION)).append("\",")
+          .append("\"publicIp\":\"").append(jsonEscape(config.server().publicIp())).append("\",")
           .append("\"csrfToken\":\"").append(jsonEscape(sess == null ? "" : sess.csrf())).append("\",")
           .append("\"ramMax\":").append(maxRamMb)
           .append(",\"cpuMax\":").append(cpuMax)
@@ -717,6 +718,8 @@ public class WebServer {
         sb.append("]}");
         send(ex, 200, sb.toString());
     }
+
+    private static String panelUserAgent() { return "childserversjar-panel/" + Main.VERSION; }
 
     private static String jsonEscape(String s) {
         if (s == null) return "";
@@ -853,7 +856,7 @@ public class WebServer {
 
         try {
             HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                .header("User-Agent", "childserversjar-panel")
+                .header("User-Agent", panelUserAgent())
                 .build();
             HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() != 200) { send(ex, 500, "Upstream API error " + res.statusCode()); return; }
@@ -902,7 +905,7 @@ public class WebServer {
             if (fork.equals("paper")) {
                 // fill v3: the latest build carries the server jar name and download URL.
                 HttpRequest req = HttpRequest.newBuilder(URI.create("https://fill.papermc.io/v3/projects/paper/versions/" + version + "/builds/latest"))
-                    .header("User-Agent", "childserversjar-panel")
+                    .header("User-Agent", panelUserAgent())
                     .build();
                 HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
                 if (res.statusCode() != 200) { send(ex, 500, "Upstream API error " + res.statusCode()); return; }
@@ -913,7 +916,7 @@ public class WebServer {
                 downloadUrl = url.group(1).replace("\\/", "/");
             } else if (fork.equals("purpur")) {
                 HttpRequest req = HttpRequest.newBuilder(URI.create("https://api.purpurmc.org/v2/purpur/" + version))
-                    .header("User-Agent", "childserversjar-panel")
+                    .header("User-Agent", panelUserAgent())
                     .build();
                 HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
                 if (res.statusCode() != 200) { send(ex, 500, "Upstream API error " + res.statusCode()); return; }
@@ -1137,7 +1140,7 @@ public class WebServer {
         Path tmp = target.resolveSibling(target.getFileName() + ".download");
         try {
             HttpRequest req = HttpRequest.newBuilder(uri)
-                .header("User-Agent", "childserversjar-panel")
+                .header("User-Agent", panelUserAgent())
                 .timeout(Duration.ofMinutes(5))
                 .build();
             HttpResponse<Path> res = httpClient.send(req, HttpResponse.BodyHandlers.ofFile(tmp));
@@ -2343,7 +2346,7 @@ public class WebServer {
             Path part = folder.resolve(fileName + ".part");
             try {
                 HttpRequest dl = HttpRequest.newBuilder(URI.create(downloadUrl))
-                        .header("User-Agent", "childserversjar-panel/0.2.0")
+                        .header("User-Agent", panelUserAgent())
                         .timeout(Duration.ofMinutes(5))
                         .build();
                 HttpResponse<Path> res = httpClient.send(dl, HttpResponse.BodyHandlers.ofFile(part));
@@ -3478,7 +3481,7 @@ public class WebServer {
         try {
             Files.deleteIfExists(tmp);
             HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                    .header("User-Agent", "childserversjar-panel/0.3.0")
+                    .header("User-Agent", panelUserAgent())
                     .timeout(Duration.ofMinutes(10))
                     .build();
             HttpResponse<InputStream> res = httpClient.send(req, HttpResponse.BodyHandlers.ofInputStream());

@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * The panel UI. Served from index.html next to the jar; this class only supplies the first-run copy,
- * bundled as the jar resource /index.html (src/main/resources/index.html at build time). Keeping the
+ * bundled as the jar resource /index.html (the root index.html copied in at build time). Keeping the
  * HTML out of a Java string constant avoids the 65,535-byte UTF-8 limit on a single constant, which
  * the embedded copy outgrew.
  */

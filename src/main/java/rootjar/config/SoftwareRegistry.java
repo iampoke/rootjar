@@ -1,5 +1,6 @@
 package rootjar.config;
 
+import rootjar.Main;
 import rootjar.addons.Addons;
 
 import java.io.IOException;
@@ -63,7 +64,7 @@ public final class SoftwareRegistry {
     /** Internal shape of a fill v3 {@code /versions} entry. */
     private record FillVersion(String id, long latestBuild) {}
 
-    private static final String USER_AGENT = "childserversjar-panel/0.3.0";
+    private static final String USER_AGENT = "childserversjar-panel/" + Main.VERSION;
     private static final long CACHE_TTL_MS = 10L * 60L * 1000L;
     private static final int CACHE_MAX = 128;
     private static final int MAX_JSON_DEPTH = 100;
