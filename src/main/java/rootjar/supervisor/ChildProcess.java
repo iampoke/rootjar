@@ -36,6 +36,11 @@ public final class ChildProcess {
     private volatile OutputStream stdin;
     private volatile boolean startDisabled;
     private volatile int playerCount = 0;
+    /**
+     * Counts {@code list} commands Rootjar sent itself to refresh the player count. Their replies are parsed
+     * but kept out of the console, so polling the Players tab does not spam the log.
+     */
+    private final java.util.concurrent.atomic.AtomicInteger internalListPending = new java.util.concurrent.atomic.AtomicInteger(0);
     private final java.util.Set<String> onlinePlayers = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private volatile long idleSinceMillis = System.currentTimeMillis();
     /** Java executable the live process was started with; used to tell whether a restart is needed. */
@@ -58,6 +63,12 @@ public final class ChildProcess {
     public ChildState state() { return state; }
     public LogRingBuffer log() { return log; }
     public int playerCount() { return playerCount; }
+
+    /** Refreshes the player list without echoing the server's reply into the console. */
+    public void requestPlayerList() {
+        internalListPending.incrementAndGet();
+        sendLine("list");
+    }
     public java.util.List<String> onlinePlayers() { return onlinePlayers.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList(); }
 
     public void setSilent(boolean isSilent) {
@@ -291,17 +302,20 @@ public final class ChildProcess {
         if (joined.find()) { playerCount++; onlinePlayers.add(joined.group(1)); }
         if (left.find()) { playerCount = Math.max(0, playerCount - 1); onlinePlayers.remove(left.group(1)); }
         java.util.regex.Matcher listed = java.util.regex.Pattern.compile("There are (\\d+) of a max of (\\d+) players online(?::\\s*(.*))?").matcher(line);
-        if (listed.find()) {
+        boolean listReply = listed.find();
+        if (listReply) {
             playerCount = Integer.parseInt(listed.group(1));
             onlinePlayers.clear();
             if (listed.group(3) != null) java.util.Arrays.stream(listed.group(3).split(",")).map(String::trim).filter(name -> name.matches("[A-Za-z0-9_]{1,16}")).forEach(onlinePlayers::add);
         }
+        // A reply to Rootjar's own poll is parsed but never shown; a list the operator typed still is.
+        boolean hideReply = listReply && internalListPending.getAndUpdate(value -> value > 0 ? value - 1 : 0) > 0;
         if (previousPlayers > 0 && playerCount == 0) idleSinceMillis = System.currentTimeMillis();
 
-        if (!silent) {
+        if (!silent && !hideReply) {
             ConsoleOutput.line(id(), line);
         }
-        log.append(line);
+        if (!hideReply) log.append(line);
     }
 
     private void watch(Process p, Thread pump) {

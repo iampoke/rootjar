@@ -162,12 +162,14 @@ The panel can show two optional links:
 
 An admin pastes each destination into Settings and enables its checkbox. Clicking a button opens that saved `http` or `https` address. These are navigation links only. Their settings are stored in `node-buttons.properties` beside `config.yml`.
 
-## 1.0.1
+## 1.0.2
+
+Everything below ships in the 1.0.2 build. It includes the work that was previously published as replacement `1.0.1` jars.
 
 - Plugins can be searched on Modrinth, Hangar or SpigotMC, one source at a time, with manual version and loader filters. The version filter defaults to “Any version”, so plugins whose authors have not tagged the newest Minecraft release still appear.
 - The Plugins and Mods tabs put search on top, and the installed list shows three entries with their icons before a View More button.
 - A server can hold more than one port. Extra ports are reserved so nothing else claims them, they are shown on the Startup tab, and one of them can be bound to Geyser’s Bedrock port.
-- The panel title can be renamed in Settings, and the “Rootjar v1.0.1” badge can be hidden there.
+- The panel title can be renamed in Settings, and the version badge can be hidden there.
 - “Automatic shutdown in” only appears for servers that have it enabled.
 - File rows highlight on hover, file icons are solid and chosen by type, every control is themed, and the Minecraft font now covers the whole panel.
 - Server names in Manage Server are shown without their underscores.

@@ -586,6 +586,10 @@
         .settings-check { display:flex !important; align-items:center; gap:8px; }
         .setup-overlay { position:fixed; inset:0; z-index:3000; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.72); }
         .setup-card { width:min(560px, calc(100% - 32px)); background:var(--bg-panel); border:1px solid var(--border); border-radius:16px; padding:24px; }
+        .setup-card h2 { margin:0 0 8px; font-size:20px; }
+        .setup-card .version-note { margin:0 0 20px; line-height:1.5; }
+        .setup-card label { display:block; margin-bottom:16px; font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; }
+        .setup-card label input { display:block; width:100%; margin-top:6px; text-transform:none; letter-spacing:normal; font-weight:400; }
         .limit-warning { margin-top:8px; color:var(--warning); font-size:12px; }
         @media (max-width: 900px) {
             html, body, #app { width:100%; max-width:100%; overflow-x:hidden; }
@@ -730,7 +734,7 @@
                 </div>
                 <section id="settings-general" class="settings-section"><div class="settings-grid">
                     <label>Panel Name<input id="settings-panel-name" type="text" maxlength="48" placeholder="Rootjar"></label>
-                    <label class="settings-check"><input id="settings-show-badge" type="checkbox" checked> Show the "Rootjar v1.0.1" badge</label>
+                    <label class="settings-check"><input id="settings-show-badge" type="checkbox" checked> Show the version badge</label>
                     <label>Webhook URL<input id="settings-webhook" type="url" placeholder="https://discord.com/api/webhooks/..."></label>
                     <label>Backup retention<input id="settings-retention" type="number" min="1" max="50"></label>
                     <label class="settings-check"><input id="settings-public" type="checkbox"> Enable public status page</label>
@@ -1841,8 +1845,10 @@
             if (settings) settings.textContent = label;
         }
 
-        function serverId(value) {
-            return String(value || '').trim().replace(/ +/g, '_');
+        /** Server ids keep underscores for folders and console commands; everywhere else they read as spaces. */
+        function displayName(value) { return String(value || '').replace(/_/g, ' '); }
+
+        function serverId(value) {            return String(value || '').trim().replace(/ +/g, '_');
         }
 
         function panelPath(view, id) {
@@ -2485,7 +2491,7 @@
             if (filter) filter.value = 'ALL';
             const search = document.getElementById('console-search');
             if (search) search.value = '';
-            document.getElementById('console-server-name').innerText = id;
+            document.getElementById('console-server-name').innerText = displayName(id);
             document.getElementById('console-server-type').innerHTML = typeBadge(type);
             updateServerTabs();
             updateServerIdentity();
@@ -2888,7 +2894,7 @@
         function renderBreadcrumb() {
             const root = document.getElementById('fm-breadcrumb');
             const parts = currentPath === '.' ? [] : currentPath.split('/');
-            const items = [`<button onclick="loadFileList('.')">${escapeHtml(currentServer.id)}</button>`];
+            const items = [`<button onclick="loadFileList('.')">${escapeHtml(displayName(currentServer.id))}</button>`];
             parts.forEach((part, index) => items.push(`<button onclick="loadFileList('${escapeHtml(parts.slice(0, index + 1).join('/'))}')">${escapeHtml(part)}</button>`));
             root.innerHTML = items.join('<span>/</span>');
         }
@@ -4450,7 +4456,7 @@
             const server = currentServersList.find(s => s.id === id);
             if (!isAdmin || !server) return;
             editingServerId = id;
-            document.getElementById('edit-server-name').value = server.id;
+            document.getElementById('edit-server-name').value = displayName(server.id);
             document.getElementById('edit-server-type').value = server.type || 'custom';
             fillPortOptions('edit-server-port', server.port, server.type === 'discord_bot');
             document.getElementById('edit-server-host').value = server.displayHost || '';
