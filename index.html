@@ -503,6 +503,11 @@
         .fm-breadcrumb button { background:none; border:0; color:var(--accent); cursor:pointer; font:inherit; }
         .fm-search-row input { flex:1; min-width:180px; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-main); }
         .fm-progress { font-size:12px; color:var(--text-muted); }
+        .upload-track { height:10px; background:var(--bg-input); border:1px solid var(--border); border-radius:999px; overflow:hidden; }
+        .upload-fill { height:100%; width:0%; background:var(--accent); transition:width .15s ease; }
+        .upload-line { margin-top:10px; font-size:13px; color:var(--text-muted); word-break:break-all; }
+        .upload-percent { font-size:22px; font-weight:700; color:var(--text-main); margin:14px 0 10px; }
+        .upload-errors { margin-top:12px; color:var(--danger); font-size:12px; white-space:pre-wrap; display:none; max-height:140px; overflow:auto; }
         .fm-table-wrap { flex:1; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:10px; }
         .settings-menu { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; max-width:980px; }
         .startup-preview { margin:0; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--bg-body); color:var(--text-main); font-family:var(--font-mono); font-size:12px; white-space:pre-wrap; word-break:break-all; }
@@ -806,6 +811,22 @@
                           </div>
                       </div>
                   </div>
+                  <div id="upload-overlay" class="modal-overlay" style="display:none;">
+                      <div class="wizard-container" style="max-width:480px;">
+                          <div class="wizard-header"><h2 id="upload-title">Uploading files…</h2></div>
+                          <div class="wizard-content">
+                              <div class="upload-percent" id="upload-percent">0%</div>
+                              <div class="upload-track"><div class="upload-fill" id="upload-bar"></div></div>
+                              <div class="upload-line" id="upload-summary"></div>
+                              <div class="upload-line" id="upload-current"></div>
+                              <div class="upload-errors" id="upload-errors"></div>
+                          </div>
+                          <div class="wizard-footer">
+                              <button class="btn btn-outline" id="upload-cancel" onclick="cancelUpload()">Cancel</button>
+                              <button class="btn" id="upload-close" style="display:none;margin-left:auto" onclick="closeUploadOverlay()">Close</button>
+                          </div>
+                      </div>
+                  </div>
                   <div id="edit-server-overlay" class="modal-overlay" style="display:none;">
                       <div class="wizard-container" style="max-width:520px;">
                           <div class="wizard-header"><h2>Edit Server</h2></div>
@@ -950,8 +971,8 @@
                                     <tbody id="fm-tbody"></tbody>
                                 </table>
                             </div>
-                            <input type="file" id="fm-file-input" multiple hidden onchange="fmUploadFiles(this.files)">
-                            <input type="file" id="fm-folder-input" webkitdirectory directory multiple hidden onchange="fmUploadFiles(this.files)">
+                            <input type="file" id="fm-file-input" multiple hidden onchange="fmUploadFiles(this.files); this.value=''">
+                            <input type="file" id="fm-folder-input" webkitdirectory directory multiple hidden onchange="fmUploadFiles(this.files); this.value=''">
                             <input type="file" id="fm-import-input" accept=".zip,application/zip" hidden onchange="fmImportZip(this.files[0])">
                         </div>
                     </div>
@@ -2743,29 +2764,104 @@
             await uploadFileList(files);
         }
 
+        let uploadState = { xhr: null, cancelled: false, totalBytes: 0, doneBytes: 0, errors: [] };
+
+        function setUploadText(id, text) { const el = document.getElementById(id); if (el) el.textContent = text; }
+        function renderUploadProgress(loadedBytes) {
+            const done = uploadState.doneBytes + (loadedBytes || 0);
+            const pct = uploadState.totalBytes > 0 ? Math.min(100, Math.round(done / uploadState.totalBytes * 100)) : 0;
+            setUploadText('upload-percent', pct + '%');
+            const bar = document.getElementById('upload-bar');
+            if (bar) bar.style.width = pct + '%';
+        }
+        function cancelUpload() {
+            uploadState.cancelled = true;
+            if (uploadState.xhr) uploadState.xhr.abort();
+            const cancel = document.getElementById('upload-cancel');
+            if (cancel) cancel.disabled = true;
+            setUploadText('upload-summary', 'Cancelling…');
+        }
+        function closeUploadOverlay() {
+            const overlay = document.getElementById('upload-overlay');
+            if (overlay) overlay.style.display = 'none';
+            const cancel = document.getElementById('upload-cancel');
+            if (cancel) cancel.disabled = false;
+            const close = document.getElementById('upload-close');
+            if (close) close.style.display = 'none';
+            loadFileList(currentPath);
+        }
         async function uploadFileList(files) {
-            const progress = document.getElementById('fm-progress');
+            if (!files || !files.length) return;
+            if (!currentServer) return showToast('Open a server first', 'error');
+            uploadState = { xhr: null, cancelled: false, totalBytes: files.reduce((sum, f) => sum + (f.size || 0), 0), doneBytes: 0, errors: [] };
+            const overlay = document.getElementById('upload-overlay');
+            const errorsBox = document.getElementById('upload-errors');
+            const cancelBtn = document.getElementById('upload-cancel');
+            const closeBtn = document.getElementById('upload-close');
+            if (overlay) overlay.style.display = 'flex';
+            if (errorsBox) { errorsBox.style.display = 'none'; errorsBox.textContent = ''; }
+            if (cancelBtn) { cancelBtn.style.display = ''; cancelBtn.disabled = false; }
+            if (closeBtn) closeBtn.style.display = 'none';
+            setUploadText('upload-title', files.length === 1 ? 'Uploading file…' : 'Uploading files…');
+            setUploadText('upload-summary', '0 of ' + files.length + ' files');
+            renderUploadProgress(0);
+
+            let uploaded = 0;
             for (let index = 0; index < files.length; index++) {
+                if (uploadState.cancelled) break;
                 const file = files[index];
                 const relative = file.panelRelativePath || file.name;
                 const destination = currentPath === '.' ? relative : currentPath + '/' + relative;
-                progress.style.display = 'block';
-                progress.textContent = `Uploading ${index + 1}/${files.length}: ${relative}`;
-                await uploadWithProgress(file, destination);
+                setUploadText('upload-current', (index + 1) + '/' + files.length + ': ' + relative);
+                const result = await uploadWithProgress(file, destination, loaded => renderUploadProgress(loaded));
+                uploadState.doneBytes += file.size || 0;
+                renderUploadProgress(0);
+                if (result.ok) {
+                    uploaded++;
+                    setUploadText('upload-summary', uploaded + ' of ' + files.length + ' files uploaded');
+                } else if (!uploadState.cancelled) {
+                    uploadState.errors.push(relative + ': ' + result.message);
+                }
+                const progress = document.getElementById('fm-progress');
+                if (progress) { progress.style.display = 'block'; progress.textContent = uploaded + '/' + files.length + ' uploaded'; }
             }
-            progress.style.display = 'none';
+
+            const failed = uploadState.errors.length;
+            setUploadText('upload-current', '');
+            if (uploadState.cancelled) setUploadText('upload-title', 'Upload cancelled');
+            else if (failed) setUploadText('upload-title', uploaded + ' uploaded, ' + failed + ' failed');
+            else setUploadText('upload-title', uploaded === 1 ? 'Upload complete' : uploaded + ' files uploaded');
+            setUploadText('upload-percent', uploadState.cancelled ? '' : '100%');
+            if (failed) {
+                if (errorsBox) { errorsBox.textContent = uploadState.errors.join('\n'); errorsBox.style.display = 'block'; }
+                showToast(failed + ' file(s) failed to upload', 'error');
+            } else if (!uploadState.cancelled) {
+                showToast(uploaded + ' file(s) uploaded', 'success');
+            }
+            if (cancelBtn) cancelBtn.style.display = 'none';
+            if (closeBtn) closeBtn.style.display = '';
+            const inline = document.getElementById('fm-progress');
+            if (inline) inline.style.display = 'none';
             loadFileList(currentPath);
+            if (!failed && !uploadState.cancelled) setTimeout(() => { const o = document.getElementById('upload-overlay'); if (o) o.style.display = 'none'; }, 1200);
         }
 
-        function uploadWithProgress(file, destination) {
+        function uploadWithProgress(file, destination, onProgress) {
             return new Promise(resolve => {
                 const request = new XMLHttpRequest();
+                uploadState.xhr = request;
                 const parent = destination.includes('/') ? destination.slice(0, destination.lastIndexOf('/')) : '.';
                 const name = destination.split('/').pop();
                 request.open('POST', `/api/files/upload/${currentServer.id}?path=${encodeURIComponent(parent)}&name=${encodeURIComponent(name)}`);
                 request.setRequestHeader('X-CSRF-Token', window.csrfToken || '');
-                request.upload.onprogress = event => { if (event.lengthComputable) document.getElementById('fm-progress').textContent = `${name}: ${Math.round(event.loaded / event.total * 100)}%`; };
-                request.onloadend = () => resolve();
+                request.upload.onprogress = event => { if (event.lengthComputable && onProgress) onProgress(event.loaded); };
+                request.onload = () => {
+                    const ok = request.status >= 200 && request.status < 300;
+                    const body = (request.responseText || '').trim();
+                    resolve({ ok, status: request.status, message: ok ? body : (body || ('HTTP ' + request.status)) });
+                };
+                request.onerror = () => resolve({ ok: false, status: 0, message: 'Network error - the upload did not reach the panel' });
+                request.onabort = () => resolve({ ok: false, status: 0, message: 'Cancelled' });
                 request.send(file);
             });
         }

@@ -207,6 +207,8 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - Additional presets are taken verbatim from their published sources: MeowIce/meowice-flags, brucethemoose/Minecraft-Performance-Flags-Benchmarks, hilltty/hilltty-flags, Obydux/Minecraft-GraalVM-Flags and etil2jz/etil-minecraft-flags. Selecting one shows a warning when it needs a JVM other than Temurin.
 - Creating a server now selects an installed runtime matching the required Java, and downloads and pins it automatically when none is installed.
 - Modpack installation has its own Modpacks section instead of living inside Mods.
+- Replacing `server.jar` now refreshes `index.html` when the copy on disk is older, so the panel stops serving a stale UI after an upgrade. The previous copy is kept as `index.html.old`.
+- File uploads show a progress window with the overall percentage, the current file, a cancel button and any per-file errors, instead of failing silently.
 - Before a Minecraft server starts, Rootjar also aligns `query.port` with the assigned port and gives RCON its own free port, so copied values never collide.
 - Before starting Paper or a fork, Rootjar recreates `world/datapacks/bukkit/pack.mcmeta` if a copied or restored world is missing it, which caused `Could not initialize Bukkit datapack`.
 

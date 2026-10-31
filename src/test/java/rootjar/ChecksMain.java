@@ -74,6 +74,7 @@ public final class ChecksMain {
         permissionRepair();
         bukkitDatapackRepair();
         portAlignment();
+        frontendSync();
         System.out.println("unit checks: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
@@ -95,6 +96,20 @@ public final class ChecksMain {
         String appended = ChildProcess.setProperty("server-port=25565\n", "server-port", "30001");
         check(appended.contains("server-port=30001") && !appended.contains("server-port=25565"), "port alignment replaces instead of duplicating");
         check(ChildProcess.setProperty("motd=Hi", "server-port", "30001").endsWith("server-port=30001\n"), "port alignment appends a missing key");
+    }
+
+    private static void frontendSync() throws Exception {
+        Path dir = Files.createTempDirectory("frontend-sync");
+        Path index = dir.resolve("index.html");
+        String bundled = rootjar.Frontend.html();
+        check("created".equals(rootjar.Frontend.syncToDisk(index)), "frontend sync creates a missing index.html");
+        check(Files.readString(index).equals(bundled), "frontend sync writes the bundled panel");
+        check("unchanged".equals(rootjar.Frontend.syncToDisk(index)), "frontend sync leaves a matching index.html alone");
+        Files.writeString(index, "<html>stale panel</html>");
+        check("refreshed".equals(rootjar.Frontend.syncToDisk(index)), "frontend sync refreshes a stale index.html");
+        check(Files.readString(index).equals(bundled), "frontend sync replaces the stale panel");
+        check(Files.isRegularFile(dir.resolve("index.html.old")), "frontend sync keeps the previous panel as index.html.old");
+        check(Files.readString(dir.resolve("index.html.old")).contains("stale panel"), "frontend sync backup holds the old panel");
     }
 
     private static void bukkitDatapackRepair() throws Exception {

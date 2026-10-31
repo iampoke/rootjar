@@ -52,13 +52,12 @@ public final class Main {
         if (hashPassword) System.exit(hashPasswordCli());
 
         Path indexFile = Paths.get("index.html");
-        if (Files.notExists(indexFile)) {
-            try {
-                Files.writeString(indexFile, Frontend.html());
-                ConsoleOutput.root("index.html not found. Generated a default index.html.");
-            } catch (IOException e) {
-                ConsoleOutput.root("Failed to create default index.html: " + e.getMessage());
-            }
+        try {
+            String result = Frontend.syncToDisk(indexFile);
+            if (result.equals("created")) ConsoleOutput.root("index.html not found. Generated it from this jar.");
+            else if (result.equals("refreshed")) ConsoleOutput.root("index.html was older than this jar. Refreshed it; the previous copy is index.html.old.");
+        } catch (IOException e) {
+            ConsoleOutput.root("Failed to write index.html: " + e.getMessage());
         }
 
         if (Files.notExists(configPath)) {
