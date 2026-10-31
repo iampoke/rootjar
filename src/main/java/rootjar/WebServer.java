@@ -1147,12 +1147,11 @@ public class WebServer {
                 .map(c -> c.id().equals(id) ? updated : c.config()).toList();
             try { ConfigValidator.validate(new RootConfig(config.server(), children, config.baseDir())); }
             catch (ConfigException e) { send(ex, 400, String.join("; ", e.problems())); return; }
-            if (!old.type().equals("website") && port != old.port() && Files.exists(oldDir.resolve("server.properties"))) {
-                send(ex, 409, "Edit server.properties server-port first, then change the allocation"); return;
-            }
             boolean moved = false;
+            boolean portsWritten = false;
             try {
                 if (!name.equals(id)) { Files.move(oldDir, newDir); moved = true; }
+                if (port != old.port()) portsWritten = writeServerPropertiesPort(newDir, name, port);
                 saveConfig(new RootConfig(config.server(), children, config.baseDir()));
             } catch (IOException e) {
                 if (moved) try { Files.move(newDir, oldDir); } catch (IOException ignored) {}
@@ -1161,9 +1160,43 @@ public class WebServer {
             if (name.equals(id)) supervisor.updateChildConfig(id, updated);
             else { supervisor.removeChild(id); supervisor.addChild(updated); }
             diskUsage.remove(id);
-            audit(ex, "server.edit", name + " (port " + port + ", " + ram + "M)" + (name.equals(id) ? "" : ", renamed from " + id));
+            audit(ex, "server.edit", name + " (port " + port + ", " + ram + "M)" + (name.equals(id) ? "" : ", renamed from " + id)
+                    + (portsWritten ? ", server.properties updated" : ""));
             send(ex, 200, "{\"id\":\"" + jsonEscape(name) + "\",\"port\":" + port + ",\"ram\":" + ram + "}");
         }
+    }
+
+    /**
+     * Writes the panel-assigned port into server.properties so an edit takes effect on the next start
+     * without the operator editing the file by hand. Returns true when the file changed.
+     */
+    private boolean writeServerPropertiesPort(Path dir, String serverId, int port) throws IOException {
+        Path file = dir.resolve("server.properties");
+        if (!Files.isRegularFile(file)) return false;
+        String text = Files.readString(file);
+        String updated = rootjar.supervisor.ChildProcess.setProperty(text, "server-port", String.valueOf(port));
+        updated = rootjar.supervisor.ChildProcess.setPropertyWhenPresent(updated, "query.port", String.valueOf(port));
+        if (rootjar.supervisor.ChildProcess.hasTrueProperty(updated, "enable-rcon")) {
+            updated = rootjar.supervisor.ChildProcess.setProperty(updated, "rcon.port", String.valueOf(freeTcpPortFor(serverId, port)));
+        } else {
+            updated = rootjar.supervisor.ChildProcess.setPropertyWhenPresent(updated, "rcon.port", String.valueOf(port));
+        }
+        if (updated.equals(text)) return false;
+        Files.writeString(file, updated);
+        return true;
+    }
+
+    /** First TCP port at or above {@code port + 1} that no other server or the panel is using. */
+    private int freeTcpPortFor(String serverId, int port) {
+        java.util.Set<Integer> busy = new java.util.HashSet<>();
+        busy.add(config.server().port());
+        for (ChildProcess other : supervisor.children()) {
+            if (!other.id().equals(serverId) && other.config().port() > 0) busy.add(other.config().port());
+        }
+        for (int candidate = port + 1; candidate <= 65535 && candidate < port + 1001; candidate++) {
+            if (candidate != port && !busy.contains(candidate)) return candidate;
+        }
+        return port;
     }
 
     /** Downloads a server jar from the official Paper/Purpur/Fabric/Quilt endpoints (host whitelist prevents SSRF). */

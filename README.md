@@ -199,6 +199,7 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - Operators and the whitelist are managed from Players. Select a player name, add them, then remove them or change an operator level.
 - Start, Stop, Restart, and Kill highlight when the pointer is over them.
 - Uptime, automatic shutdown, players, and status have separate spacing in the server sidebar. CPU no longer shows a fixed 200% limit.
+- Changing a server's port in Edit Server writes the new value into `server.properties` immediately, so the old allocation is no longer rejected.
 - Before a Minecraft server starts, Rootjar also aligns `query.port` with the assigned port and gives RCON its own free port, so copied values never collide.
 - Before starting Paper or a fork, Rootjar recreates `world/datapacks/bukkit/pack.mcmeta` if a copied or restored world is missing it, which caused `Could not initialize Bukkit datapack`.
 
