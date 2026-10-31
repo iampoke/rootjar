@@ -715,8 +715,9 @@ public final class JavaRuntimes {
     }
 
     /**
-     * Rejects symlinks and anything whose real path escapes the staging root. On failure the staging folder
-     * is removed so no half-verified JDK can be installed.
+     * Rejects anything whose real path escapes the staging root, and replaces safe symlinks with copies of
+     * their target so the installed runtime contains no links (Adoptium puts relative links in legal/).
+     * On failure the staging folder is removed so no half-verified JDK can be installed.
      */
     private static void verifyExtractedTree(Path destination) throws IOException {
         Path root;
@@ -726,20 +727,43 @@ public final class JavaRuntimes {
             deleteRecursivelyQuietly(destination);
             throw e;
         }
-        try (Stream<Path> stream = Files.walk(destination)) {
-            for (Path path : stream.toList()) {
-                if (Files.isSymbolicLink(path)) {
-                    throw new IOException("refusing symlink in Java archive: " + path);
-                }
-                Path real = path.toRealPath();
-                if (!real.startsWith(root)) {
-                    throw new IOException("archive entry outside destination: " + path);
+        try {
+            materializeSymlinks(destination, root);
+            try (Stream<Path> stream = Files.walk(destination)) {
+                for (Path path : stream.toList()) {
+                    if (Files.isSymbolicLink(path)) {
+                        throw new IOException("refusing symlink in Java archive: " + path);
+                    }
+                    Path real = path.toRealPath();
+                    if (!real.startsWith(root)) {
+                        throw new IOException("archive entry outside destination: " + path);
+                    }
                 }
             }
         } catch (IOException | RuntimeException e) {
             deleteRecursivelyQuietly(destination);
             if (e instanceof IOException io) throw io;
             throw new IOException("could not verify the extracted Java archive: " + e.getMessage(), e);
+        }
+    }
+
+    /** Replaces each in-tree symlink with a copy of the file it points to. */
+    private static void materializeSymlinks(Path destination, Path root) throws IOException {
+        java.util.List<Path> links;
+        try (Stream<Path> stream = Files.walk(destination)) {
+            links = stream.filter(Files::isSymbolicLink).toList();
+        }
+        for (Path link : links) {
+            Path target = link.getParent().resolve(Files.readSymbolicLink(link)).normalize();
+            if (!target.startsWith(root) || !Files.exists(target)) {
+                throw new IOException("archive symlink points outside destination: " + link);
+            }
+            Path real = target.toRealPath();
+            if (!real.startsWith(root)) throw new IOException("archive symlink points outside destination: " + link);
+            if (!Files.isRegularFile(real)) throw new IOException("archive symlink does not point to a file: " + link);
+            byte[] data = Files.readAllBytes(real);
+            Files.delete(link);
+            Files.write(link, data);
         }
     }
 

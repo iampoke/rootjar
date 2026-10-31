@@ -201,6 +201,7 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - Uptime, automatic shutdown, players, and status have separate spacing in the server sidebar. CPU no longer shows a fixed 200% limit.
 - Changing a server's port in Edit Server writes the new value into `server.properties` immediately, so the old allocation is no longer rejected.
 - The Java Runtime section can download any Temurin release from Java 8 to 25, offers **Use recommended**, and warns when the runtime is newer than the Minecraft version supports. New servers are pinned to an installed runtime matching their version when one exists.
+- Java downloads now replace the JDK's relative symlinks with real copies, so Temurin archives containing `legal/` links no longer fail with "refusing symlink".
 - Before a Minecraft server starts, Rootjar also aligns `query.port` with the assigned port and gives RCON its own free port, so copied values never collide.
 - Before starting Paper or a fork, Rootjar recreates `world/datapacks/bukkit/pack.mcmeta` if a copied or restored world is missing it, which caused `Could not initialize Bukkit datapack`.
 
