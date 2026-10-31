@@ -1433,6 +1433,7 @@
         let currentServer = null, currentPath = ".", currentFile = null, isAdmin = false;
         let sse = null, currentServersList = [], currentPublicIp = "127.0.0.1";
         let nodePreviousUrl = '', nodeNextUrl = '', nodeShowPrevious = true, nodeShowNext = true;
+        const PANEL_BUILD = '__BUILD__';
         let consoleLines = [], consoleHistory = [], consoleHistoryIndex = -1;
         let consoleFilter = { level: 'ALL', text: '' };
         window.csrfToken = '';
@@ -1748,7 +1749,8 @@
 
         function showPanelVersion(status) {
             const version = status && status.version ? status.version : '';
-            const label = version ? 'v' + version : '';
+            const build = PANEL_BUILD && PANEL_BUILD.indexOf('__') !== 0 ? PANEL_BUILD : '';
+            const label = (version ? 'v' + version : '') + (build ? ' · ' + build : '');
             const badge = document.getElementById('panel-version');
             const settings = document.getElementById('settings-version');
             if (badge) badge.textContent = label;
