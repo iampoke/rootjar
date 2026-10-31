@@ -508,6 +508,33 @@
         .upload-line { margin-top:10px; font-size:13px; color:var(--text-muted); word-break:break-all; }
         .upload-percent { font-size:22px; font-weight:700; color:var(--text-main); margin:14px 0 10px; }
         .upload-errors { margin-top:12px; color:var(--danger); font-size:12px; white-space:pre-wrap; display:none; max-height:140px; overflow:auto; }
+        /* Consistent dropdown look everywhere in the panel */
+        #app select, .modal-overlay select {
+            appearance:none; -webkit-appearance:none;
+            background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a93a6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+            background-repeat:no-repeat; background-position:right 10px center; background-size:14px 14px;
+            padding-right:32px; cursor:pointer; transition:border-color .12s, box-shadow .12s;
+        }
+        #app select:hover, .modal-overlay select:hover { border-color:var(--accent); }
+        #app select:focus, .modal-overlay select:focus { border-color:var(--accent); box-shadow:0 0 0 3px hsla(215,80%,60%,0.15); outline:none; }
+        #app option, .modal-overlay option { background:var(--bg-panel); color:var(--text-main); }
+        /* File type icons */
+        .fm-label { display:inline-flex; align-items:center; gap:9px; cursor:pointer; }
+        .fm-icon { width:17px; height:17px; flex:none; }
+        .ic-folder { color:#f2b544; } .ic-archive { color:#e0834a; } .ic-jar { color:#7fb3ff; }
+        .ic-config { color:#63d3a5; } .ic-code { color:#8ad06a; } .ic-text { color:#98a2b3; }
+        .ic-image { color:#c084fc; } .ic-data { color:#5eead4; } .ic-file { color:#98a2b3; }
+        /* Activity cards */
+        .activity-list { display:flex; flex-direction:column; gap:10px; }
+        .activity-card { display:flex; align-items:flex-start; gap:12px; padding:14px 16px; background:var(--bg-panel); border:1px solid var(--border); border-radius:10px; }
+        .activity-card:hover { border-color:var(--accent); }
+        .activity-avatar { width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; flex:none; text-transform:uppercase; }
+        .activity-body { flex:1; min-width:0; }
+        .activity-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+        .activity-user { font-weight:600; font-size:13px; color:var(--text-main); }
+        .activity-key { font-family:var(--font-mono); font-size:11px; color:var(--text-muted); background:var(--bg-input); border:1px solid var(--border); border-radius:6px; padding:2px 7px; }
+        .activity-detail { margin-top:5px; font-size:13px; color:var(--text-muted); word-break:break-word; }
+        .activity-time { font-size:12px; color:var(--text-muted); white-space:nowrap; padding-top:2px; }
         .fm-table-wrap { flex:1; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:10px; }
         .settings-menu { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; max-width:980px; }
         .startup-preview { margin:0; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--bg-body); color:var(--text-main); font-family:var(--font-mono); font-size:12px; white-space:pre-wrap; word-break:break-all; }
@@ -689,7 +716,7 @@
                 <button class="btn" onclick="saveTasks()">Save Schedules</button></section>
                 <section id="settings-audit" class="settings-section"><h2>Audit Log</h2>
                 <div class="fm-toolbar"><input id="audit-search" placeholder="Search user, action, or details" onkeydown="if(event.key==='Enter')loadAuditLog()"><button class="btn" onclick="loadAuditLog()">Search</button></div>
-                <div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody id="audit-tbody"></tbody></table></div></section>
+                <div id="audit-list" class="activity-list"></div></section>
             </div>
         </div>
 
@@ -782,8 +809,8 @@
                                       </div>
                                       <div class="form-group">
                                           <label>Port</label>
-                                          <input type="number" id="wizard-port" placeholder="25565" value="25565" list="available-ports">
-                                           <datalist id="available-ports"></datalist>
+                                          <select id="wizard-port" class="wizard-select" onchange="portChoiceChanged('wizard-port')" aria-label="Port"></select>
+                                           <input type="number" id="wizard-port-custom" style="display:none;margin-top:8px;width:100%;padding:10px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text-main);font-size:13px" placeholder="25565" min="1" max="65535">
                                       </div>
                                       <div class="form-group">
                                           <label>RAM (MB)</label>
@@ -835,7 +862,7 @@
                               <div class="form-grid">
                                   <div class="form-group"><label>Server Name</label><input id="edit-server-name" type="text"></div>
                                   <div class="form-group"><label>Server Type</label><input id="edit-server-type" type="text" placeholder="manual"></div>
-                                  <div class="form-group"><label>Port</label><input id="edit-server-port" type="number" min="0" max="65535"></div>
+                                  <div class="form-group"><label>Port</label><select id="edit-server-port" onchange="portChoiceChanged('edit-server-port')"></select><input id="edit-server-port-custom" type="number" min="0" max="65535" style="display:none;margin-top:8px" placeholder="25565"></div>
                                   <div class="form-group"><label>Custom IP or Domain</label><input id="edit-server-host" type="text" placeholder="stellarfall.net" maxlength="253" autocomplete="off" spellcheck="false"></div>
                                   <div class="form-group"><label>Auto Shutdown</label><div style="display:flex;gap:8px"><input id="edit-server-idle-amount" type="number" min="0" value="0" style="flex:1"><select id="edit-server-idle-unit"><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option></select></div><span class="version-note">Stops the server after this long with no players. Zero disables it.</span></div>
                                   <div class="form-group"><label>RAM (MB)</label><input id="edit-server-ram" type="number" min="128"></div>
@@ -1015,7 +1042,7 @@
                     
                     <!-- NEW SERVER USERS TAB CONTENT -->
                     <div id="tab-players" class="tab-container"><div class="fm-page"><div class="fm-toolbar"><h2>Players</h2><span id="player-count"></span><div class="fm-spacer"></div><button class="fm-btn" onclick="loadPlayers()">Refresh</button></div><p class="version-note">Select a player, then use Add. Kick and ban commands still require the server to be running.</p><div id="player-choices" class="player-choices"></div><div class="fm-toolbar"><input id="player-name" placeholder="Player name"><button class="fm-btn" onclick="addSelectedPlayer('ops')">Add Operator</button><button class="fm-btn" onclick="addSelectedPlayer('whitelist')">Add Whitelist</button><button class="fm-btn" onclick="playerAction('kick')">Kick</button><button class="fm-btn" onclick="playerAction('ban')">Ban</button><button class="fm-btn" onclick="playerAction('pardon')">Pardon</button></div><div class="access-columns"><section><h3>Operators</h3><div id="ops-list" class="player-list"></div></section><section><h3>Whitelist</h3><div id="whitelist-list" class="player-list"></div></section></div></div></div>
-                    <div id="tab-activity" class="tab-container"><div class="fm-page"><h2>Activity</h2><div class="fm-table-wrap"><table class="fm-table"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody id="activity-tbody"></tbody></table></div></div></div>
+                    <div id="tab-activity" class="tab-container"><div class="fm-page"><div class="fm-toolbar"><h2>Activity</h2><div class="fm-spacer"></div><button class="fm-btn" onclick="loadActivity()">Refresh</button></div><div id="activity-list" class="activity-list"></div></div></div>
                     <div id="tab-users" class="tab-container">
                         <div class="fm-container" style="padding:20px;">
                             <h3>Users with access to this server</h3>
@@ -1861,8 +1888,8 @@
             currentServersList = data.servers;
             allowPanelIpView = data.allowPanelIpView !== false;
             currentPublicIp = data.publicIp || "127.0.0.1";
-            const ports = document.getElementById('available-ports');
-            if (ports) ports.innerHTML = (data.availablePorts || []).map(port => `<option value="${port}"></option>`).join('');
+            const wizardOpen = document.getElementById('create-wizard-overlay');
+            if (wizardOpen && wizardOpen.style.display === 'flex') fillPortOptions('wizard-port', portValue('wizard-port'), wizardGameType === 'discord_bot');
             const setupOverlay = document.getElementById('setup-overlay');
             if (isAdmin && data.setupComplete === false && localStorage.getItem('rootjar-setup-dismissed') !== 'true') {
                 // Preload once when the overlay first appears; later polls must not clobber what the user typed.
@@ -2165,9 +2192,41 @@
             });
         }
 
+        function activityCards(entries) {
+            if (!entries || !entries.length) return '<div class="version-note">No activity yet.</div>';
+            return entries.map(entry => {
+                const user = entry.user || 'system';
+                const initial = user.trim().charAt(0) || '?';
+                return `<div class="activity-card">
+                    <div class="activity-avatar">${escapeHtml(initial)}</div>
+                    <div class="activity-body">
+                        <div class="activity-head"><span class="activity-user">${escapeHtml(user)}</span><span class="activity-key">${escapeHtml(entry.action || '')}</span></div>
+                        <div class="activity-detail">${escapeHtml(entry.details || '')}</div>
+                    </div>
+                    <div class="activity-time" title="${escapeHtml(entry.time || '')}">${timeAgo(entry.time)}</div>
+                </div>`;
+            }).join('');
+        }
+        function timeAgo(iso) {
+            if (!iso) return '';
+            const then = new Date(iso).getTime();
+            if (isNaN(then)) return '';
+            const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+            if (seconds < 45) return 'just now';
+            const minutes = Math.round(seconds / 60);
+            if (minutes < 60) return minutes + ' minute' + (minutes === 1 ? '' : 's') + ' ago';
+            const hours = Math.round(minutes / 60);
+            if (hours < 24) return hours + ' hour' + (hours === 1 ? '' : 's') + ' ago';
+            const days = Math.round(hours / 24);
+            if (days < 30) return days + ' day' + (days === 1 ? '' : 's') + ' ago';
+            const months = Math.round(days / 30);
+            if (months < 12) return months + ' month' + (months === 1 ? '' : 's') + ' ago';
+            const years = Math.round(months / 12);
+            return years + ' year' + (years === 1 ? '' : 's') + ' ago';
+        }
         function activityRows(entries) { return entries.map(entry => `<tr><td>${escapeHtml(entry.time || '')}</td><td>${escapeHtml(entry.user || '')}</td><td>${escapeHtml(entry.action || '')}</td><td>${escapeHtml(entry.details || '')}</td></tr>`).join('') || '<tr><td colspan="4">No activity yet.</td></tr>'; }
-        async function loadActivity() { if (!currentServer) return; const response = await fetch('/api/activity?server=' + encodeURIComponent(currentServer.id)); if (!response.ok) return; document.getElementById('activity-tbody').innerHTML = activityRows(await response.json()); }
-        async function loadAuditLog() { const query = document.getElementById('audit-search') ? document.getElementById('audit-search').value : ''; const response = await fetch('/api/activity?q=' + encodeURIComponent(query || '')); if (!response.ok) return; document.getElementById('audit-tbody').innerHTML = activityRows(await response.json()); }
+        async function loadActivity() { if (!currentServer) return; const response = await fetch('/api/activity?server=' + encodeURIComponent(currentServer.id)); if (!response.ok) return; document.getElementById('activity-list').innerHTML = activityCards(await response.json()); }
+        async function loadAuditLog() { const query = document.getElementById('audit-search') ? document.getElementById('audit-search').value : ''; const response = await fetch('/api/activity?q=' + encodeURIComponent(query || '')); if (!response.ok) return; document.getElementById('audit-list').innerHTML = activityCards(await response.json()); }
         async function loadServerUsers() {
             if (!currentServer) return;
             await loadGlobalUsers(); // Refresh the master list
@@ -2517,11 +2576,7 @@
             const versionProgress = document.querySelector('.progress-step[data-step="3"]');
             if (versionProgress) versionProgress.style.display = minecraft ? '' : 'none';
             document.getElementById('wizard-jar-group').style.display = wizardGameType === 'website' ? 'none' : '';
-            const portInput = document.getElementById('wizard-port');
-            portInput.required = wizardGameType !== 'discord_bot';
-            portInput.placeholder = wizardGameType === 'discord_bot' ? 'Optional for a bot' : '25565';
-            if (wizardGameType === 'discord_bot' && portInput.value === '25565') portInput.value = '';
-            if (wizardGameType !== 'discord_bot' && !portInput.value) portInput.value = '25565';
+            fillPortOptions('wizard-port', wizardGameType === 'discord_bot' ? portValue('wizard-port') : (portValue('wizard-port') || 25565), wizardGameType === 'discord_bot');
 
             document.getElementById('wizard-step-' + wizardStep).classList.add('active');
             const activeProgress = document.querySelector('.progress-step[data-step="' + wizardStep + '"]');
@@ -2551,7 +2606,8 @@
             const typeName = wizardGameType === 'minecraft' ? 'Minecraft' : (wizardGameType === 'discord_bot' ? 'Discord Bot' : (wizardGameType === 'website' ? 'Website' : 'Custom'));
             const name = serverId(document.getElementById('wizard-name').value) || 'untitled';
             const bot = wizardGameType === 'discord_bot';
-            const port = bot && !document.getElementById('wizard-port').value ? 'Not required' : (document.getElementById('wizard-port').value || '25565');
+            const chosenPort = portValue('wizard-port');
+            const port = bot && !chosenPort ? 'Not required' : (chosenPort || '25565');
             const ram = document.getElementById('wizard-ram').value || '1024';
             const jar = document.getElementById('wizard-jar').value || 'server.jar';
             const rows = [
@@ -2592,7 +2648,7 @@
 
         async function wizardCreateServer() {
             const name = serverId(document.getElementById('wizard-name').value);
-            const port = document.getElementById('wizard-port').value;
+            const port = portValue('wizard-port');
             const ram = document.getElementById('wizard-ram').value;
             const jar = document.getElementById('wizard-jar').value;
 
@@ -2697,6 +2753,64 @@
             root.innerHTML = items.join('<span>/</span>');
         }
 
+        const FILE_ICONS = {
+            folder: ['ic-folder', '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'],
+            archive: ['ic-archive', '<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/>'],
+            jar: ['ic-jar', '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>'],
+            config: ['ic-config', '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>'],
+            code: ['ic-code', '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'],
+            text: ['ic-text', '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>'],
+            image: ['ic-image', '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'],
+            data: ['ic-data', '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>'],
+            file: ['ic-file', '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>']
+        };
+        const FILE_ICON_KINDS = {
+            zip: 'archive', tar: 'archive', gz: 'archive', tgz: 'archive', rar: 'archive', '7z': 'archive', mrpack: 'archive', mcworld: 'archive',
+            jar: 'jar', war: 'jar',
+            yml: 'config', yaml: 'config', json: 'config', properties: 'config', toml: 'config', conf: 'config', ini: 'config', cfg: 'config', xml: 'config',
+            js: 'code', ts: 'code', py: 'code', sh: 'code', bat: 'code', ps1: 'code', java: 'code', sk: 'code', html: 'code', css: 'code', php: 'code', rb: 'code', go: 'code', lua: 'code',
+            txt: 'text', log: 'text', md: 'text', csv: 'text',
+            png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', ico: 'image', svg: 'image',
+            dat: 'data', dat_old: 'data', nbt: 'data', db: 'data', sqlite: 'data', mca: 'data'
+        };
+        function fileIcon(name, isDir) {
+            const lower = String(name || '').toLowerCase();
+            const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : '';
+            const kind = isDir ? 'folder' : (FILE_ICON_KINDS[ext] || 'file');
+            const icon = FILE_ICONS[kind] || FILE_ICONS.file;
+            return `<svg class="fm-icon ${icon[0]}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon[1]}</svg>`;
+        }
+        function fillPortOptions(selectId, selected, allowNone) {
+            const select = document.getElementById(selectId);
+            if (!select) return;
+            const ports = ((window.lastStatus && window.lastStatus.availablePorts) || []).map(Number);
+            const current = selected === '' || selected == null ? '' : String(selected);
+            if (current && current !== '__custom' && !ports.includes(Number(current))) ports.unshift(Number(current));
+            const options = (allowNone ? '<option value="">No port</option>' : '')
+                + ports.map(port => `<option value="${port}">${port}</option>`).join('')
+                + '<option value="__custom">Custom port…</option>';
+            const keepCustom = select.value === '__custom' ? (document.getElementById(selectId + '-custom') || {}).value : '';
+            select.innerHTML = options;
+            if (current === '__custom') select.value = '__custom';
+            else if (current && Array.from(select.options).some(o => o.value === current)) select.value = current;
+            else if (allowNone) select.value = '';
+            else select.value = ports.length ? String(ports[0]) : '__custom';
+            if (select.value === '__custom' && keepCustom) document.getElementById(selectId + '-custom').value = keepCustom;
+            portChoiceChanged(selectId);
+        }
+        function portChoiceChanged(selectId) {
+            const select = document.getElementById(selectId);
+            const custom = document.getElementById(selectId + '-custom');
+            if (!select || !custom) return;
+            custom.style.display = select.value === '__custom' ? '' : 'none';
+        }
+        function portValue(selectId) {
+            const select = document.getElementById(selectId);
+            if (!select) return '';
+            if (select.value !== '__custom') return select.value;
+            const custom = document.getElementById(selectId + '-custom');
+            return custom ? custom.value.trim() : '';
+        }
         function renderFileRows(files, searchResults) {
             const body = document.getElementById('fm-tbody');
             body.innerHTML = '';
@@ -2710,7 +2824,7 @@
                 row.draggable = !searchResults;
                 row.dataset.path = relative;
                 row.dataset.dir = file.dir ? '1' : '0';
-                row.innerHTML = `<td class="fm-check"><input class="fm-row-check" type="checkbox" data-path="${escapeHtml(relative)}" aria-label="Select ${escapeHtml(file.name)}"></td><td class="fm-name">${file.dir ? '📁' : '📄'} ${escapeHtml(file.name)}</td><td>${file.dir ? '-' : fmtBytes(file.size || 0)}</td><td>${file.modified ? new Date(file.modified).toLocaleString() : ''}</td><td><button class="fm-btn" onclick="downloadFile('${escapeHtml(relative)}', ${file.dir})">Download</button></td>`;
+                row.innerHTML = `<td class="fm-check"><input class="fm-row-check" type="checkbox" data-path="${escapeHtml(relative)}" aria-label="Select ${escapeHtml(file.name)}"></td><td class="fm-name"><span class="fm-label">${fileIcon(file.name, file.dir)}<span>${escapeHtml(file.name)}</span></span></td><td>${file.dir ? '-' : fmtBytes(file.size || 0)}</td><td>${file.modified ? new Date(file.modified).toLocaleString() : ''}</td><td><button class="fm-btn" onclick="downloadFile('${escapeHtml(relative)}', ${file.dir})">Download</button></td>`;
                 const checkbox = row.querySelector('.fm-row-check');
                 checkbox.onclick = event => event.stopPropagation();
                 checkbox.onchange = event => toggleFileSelection(relative, event.target.checked);
@@ -4072,7 +4186,7 @@
             editingServerId = id;
             document.getElementById('edit-server-name').value = server.id;
             document.getElementById('edit-server-type').value = server.type || 'custom';
-            document.getElementById('edit-server-port').value = server.port;
+            fillPortOptions('edit-server-port', server.port, server.type === 'discord_bot');
             document.getElementById('edit-server-host').value = server.displayHost || '';
             const idle = idleEditorValue(server.idleShutdownSeconds || 0);
             document.getElementById('edit-server-idle-amount').value = idle.amount;
@@ -4088,7 +4202,7 @@
         }
         async function saveEditServer() {
             const name = serverId(document.getElementById('edit-server-name').value);
-            const port = Number(document.getElementById('edit-server-port').value);
+            const port = Number(portValue('edit-server-port'));
             const ram = Number(document.getElementById('edit-server-ram').value);
             const jar = document.getElementById('edit-server-jar').value.trim();
             const type = document.getElementById('edit-server-type').value.trim().toLowerCase();
