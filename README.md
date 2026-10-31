@@ -223,6 +223,9 @@ Everything below ships in the 1.0.2 build. It includes the work that was previou
 - Panel-level events (sign-in, failed sign-in, settings, users, schedules) remain in the Settings audit log, which now uses the same cards.
 - Before a Minecraft server starts, Rootjar also aligns `query.port` with the assigned port and gives RCON its own free port, so copied values never collide.
 - Before starting Paper or a fork, Rootjar recreates `world/datapacks/bukkit/pack.mcmeta` if a copied or restored world is missing it, which caused `Could not initialize Bukkit datapack`.
+- The first-boot Panel Setup card lays its fields out properly instead of overlapping.
+- Server names read with spaces everywhere in the panel, including the console header, the file breadcrumb and Edit Server. The stored id, folder name and console commands keep their underscores.
+- Refreshing the player count no longer prints `There are 0 of a max of 20 players online` to the console. A `list` command you type yourself is still shown.
 
 ## Building
 
