@@ -30,10 +30,24 @@ public final class Supervisor implements ChildProcess.ExitListener {
     private final CountDownLatch shutdownSignal = new CountDownLatch(1);
     private final CountDownLatch shutdownDone = new CountDownLatch(1);
 
+    /** Panel port, reserved so a child's query or RCON port never takes it. */
+    private final int panelPort;
+
     public Supervisor(RootConfig config) {
+        this.panelPort = config.server().port();
         for (ChildConfig c : config.children()) {
             addChildInternal(c);
         }
+    }
+
+    /** Ports already taken by the panel and by the other children; used when assigning query and RCON ports. */
+    public synchronized java.util.Set<Integer> busyPorts(String exceptId) {
+        java.util.Set<Integer> used = new java.util.HashSet<>();
+        if (panelPort > 0) used.add(panelPort);
+        for (ChildProcess c : children.values()) {
+            if (!c.id().equals(exceptId) && c.config().port() > 0) used.add(c.config().port());
+        }
+        return used;
     }
 
     public synchronized void reorder(List<String> ids) {

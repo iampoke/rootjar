@@ -73,8 +73,28 @@ public final class ChecksMain {
         backups();
         permissionRepair();
         bukkitDatapackRepair();
+        portAlignment();
         System.out.println("unit checks: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
+    }
+
+    private static void portAlignment() {
+        String props = "server-port=25565\nquery.port=25566\nrcon.port=25575\nenable-rcon=true\nmotd=Hi\n";
+        String updated = ChildProcess.setProperty(props, "server-port", "30001");
+        updated = ChildProcess.setPropertyWhenPresent(updated, "query.port", "30001");
+        updated = ChildProcess.setProperty(updated, "rcon.port", "30002");
+        check(updated.contains("server-port=30001"), "port alignment rewrites server-port");
+        check(updated.contains("query.port=30001"), "port alignment rewrites query.port");
+        check(updated.contains("rcon.port=30002"), "port alignment rewrites rcon.port");
+        check(updated.contains("motd=Hi"), "port alignment keeps other settings");
+        check(ChildProcess.hasTrueProperty(updated, "enable-rcon"), "port alignment detects enabled rcon");
+        check(!ChildProcess.hasTrueProperty(ChildProcess.setProperty(updated, "enable-rcon", "false"), "enable-rcon"), "port alignment detects disabled rcon");
+
+        String noQuery = ChildProcess.setPropertyWhenPresent("server-port=25565\n", "query.port", "30001");
+        check(!noQuery.contains("query.port"), "port alignment leaves an absent query.port absent");
+        String appended = ChildProcess.setProperty("server-port=25565\n", "server-port", "30001");
+        check(appended.contains("server-port=30001") && !appended.contains("server-port=25565"), "port alignment replaces instead of duplicating");
+        check(ChildProcess.setProperty("motd=Hi", "server-port", "30001").endsWith("server-port=30001\n"), "port alignment appends a missing key");
     }
 
     private static void bukkitDatapackRepair() throws Exception {

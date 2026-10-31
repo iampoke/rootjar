@@ -346,16 +346,48 @@ public final class ChildProcess {
         if (!Files.isRegularFile(file)) return;
         try {
             String text = Files.readString(file);
-            String updated = text.replaceAll("(?m)^server-port=.*$", "server-port=" + cfg.port());
-            if (updated.equals(text)) {
-                if (!text.contains("server-port=")) updated = text.stripTrailing() + "\nserver-port=" + cfg.port() + "\n";
-                else return;
-            }
+            String updated = setProperty(text, "server-port", String.valueOf(cfg.port()));
+            boolean rcon = hasTrueProperty(updated, "enable-rcon");
+            updated = setPropertyWhenPresent(updated, "query.port", String.valueOf(cfg.port()));
+            int rconPort = rcon ? freeTcpPort(cfg.port() + 1) : -1;
+            if (rconPort > 0) updated = setProperty(updated, "rcon.port", String.valueOf(rconPort));
+            else if (!rcon) updated = setPropertyWhenPresent(updated, "rcon.port", String.valueOf(cfg.port()));
+            if (updated.equals(text)) return;
             Files.writeString(file, updated);
-            ConsoleOutput.root(id() + " server-port set to " + cfg.port());
+            ConsoleOutput.root(id() + " ports set: server-port " + cfg.port()
+                    + (rconPort > 0 ? ", rcon.port " + rconPort : "") + ", query.port " + cfg.port());
         } catch (IOException e) {
             ConsoleOutput.root(id() + " could not update server-port: " + e.getMessage());
         }
+    }
+
+    /** Rewrites one properties key, appending it when absent. */
+    public static String setProperty(String text, String key, String value) {
+        java.util.regex.Pattern line = java.util.regex.Pattern.compile("(?m)^" + java.util.regex.Pattern.quote(key) + "=.*$");
+        if (line.matcher(text).find()) return line.matcher(text).replaceFirst(java.util.regex.Matcher.quoteReplacement(key + "=" + value));
+        return text.stripTrailing() + "\n" + key + "=" + value + "\n";
+    }
+
+    /** Rewrites one properties key only when it already exists. */
+    public static String setPropertyWhenPresent(String text, String key, String value) {
+        java.util.regex.Pattern line = java.util.regex.Pattern.compile("(?m)^" + java.util.regex.Pattern.quote(key) + "=.*$");
+        if (!line.matcher(text).find()) return text;
+        return line.matcher(text).replaceFirst(java.util.regex.Matcher.quoteReplacement(key + "=" + value));
+    }
+
+    public static boolean hasTrueProperty(String text, String key) {
+        java.util.regex.Matcher match = java.util.regex.Pattern.compile("(?m)^" + java.util.regex.Pattern.quote(key) + "=(?i:true)\\s*$").matcher(text);
+        return match.find();
+    }
+
+    /** First free TCP port at or above {@code from}, skipping the panel and the other children. */
+    private int freeTcpPort(int from) {
+        java.util.Set<Integer> busy = listener instanceof Supervisor s ? s.busyPorts(id()) : java.util.Set.of();
+        for (int port = Math.max(1, from); port <= 65535 && port < Math.max(1, from) + 1000; port++) {
+            if (port == cfg.port() || busy.contains(port)) continue;
+            return port;
+        }
+        return -1;
     }
 
     /**
