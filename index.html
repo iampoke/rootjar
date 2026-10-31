@@ -1042,7 +1042,7 @@
                     
                     <!-- NEW SERVER USERS TAB CONTENT -->
                     <div id="tab-players" class="tab-container"><div class="fm-page"><div class="fm-toolbar"><h2>Players</h2><span id="player-count"></span><div class="fm-spacer"></div><button class="fm-btn" onclick="loadPlayers()">Refresh</button></div><p class="version-note">Select a player, then use Add. Kick and ban commands still require the server to be running.</p><div id="player-choices" class="player-choices"></div><div class="fm-toolbar"><input id="player-name" placeholder="Player name"><button class="fm-btn" onclick="addSelectedPlayer('ops')">Add Operator</button><button class="fm-btn" onclick="addSelectedPlayer('whitelist')">Add Whitelist</button><button class="fm-btn" onclick="playerAction('kick')">Kick</button><button class="fm-btn" onclick="playerAction('ban')">Ban</button><button class="fm-btn" onclick="playerAction('pardon')">Pardon</button></div><div class="access-columns"><section><h3>Operators</h3><div id="ops-list" class="player-list"></div></section><section><h3>Whitelist</h3><div id="whitelist-list" class="player-list"></div></section></div></div></div>
-                    <div id="tab-activity" class="tab-container"><div class="fm-page"><div class="fm-toolbar"><h2>Activity</h2><div class="fm-spacer"></div><button class="fm-btn" onclick="loadActivity()">Refresh</button></div><div id="activity-list" class="activity-list"></div></div></div>
+                    <div id="tab-activity" class="tab-container"><div class="fm-page"><div class="fm-toolbar"><h2>Activity</h2><input id="activity-search" class="config-search" placeholder="Search activity" onkeydown="if(event.key==='Enter')loadActivity()"><div class="fm-spacer"></div><button class="fm-btn" onclick="loadActivity()">Search</button></div><div id="activity-list" class="activity-list"></div></div></div>
                     <div id="tab-users" class="tab-container">
                         <div class="fm-container" style="padding:20px;">
                             <h3>Users with access to this server</h3>
@@ -2197,16 +2197,89 @@
             return entries.map(entry => {
                 const user = entry.user || 'system';
                 const initial = user.trim().charAt(0) || '?';
-                const detail = String(entry.details || '').replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '•••');
+                const action = String(entry.action || '');
+                const details = String(entry.details || '').replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g, '•••');
                 return `<div class="activity-card">
                     <div class="activity-avatar">${escapeHtml(initial)}</div>
                     <div class="activity-body">
-                        <div class="activity-head"><span class="activity-user">${escapeHtml(user)}</span><span class="activity-key">${escapeHtml(entry.action || '')}</span></div>
-                        <div class="activity-detail">${escapeHtml(detail)}</div>
+                        <div class="activity-head"><span class="activity-user">${escapeHtml(user)}</span><span class="activity-key">${escapeHtml(activityLabel(action))}</span></div>
+                        <div class="activity-detail">${escapeHtml(activityText(action, details))}</div>
                     </div>
                     <div class="activity-time" title="${escapeHtml(entry.time || '')}">${timeAgo(entry.time)}</div>
                 </div>`;
             }).join('');
+        }
+        const ACTIVITY_LABELS = {
+            'file.read': 'server:file.read', 'file.list': 'server:file.opened-folder', 'file.write': 'server:sftp.write',
+            'file.upload': 'server:sftp.write', 'file.download': 'server:sftp.download', 'file.download-zip': 'server:sftp.download-zip',
+            'file.delete': 'server:sftp.delete', 'file.mkdir': 'server:sftp.create-directory', 'file.rename': 'server:sftp.rename',
+            'file.move': 'server:sftp.move', 'file.copy': 'server:sftp.copy', 'file.extract': 'server:file.extract',
+            'file.zip': 'server:file.archive', 'file.trash': 'server:file.trash', 'file.restore': 'server:file.restore',
+            'file.empty-trash': 'server:file.empty-trash', 'file.import': 'server:file.import',
+            'console.command': 'server:console.command',
+            'server.start': 'server:power.start', 'server.stop': 'server:power.stop', 'server.restart': 'server:power.restart',
+            'server.kill': 'server:power.kill', 'server.safe-mode': 'server:safe-mode',
+            'config.read': 'server:config.read', 'config.write': 'server:config.write', 'config.save': 'server:config.save',
+            'startup.save': 'server:startup.update', 'java.change': 'server:startup.java',
+            'version.change': 'server:startup.version', 'version.install': 'server:startup.version',
+            'backup.create': 'server:backup.create', 'backup.restore': 'server:backup.restore', 'backup.delete': 'server:backup.delete',
+            'backup.download': 'server:backup.download', 'backup.upload': 'server:backup.upload', 'backup.schedule': 'server:backup.schedule',
+            'modpack.install': 'server:modpack.install', 'crash.disable': 'server:crash.disable', 'access.save': 'server:access.update',
+            'server.create': 'server:create', 'server.edit': 'server:settings.update', 'server.delete': 'server:delete',
+            'server.reorder': 'server:reorder', 'auth.login': 'auth:login', 'auth.logout': 'auth:logout', 'auth.fail': 'auth:fail',
+            'settings.changed': 'panel:settings.update', 'tasks.changed': 'panel:schedule.update', 'password.change': 'panel:password.update',
+            'users.create': 'panel:user.create', 'users.assign': 'panel:user.assign'
+        };
+        function activityLabel(action) {
+            const key = String(action || '');
+            if (ACTIVITY_LABELS[key]) return ACTIVITY_LABELS[key];
+            if (key.indexOf('plugin.') === 0) return 'server:' + key.replace('.', ':');
+            if (key.indexOf('mod.') === 0) return 'server:' + key.replace('.', ':');
+            if (key.indexOf('player.') === 0) return 'server:' + key.replace('.', ':');
+            return key ? 'server:' + key.replace(/\./g, ':') : 'server:event';
+        }
+        function activityText(action, details) {
+            const key = String(action || '');
+            const target = details ? '/' + String(details).replace(/^\/+/, '') : '';
+            const words = {
+                'file.read': 'Opened ' + target, 'file.list': 'Opened the folder ' + target,
+                'file.write': 'Modified the contents of ' + target, 'file.upload': 'Uploaded ' + target,
+                'file.download': 'Downloaded ' + target, 'file.download-zip': 'Downloaded ' + target + ' as a zip',
+                'file.delete': 'Deleted ' + target, 'file.mkdir': 'Created the folder ' + target,
+                'file.rename': 'Renamed ' + details, 'file.move': 'Moved ' + details, 'file.copy': 'Copied ' + details,
+                'file.extract': 'Extracted ' + details, 'file.zip': 'Archived ' + target,
+                'file.trash': 'Moved ' + target + ' to the trash', 'file.restore': 'Restored ' + target + ' from the trash',
+                'file.empty-trash': 'Emptied the trash', 'file.import': 'Imported an archive into ' + target,
+                'console.command': 'Executed ' + details + ' on the server',
+                'server.start': 'Started the server', 'server.stop': 'Stopped the server',
+                'server.restart': 'Restarted the server', 'server.kill': 'Force stopped the server',
+                'server.safe-mode': 'Safe mode moved an addon aside: ' + details,
+                'config.read': 'Opened the config ' + target, 'config.write': 'Saved the config ' + target,
+                'config.save': 'Saved the config ' + target,
+                'startup.save': 'Changed the startup settings - ' + details, 'java.change': 'Changed the Java runtime - ' + details,
+                'version.change': 'Changed the server version to ' + details, 'version.install': 'Installed ' + details,
+                'backup.create': 'Created the backup ' + details, 'backup.restore': 'Restored the backup ' + details,
+                'backup.delete': 'Deleted the backup ' + details, 'backup.download': 'Downloaded the backup ' + details,
+                'backup.upload': 'Uploaded the backup ' + details, 'backup.schedule': 'Changed the daily backup time to ' + details,
+                'modpack.install': 'Installed a modpack - ' + details, 'crash.disable': 'Disabled after a crash: ' + details,
+                'access.save': 'Updated operators and the whitelist',
+                'server.create': 'Created the server ' + details, 'server.edit': 'Changed server settings - ' + details,
+                'server.delete': 'Deleted the server ' + details, 'server.reorder': 'Reordered the dashboard: ' + details,
+                'auth.login': 'Signed in to the panel', 'auth.logout': 'Signed out of the panel',
+                'auth.fail': 'Failed sign-in attempt', 'settings.changed': 'Changed the panel settings',
+                'tasks.changed': 'Changed the schedules', 'password.change': 'Changed the admin password',
+                'users.create': 'Created the user ' + details, 'users.assign': 'Changed access: ' + details
+            };
+            if (words[key]) return words[key];
+            if (key.indexOf('plugin.') === 0 || key.indexOf('mod.') === 0) {
+                const kind = key.indexOf('plugin.') === 0 ? 'plugin' : 'mod';
+                const verb = key.split('.').pop();
+                const verbs = { install: 'Installed the ' + kind + ' ', delete: 'Deleted the ' + kind + ' ', update: 'Updated the ' + kind + ' ',
+                    toggle: 'Toggled the ' + kind + ' ', backup: 'Backed up the ' + kind + ' ' };
+                return (verbs[verb] || (verb + ' the ' + kind + ' ')) + details;
+            }
+            if (key.indexOf('player.') === 0) return 'Player action ' + key.split('.').pop() + ': ' + details;
+            return details || '';
         }
         function timeAgo(iso) {
             if (!iso) return '';
@@ -2226,7 +2299,14 @@
             return years + ' year' + (years === 1 ? '' : 's') + ' ago';
         }
         function activityRows(entries) { return entries.map(entry => `<tr><td>${escapeHtml(entry.time || '')}</td><td>${escapeHtml(entry.user || '')}</td><td>${escapeHtml(entry.action || '')}</td><td>${escapeHtml(entry.details || '')}</td></tr>`).join('') || '<tr><td colspan="4">No activity yet.</td></tr>'; }
-        async function loadActivity() { if (!currentServer) return; const response = await fetch('/api/activity?server=' + encodeURIComponent(currentServer.id)); if (!response.ok) return; document.getElementById('activity-list').innerHTML = activityCards(await response.json()); }
+        async function loadActivity() {
+            if (!currentServer) return;
+            const field = document.getElementById('activity-search');
+            const query = field ? field.value.trim() : '';
+            const response = await fetch('/api/activity?server=' + encodeURIComponent(currentServer.id) + '&q=' + encodeURIComponent(query));
+            if (!response.ok) return;
+            document.getElementById('activity-list').innerHTML = activityCards(await response.json());
+        }
         async function loadAuditLog() { const query = document.getElementById('audit-search') ? document.getElementById('audit-search').value : ''; const response = await fetch('/api/activity?q=' + encodeURIComponent(query || '')); if (!response.ok) return; document.getElementById('audit-list').innerHTML = activityCards(await response.json()); }
         async function loadServerUsers() {
             if (!currentServer) return;

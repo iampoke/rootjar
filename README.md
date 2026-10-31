@@ -209,6 +209,8 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - Modpack installation has its own Modpacks section instead of living inside Mods.
 - Replacing `server.jar` now refreshes `index.html` when the copy on disk is older, so the panel stops serving a stale UI after an upgrade. The previous copy is kept as `index.html.old`.
 - File uploads show a progress window with the overall percentage, the current file, a cancel button and any per-file errors, instead of failing silently.
+- The Activity tab now shows everything a server did: power actions, console commands, file and folder opens, reads, writes, uploads, downloads, deletes, renames, moves, copies, archives, extracts, trash and restore, config reads and saves, startup and Java changes, version changes, backups, plugins, mods, modpacks, player actions and access list edits. Events are labelled Pterodactyl-style (`server:sftp.write`) with a readable description and a relative time, and the tab can be searched. IP addresses are masked.
+- Panel-level events (sign-in, failed sign-in, settings, users, schedules) remain in the Settings audit log, which now uses the same cards.
 - Before a Minecraft server starts, Rootjar also aligns `query.port` with the assigned port and gives RCON its own free port, so copied values never collide.
 - Before starting Paper or a fork, Rootjar recreates `world/datapacks/bukkit/pack.mcmeta` if a copied or restored world is missing it, which caused `Could not initialize Bukkit datapack`.
 

@@ -14,6 +14,7 @@ import rootjar.config.StopStrategy;
 import rootjar.console.LogRingBuffer;
 import rootjar.console.StdinRouter;
 import rootjar.console.StdinRouter.Kind;
+import rootjar.security.ActivityLog;
 import rootjar.supervisor.BackoffPolicy;
 import rootjar.supervisor.ChildProcess;
 import rootjar.supervisor.CommandLineBuilder;
@@ -75,6 +76,7 @@ public final class ChecksMain {
         bukkitDatapackRepair();
         portAlignment();
         frontendSync();
+        activityFeed();
         System.out.println("unit checks: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
@@ -96,6 +98,27 @@ public final class ChecksMain {
         String appended = ChildProcess.setProperty("server-port=25565\n", "server-port", "30001");
         check(appended.contains("server-port=30001") && !appended.contains("server-port=25565"), "port alignment replaces instead of duplicating");
         check(ChildProcess.setProperty("motd=Hi", "server-port", "30001").endsWith("server-port=30001\n"), "port alignment appends a missing key");
+    }
+
+    private static void activityFeed() throws Exception {
+        Path base = Files.createTempDirectory("activity-base");
+        Path server = base.resolve("Event");
+        Files.createDirectories(server);
+        ActivityLog.append(server, "ada", "backup.create", "Event-backup-2026.zip");
+        ActivityLog.append(base, "ada", "Event.file.write", "plugins/config.yml");
+        ActivityLog.append(base, "ada", "Event.file.write", "plugins/config.yml");
+        ActivityLog.append(base, "bob", "Other.console.command", "say hi");
+        ActivityLog.append(base, "ada", "auth.login", "10.0.0.5");
+
+        String merged = ActivityLog.recentForServer(server, base.resolve("activity.log"), "Event", 50, "");
+        check(merged.contains("\"action\":\"file.write\""), "server feed strips the server prefix");
+        check(!merged.contains("Event.file.write"), "server feed does not keep the prefixed action");
+        check(!merged.contains("Other.console.command"), "server feed excludes other servers");
+        check(merged.contains("backup.create"), "server feed keeps its own log entries");
+        check(merged.indexOf("file.write") == merged.lastIndexOf("file.write"), "server feed collapses a double-written event");
+        check(merged.contains("10.0.0.5") == false, "panel-only events stay out of the server feed");
+        check(ActivityLog.recentForServer(server, base.resolve("activity.log"), "Event", 50, "config.yml").contains("file.write"), "server feed honours search");
+        check(!ActivityLog.recentForServer(server, base.resolve("activity.log"), "Event", 50, "config.yml").contains("backup.create"), "server feed search filters out other events");
     }
 
     private static void frontendSync() throws Exception {

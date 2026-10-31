@@ -537,6 +537,7 @@ public class WebServer {
                 loginFailures.remove(ip);
             }
             send(ex, 401, "Bad Login");
+            audit(user == null ? "" : user, "auth.fail", "failed panel login");
         }
     }
 
@@ -1522,6 +1523,8 @@ public class WebServer {
         String id = ex.getRequestURI().getPath().substring(ex.getRequestURI().getPath().lastIndexOf('/') + 1);
         if (!canAccessServer(ex, id)) { send(ex, 403, "No permission"); return; }
         String cmd = new String(ex.getRequestBody().readAllBytes());
+        String trimmed = cmd.length() > 200 ? cmd.substring(0, 200) + "…" : cmd;
+        audit(ex, id + ".console.command", "\"" + trimmed.replace("\n", " ").replace("\r", "") + "\"");
         supervisor.child(id).ifPresent(c -> c.sendLine(cmd));
         send(ex, 200, "OK");
     }
@@ -1652,6 +1655,7 @@ public class WebServer {
         try {
             Path dir = safeResolve(child, relPath);
             if (!Files.isDirectory(dir)) { send(ex, 400, "Not a directory"); return; }
+            audit(ex, id + ".file.list", relPath);
             List<String> files = new ArrayList<>();
             try (Stream<Path> stream = Files.list(dir)) {
                 stream.sorted(Comparator.comparing(Path::getFileName)).forEach(p -> {
@@ -1675,6 +1679,7 @@ public class WebServer {
         try {
             Path file = safeResolve(child, relPath);
             if (!Files.isRegularFile(file) || Files.size(file) > 5 * 1024 * 1024) { send(ex, 400, "File too large"); return; }
+            audit(ex, id + ".file.read", relPath);
             send(ex, 200, Files.readString(file));
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
     }
@@ -1799,6 +1804,7 @@ public class WebServer {
             Path file = FileOps.resolve(child.config().dir(), param(ex, "path", ""));
             if (!Files.isRegularFile(file)) { send(ex, 404, "Not found"); return; }
             String name = file.getFileName().toString();
+            audit(ex, child.id() + ".file.download", param(ex, "path", ""));
             ex.getResponseHeaders().set("Content-Type", "application/octet-stream");
             ex.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + name.replace("\"", "") + "\"");
             ex.sendResponseHeaders(200, Files.size(file));
@@ -1811,6 +1817,7 @@ public class WebServer {
         if (child == null) return;
         try {
             Path source = FileOps.resolve(child.config().dir(), param(ex, "path", "."));
+            audit(ex, child.id() + ".file.download-zip", param(ex, "path", "."));
             ex.getResponseHeaders().set("Content-Type", "application/zip");
             ex.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + source.getFileName() + ".zip\"");
             ex.sendResponseHeaders(200, 0);
@@ -1929,6 +1936,7 @@ public class WebServer {
             Files.createDirectories(target.getParent());
             Files.move(trashed, target);
             Files.deleteIfExists(meta);
+            audit(ex, child.id() + ".file.restore", original);
             send(ex, 200, "Restored");
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
     }
@@ -1945,6 +1953,7 @@ public class WebServer {
             }
         }
         send(ex, 200, "Trash emptied");
+        audit(ex, child.id() + ".file.empty-trash", ".trash");
     }
 
     private void handleBackupList(HttpExchange ex) throws IOException {
@@ -1983,6 +1992,7 @@ public class WebServer {
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null) { send(ex, 404, "Not found"); return; }
         Path file = BackupManager.resolve(child.config(), param(ex, "name", ""), param(ex, "folder", ""));
+        audit(ex, child.id() + ".backup.download", file.getFileName().toString());
         ex.getResponseHeaders().set("Content-Type", "application/zip");
         ex.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + file.getFileName() + "\"");
         ex.sendResponseHeaders(200, Files.size(file));
@@ -2331,7 +2341,7 @@ public class WebServer {
         if (!requireServer(ex, server)) return;
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null) { send(ex, 404, "Not found"); return; }
-        send(ex, 200, ActivityLog.recent(child.config().dir(), 100, param(ex, "q", "")));
+        send(ex, 200, ActivityLog.recentForServer(child.config().dir(), config.baseDir().resolve("activity.log"), child.id(), 300, param(ex, "q", "")));
     }
 
     private void handleTasks(HttpExchange ex) throws IOException {
@@ -4364,6 +4374,7 @@ public class WebServer {
         // concurrent version change (which replaces the child) is not reverted by our stale snapshot.
         try {
             supervisor.setJavaPath(serverId, clean);
+            audit(ex, serverId + ".java.change", clean.isBlank() ? "panel default runtime" : clean);
         } catch (RuntimeException e) {
             sendError(ex, 500, "save", "Could not apply the Java path: " + e.getMessage());
             return;
@@ -4398,6 +4409,7 @@ public class WebServer {
         try {
             Path file = safeResolve(child, fileName);
             if (!Files.exists(file)) { send(ex, 200, "{}"); return; }
+            audit(ex, id + ".config.read", fileName);
             Properties props = new Properties();
             try (InputStream is = Files.newInputStream(file)) { props.load(is); }
             StringBuilder json = new StringBuilder("{");
