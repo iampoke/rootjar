@@ -72,8 +72,23 @@ public final class ChecksMain {
         fileOps();
         backups();
         permissionRepair();
+        bukkitDatapackRepair();
         System.out.println("unit checks: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
+    }
+
+    private static void bukkitDatapackRepair() throws Exception {
+        Path root = Files.createTempDirectory("datapack-check");
+        Files.writeString(root.resolve("server.properties"), "level-name=Event_World\nserver-port=25565\n");
+        String created = ChildProcess.ensureBukkitDatapack(root);
+        check(created != null && created.equals("Event_World/datapacks/bukkit/pack.mcmeta"), "datapack repair uses level-name");
+        Path meta = root.resolve("Event_World/datapacks/bukkit/pack.mcmeta");
+        check(Files.isRegularFile(meta), "datapack repair creates pack.mcmeta");
+        check(ChildProcess.ensureBukkitDatapack(root) == null, "datapack repair leaves an existing pack alone");
+
+        Path traversal = Files.createTempDirectory("datapack-traversal");
+        Files.writeString(traversal.resolve("server.properties"), "level-name=../../escape\n");
+        check(ChildProcess.ensureBukkitDatapack(traversal) == null, "datapack repair rejects escaped level-name");
     }
 
     private static void staticWebsite() throws Exception {

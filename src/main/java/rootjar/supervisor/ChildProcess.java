@@ -125,6 +125,7 @@ public final class ChildProcess {
         }
         ConsoleOutput.root("starting " + id() + " in " + cfg.dir() + ": " + String.join(" ", cmd));
         alignServerPort();
+        ensureBukkitDatapack();
         if (PermissionRepair.repairOnce(cfg.dir(), id())) ConsoleOutput.root("repaired copied file permissions in " + id());
         Process p;
         try {
@@ -355,6 +356,41 @@ public final class ChildProcess {
         } catch (IOException e) {
             ConsoleOutput.root(id() + " could not update server-port: " + e.getMessage());
         }
+    }
+
+    /**
+     * Paper builds its built-in datapack at world/datapacks/bukkit/pack.mcmeta on every start.
+     * A copied or partly restored world can miss that folder, and Paper then stops with
+     * "Could not initialize Bukkit datapack". Recreate the empty pack before launch.
+     */
+    private void ensureBukkitDatapack() {
+        if ("website".equals(cfg.type()) || "discord_bot".equals(cfg.type())
+                || java.util.Set.of("velocity", "waterfall", "bungeecord", "travertine", "nanolimbo").contains(cfg.type())) return;
+        try {
+            String created = ensureBukkitDatapack(cfg.dir());
+            if (created != null) ConsoleOutput.root(id() + " recreated " + created);
+        } catch (IOException e) {
+            ConsoleOutput.root(id() + " could not create the bukkit datapack: " + e.getMessage());
+        }
+    }
+
+    /** Creates world/datapacks/bukkit/pack.mcmeta when missing. Returns the path it wrote, or null. */
+    public static String ensureBukkitDatapack(Path serverDir) throws IOException {
+        String levelName = "world";
+        Path props = serverDir.resolve("server.properties");
+        if (Files.isRegularFile(props)) {
+            java.util.regex.Matcher level = java.util.regex.Pattern.compile("(?m)^level-name=(.+)$").matcher(Files.readString(props));
+            if (level.find() && !level.group(1).isBlank()) levelName = level.group(1).trim();
+        }
+        Path base = serverDir.toAbsolutePath().normalize();
+        Path world = base.resolve(levelName).normalize();
+        if (!world.startsWith(base)) return null;
+        Path pack = world.resolve("datapacks/bukkit");
+        Path meta = pack.resolve("pack.mcmeta");
+        if (Files.isRegularFile(meta)) return null;
+        Files.createDirectories(pack);
+        Files.writeString(meta, "{\"pack\":{\"pack_format\":12,\"description\":\"Bukkit data pack\"}}\n");
+        return levelName + "/datapacks/bukkit/pack.mcmeta";
     }
 
     /** Java executable for a child: an explicit configured path, else the panel's own JVM. */
