@@ -184,6 +184,7 @@ public class WebServer {
         route("/api/access/list", this::handleAccessList);
         route("/api/access/save", this::handleAccessSave);
         route("/api/password", this::handlePasswordChange);
+        route("/api/startup/save", this::handleStartupSave);
         route("/api/server/safe-mode", this::handleSafeMode);
         route("/api/files/usage", this::handleFileUsage);
         route("/api/version/check", this::handleVersionCheck);
@@ -718,6 +719,11 @@ public class WebServer {
               .append("\",\"useAikarFlags\":").append(k.useAikarFlags()).append(",\"extraFlags\":\"")
               .append(jsonEscape(String.join(" ", k.extraFlags()))).append("\",\"status\":\"").append(c.state().name())
               .append("\",\"silent\":").append(k.silent()).append(",")
+              .append("\"stopStrategy\":\"").append(k.stopStrategy().name()).append("\",")
+              .append("\"stopCommand\":\"").append(jsonEscape(k.stopCommand())).append("\",")
+              .append("\"stopTimeoutSeconds\":").append(k.stopTimeoutSeconds()).append(",")
+              .append("\"autoStart\":").append(k.autoStart()).append(",")
+              .append("\"javaPath\":\"").append(jsonEscape(k.javaPath() == null ? "" : k.javaPath())).append("\",")
               .append("\"uptime\":\"").append(formatDuration(c.uptimeMillis())).append("\",")
               .append("\"players\":").append(c.playerCount()).append(",")
               .append("\"idleShutdownSeconds\":").append(k.idleShutdownSeconds()).append(",")
@@ -1038,6 +1044,7 @@ public class WebServer {
                     && !Files.exists(jarPath)) {
                 warning = "Server created without a jar. Upload " + jar + " in Files before starting it.";
             }
+            if (javaPath.isEmpty() && recJava > 0 && !website && !bot) autoInstallJava(name, recJava);
 
             StringBuilder response = new StringBuilder("{\"id\":\"").append(jsonEscape(name))
                 .append("\",\"message\":\"Created\",\"jar_downloaded\":").append(downloaded);
@@ -1170,6 +1177,23 @@ public class WebServer {
                     + (portsWritten ? ", server.properties updated" : ""));
             send(ex, 200, "{\"id\":\"" + jsonEscape(name) + "\",\"port\":" + port + ",\"ram\":" + ram + "}");
         }
+    }
+
+    /** Installs the recommended Java in the background and pins it to the server once it is ready. */
+    private void autoInstallJava(String serverId, int major) {
+        Thread thread = new Thread(() -> {
+            try {
+                rootjar.console.ConsoleOutput.root("installing Java " + major + " for " + serverId + " (recommended for its version)");
+                JavaRuntimes.JavaInfo info = javaRuntimes.download(major);
+                supervisor.setJavaPath(serverId, info.path());
+                persistConfig();
+                rootjar.console.ConsoleOutput.root(serverId + " now uses Java " + major + ": " + info.path());
+            } catch (Exception e) {
+                rootjar.console.ConsoleOutput.root("could not install Java " + major + " for " + serverId + ": " + e.getMessage());
+            }
+        }, "java-auto-" + serverId);
+        thread.setDaemon(true);
+        thread.start();
     }
 
     /** Picks an installed runtime for the required Java major, preferring panel-managed runtimes. */
@@ -1500,6 +1524,83 @@ public class WebServer {
         String cmd = new String(ex.getRequestBody().readAllBytes());
         supervisor.child(id).ifPresent(c -> c.sendLine(cmd));
         send(ex, 200, "OK");
+    }
+
+    /** Saves the Startup tab: jar, Java, JVM flags, stop behaviour, auto start and idle shutdown. */
+    private void handleStartupSave(HttpExchange ex) throws IOException {
+        String serverId = param(ex, "server", "");
+        if (!requireOperator(ex, serverId)) return;
+        ChildProcess child = supervisor.child(serverId).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        byte[] rawBody = readBodyCapped(ex, MAX_SMALL_BODY);
+        if (rawBody == null) { send(ex, 413, "Request body is too large"); return; }
+        String body = new String(rawBody, StandardCharsets.UTF_8);
+        ChildConfig old = child.config();
+
+        String jar = old.jar();
+        if (hasJsonKey(body, "jar")) {
+            jar = Paths.get(extractJson(body, "jar").replace('\\', '/')).getFileName().toString();
+            if (jar.isBlank() || jar.equals(".") || jar.equals("..") || !jar.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+                send(ex, 400, "Jar file name must end with .jar"); return;
+            }
+        }
+        String javaPath = old.javaPath();
+        if (hasJsonKey(body, "javaPath")) {
+            try { javaPath = javaRuntimes.validate(extractJson(body, "javaPath")); }
+            catch (IOException e) { send(ex, 400, e.getMessage() == null ? "Invalid Java path" : e.getMessage()); return; }
+        }
+        List<String> flags = old.extraFlags();
+        if (hasJsonKey(body, "extraFlags")) flags = splitFlags(extractJson(body, "extraFlags"));
+        boolean useAikar = hasJsonKey(body, "useAikarFlags") ? "true".equals(extractJson(body, "useAikarFlags")) : old.useAikarFlags();
+        StopStrategy strategy = old.stopStrategy();
+        if (hasJsonKey(body, "stopStrategy")) {
+            try { strategy = StopStrategy.valueOf(extractJson(body, "stopStrategy").trim().toUpperCase(Locale.ROOT)); }
+            catch (IllegalArgumentException e) { send(ex, 400, "Unknown stop strategy"); return; }
+        }
+        String stopCommand = hasJsonKey(body, "stopCommand") ? extractJson(body, "stopCommand").trim() : old.stopCommand();
+        if (stopCommand.isEmpty()) stopCommand = old.stopCommand();
+        if (stopCommand.length() > 200 || stopCommand.indexOf('\n') >= 0) { send(ex, 400, "Stop command is too long"); return; }
+        int stopTimeout = old.stopTimeoutSeconds();
+        if (hasJsonKey(body, "stopTimeoutSeconds")) {
+            try { stopTimeout = Math.max(5, Math.min(600, Integer.parseInt(extractJson(body, "stopTimeoutSeconds")))); }
+            catch (NumberFormatException e) { send(ex, 400, "Stop timeout must be a number"); return; }
+        }
+        boolean autoStart = hasJsonKey(body, "autoStart") ? "true".equals(extractJson(body, "autoStart")) : old.autoStart();
+        int idle = idleSeconds(body, old.idleShutdownSeconds());
+        if (idle < 0) { send(ex, 400, "Idle shutdown time is invalid"); return; }
+
+        ChildProcess live = supervisor.child(serverId).orElse(null);
+        if (live == null) { send(ex, 409, "The server was reconfigured; reload and try again"); return; }
+        ChildConfig current = live.config();
+        ChildConfig updated = new ChildConfig(current.id(), current.type(), current.dir(), jar, current.heap(), current.xmsEqualXmx(),
+                current.port(), current.bind(), strategy, stopCommand, stopTimeout, current.startOrder(), current.stopOrder(),
+                current.restartOnCrash(), current.restartBackoffSeconds(), flags, current.consoleEnabled(), useAikar,
+                current.silent(), javaPath, autoStart, current.displayHost(), idle);
+        supervisor.setChildConfig(serverId, updated);
+        persistConfig();
+        audit(ex, serverId + ".startup.save", "jar " + jar + (javaPath.isBlank() ? ", panel Java" : ", " + javaPath));
+        boolean restartRequired = live.isAlive();
+        send(ex, 200, "{\"ok\":true,\"restartRequired\":" + restartRequired + "}");
+    }
+
+    /** Splits a pasted flag string, keeping quoted groups together. */
+    static List<String> splitFlags(String raw) {
+        List<String> flags = new ArrayList<>();
+        if (raw == null) return flags;
+        StringBuilder current = new StringBuilder();
+        boolean inToken = false, quoted = false;
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c == '"') { quoted = !quoted; inToken = true; continue; }
+            if (Character.isWhitespace(c) && !quoted) {
+                if (inToken) { flags.add(current.toString()); current.setLength(0); inToken = false; }
+                continue;
+            }
+            current.append(c);
+            inToken = true;
+        }
+        if (inToken) flags.add(current.toString());
+        return flags.size() > 200 ? List.copyOf(flags.subList(0, 200)) : flags;
     }
 
     private void handleStartupUpdate(HttpExchange ex) throws IOException {

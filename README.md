@@ -202,6 +202,10 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - Changing a server's port in Edit Server writes the new value into `server.properties` immediately, so the old allocation is no longer rejected.
 - The Java Runtime section can download any Temurin release from Java 8 to 25, offers **Use recommended**, and warns when the runtime is newer than the Minecraft version supports. New servers are pinned to an installed runtime matching their version when one exists.
 - Java downloads now replace the JDK's relative symlinks with real copies, so Temurin archives containing `legal/` links no longer fail with "refusing symlink".
+- A new Startup tab holds the Java runtime, JVM flag presets, the jar name, stop command, strategy and timeout, auto start, idle shutdown, and a read-only preview of the command Rootjar will run.
+- JVM flag presets include Aikar's low, medium and high, Proxy Optimized, Safe-Mode and Folia Optimized, plus Custom.
+- Creating a server now selects an installed runtime matching the required Java, and downloads and pins it automatically when none is installed.
+- Modpack installation has its own Modpacks section instead of living inside Mods.
 - Before a Minecraft server starts, Rootjar also aligns `query.port` with the assigned port and gives RCON its own free port, so copied values never collide.
 - Before starting Paper or a fork, Rootjar recreates `world/datapacks/bukkit/pack.mcmeta` if a copied or restored world is missing it, which caused `Could not initialize Bukkit datapack`.
 

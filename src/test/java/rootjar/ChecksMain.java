@@ -790,6 +790,9 @@ public final class ChecksMain {
         check(WebServer.runtimeMajor("1.8.0_392") == 8, "runtime major from 1.8.0_392");
         check(WebServer.runtimeMajor("17") == 17, "runtime major from a bare 17");
         check(WebServer.runtimeMajor("") == 0, "runtime major from blank");
+        check(WebServer.splitFlags("-XX:+UseG1GC -Xms512M").equals(List.of("-XX:+UseG1GC", "-Xms512M")), "split flags on spaces");
+        check(WebServer.splitFlags("-Darg=\"a b\" -XX:+AlwaysPreTouch").equals(List.of("-Darg=a b", "-XX:+AlwaysPreTouch")), "split flags keeps quoted groups");
+        check(WebServer.splitFlags("").isEmpty(), "split flags on blank input");
     }
 
     // ---- Phase 3: configured java binary reaches the command line ---------------------------

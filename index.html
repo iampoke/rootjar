@@ -505,6 +505,7 @@
         .fm-progress { font-size:12px; color:var(--text-muted); }
         .fm-table-wrap { flex:1; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:10px; }
         .settings-menu { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; max-width:980px; }
+        .startup-preview { margin:0; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--bg-body); color:var(--text-main); font-family:var(--font-mono); font-size:12px; white-space:pre-wrap; word-break:break-all; }
         .settings-menu button { min-height:92px; padding:16px; display:grid; align-content:center; gap:6px; border:1px solid var(--border); border-radius:14px; background:var(--bg-panel); color:var(--text-main); text-align:left; cursor:pointer; }
         .settings-menu button:hover { border-color:var(--accent); background:var(--bg-hover); }
         .settings-menu strong { color:var(--accent); font-size:15px; } .settings-menu span { color:var(--text-muted); font-size:12px; }
@@ -866,6 +867,9 @@
                     <div class="nav-item" id="tab-btn-mods" onclick="switchTab('mods')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg> Mods
                     </div>
+                    <div class="nav-item" id="tab-btn-modpacks" onclick="switchTab('modpacks')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8"></path><path d="M1 3h22v5H1z"></path><path d="M10 12h4"></path></svg> Modpacks
+                    </div>
                     <div class="nav-item" id="tab-btn-config" onclick="switchTab('config')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> Config
                     </div>
@@ -884,6 +888,9 @@
                     <div class="nav-label">SERVER SETTINGS</div>
                     <div class="nav-item" id="tab-btn-version" onclick="switchTab('version')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg> Change Version
+                    </div>
+                    <div class="nav-item" id="tab-btn-startup" onclick="switchTab('startup')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> Startup
                     </div>
                     <div style="margin-top: auto; padding: 16px;"></div>
                 </div>
@@ -1041,6 +1048,21 @@
 
                             <div id="software-grid" class="software-grid"></div>
 
+                            </div>
+                    </div>
+
+                    <div id="tab-startup" class="tab-container">
+                        <div class="version-page">
+                            <div class="version-head">
+                                <div>
+                                    <h2>Startup</h2>
+                                    <div class="version-note">Java, JVM flags, the jar name and how the server stops.</div>
+                                </div>
+                                <div class="version-head-right"><button type="button" class="btn" onclick="saveStartup()">Save Startup</button></div>
+                            </div>
+                            <div id="startup-restart-banner" class="restart-banner">Restart required for these startup changes. <button class="btn" onclick="powerAction('restart')">Restart</button></div>
+                            <div id="startup-status" class="version-note" style="display:none;"></div>
+
                             <div class="version-section">
                                 <div class="version-section-head">
                                     <h3>Java Runtime</h3>
@@ -1065,6 +1087,69 @@
                                 <div class="version-note" id="java-status" style="display:none;"></div>
                                 <div class="java-managed" id="java-managed-list"></div>
                             </div>
+
+                            <div class="version-section">
+                                <div class="version-section-head"><h3>JVM Flags</h3></div>
+                                <div class="java-row">
+                                    <select id="startup-preset" class="java-select" aria-label="JVM flags preset" onchange="applyJvmPreset(this.value)">
+                                        <option value="custom">Custom</option>
+                                        <option value="aikar-medium">Aikar's Flags (medium)</option>
+                                        <option value="aikar-high">Aikar's Flags (high)</option>
+                                        <option value="aikar-low">Aikar's Flags (low)</option>
+                                        <option value="proxy">Proxy Optimized (low)</option>
+                                        <option value="safe">Safe-Mode (Low Memory) (low)</option>
+                                        <option value="folia">Folia Optimized (high)</option>
+                                    </select>
+                                </div>
+                                <textarea id="startup-flags" class="settings-tasks" spellcheck="false" placeholder="-XX:+UseG1GC …" oninput="document.getElementById('startup-preset').value='custom';updateStartupPreview()"></textarea>
+                                <div class="version-note">Added to the Java command before <code>-jar</code>. The jar and memory are never replaced by flags.</div>
+                            </div>
+
+                            <div class="version-section">
+                                <div class="version-section-head"><h3>Server Jar</h3></div>
+                                <div class="java-row"><input id="startup-jar" class="java-custom" placeholder="server.jar" spellcheck="false" oninput="updateStartupPreview()"></div>
+                            </div>
+
+                            <div class="version-section">
+                                <div class="version-section-head"><h3>Stop</h3></div>
+                                <div class="java-row">
+                                    <select id="startup-stop-strategy" class="java-select">
+                                        <option value="STDIN">Send the stop command</option>
+                                        <option value="SIGTERM">SIGTERM</option>
+                                        <option value="BOTH">Command, then SIGTERM</option>
+                                    </select>
+                                    <input id="startup-stop-command" class="java-custom" placeholder="stop">
+                                </div>
+                                <div class="java-row"><label class="settings-check">Timeout (seconds)<input id="startup-stop-timeout" type="number" min="5" max="600" style="width:120px"></label></div>
+                            </div>
+
+                            <div class="version-section">
+                                <div class="version-section-head"><h3>Automation</h3></div>
+                                <label class="settings-check"><input id="startup-auto-start" type="checkbox"> Start this server when Rootjar starts</label>
+                                <div class="java-row">
+                                    <input id="startup-idle-amount" type="number" min="0" value="0" style="width:120px">
+                                    <select id="startup-idle-unit" class="java-select"><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option></select>
+                                </div>
+                                <div class="version-note">Stops the server after this long with no players. Zero disables it.</div>
+                            </div>
+
+                            <div class="version-section">
+                                <div class="version-section-head"><h3>Command Preview</h3></div>
+                                <pre id="startup-command-preview" class="startup-preview"></pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="tab-modpacks" class="tab-container">
+                        <div class="fm-page">
+                            <div class="fm-toolbar">
+                                <h2>Modpacks</h2>
+                                <div class="fm-spacer"></div>
+                                <button class="fm-btn fm-btn-accent" onclick="document.getElementById('modpack-input').click()">Upload .mrpack</button>
+                            </div>
+                            <p class="version-note">Install a Modrinth modpack into this server. Stop the server first: Rootjar creates a full backup, installs only the server-side mods, copies the pack's override files, then you can start it.</p>
+                            <input id="modpack-input" type="file" accept=".mrpack" hidden onchange="installModpack(this.files[0])">
+                            <div class="version-note">Plugins and ordinary mods stay in their own tabs.</div>
                         </div>
                     </div>
                 </div>
@@ -1693,6 +1778,8 @@
             if (t === 'plugins') loadAddons('plugin');
             if (t === 'mods') loadAddons('mod');
             if (t === 'version') loadVersionTab();
+            if (t === 'startup') { populateStartup(); loadJavaRuntimes(); refreshVersionInfo(); }
+            if (t === 'modpacks') loadAddons('mod');
             if (t === 'console') { const input = document.getElementById('console-input'); if (input) input.focus(); }
             updateServerTabs();
         }
@@ -1737,6 +1824,7 @@
             if (!res.ok) return;
             const data = await res.json();
             if (!data || !Array.isArray(data.servers)) return;
+            window.lastStatus = data;
             showPanelVersion(data);
             applyNodeButtons(data);
             isAdmin = data.isAdmin;
@@ -2825,7 +2913,6 @@
                     <h2>${label}<span class="addons-context" id="addons-context-${key}"></span></h2>
                     <div class="addons-head-actions">
                         <button class="btn btn-outline" onclick="backupAddons('${key}')">Backup folder</button>
-                        <button class="btn btn-outline" onclick="document.getElementById('modpack-input').click()">Install modpack</button>
                         <button class="btn btn-outline" onclick="showCrashDiagnosis()">Crash diagnosis</button>
                         <button class="btn btn-outline" onclick="updateAllAddons()">Update all</button>
                         <button class="btn btn-outline" onclick="runSafeMode()">Safe mode</button>
@@ -2853,11 +2940,72 @@
                         <span id="addons-page-${key}">Page 1</span>
                         <button class="btn btn-outline" onclick="addonsPage('${key}', 1)">Next</button>
                     </div>
-                    <input id="modpack-input" type="file" accept=".mrpack" hidden onchange="installModpack(this.files[0])">
                 </div>`;
             state.built = true;
         }
 
+        const JVM_PRESETS = {
+            'aikar-low': '-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=20 -XX:G1MaxNewSizePercent=30 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=15 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -Dusing.aikars.flags=https://mcflags.emc.gs -Daikars.new.flags=true',
+            'aikar-medium': '-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=30 -XX:G1MaxNewSizePercent=40 -XX:G1HeapRegionSize=8M -XX:G1ReservePercent=20 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=15 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -Dusing.aikars.flags=https://mcflags.emc.gs -Daikars.new.flags=true',
+            'aikar-high': '-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=40 -XX:G1MaxNewSizePercent=50 -XX:G1HeapRegionSize=16M -XX:G1ReservePercent=15 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=20 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -Dusing.aikars.flags=https://mcflags.emc.gs -Daikars.new.flags=true',
+            'proxy': '-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+AlwaysPreTouch -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1',
+            'safe': '-XX:+UseSerialGC -XX:TieredStopAtLevel=1',
+            'folia': '-XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions -XX:+DisableExplicitGC -XX:+AlwaysPreTouch -XX:G1NewSizePercent=40 -XX:G1MaxNewSizePercent=50 -XX:G1HeapRegionSize=16M -XX:G1ReservePercent=15 -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4 -XX:InitiatingHeapOccupancyPercent=20 -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1 -XX:+UseNUMA -XX:+PerfDisableSharedMem'
+        };
+        function applyJvmPreset(name) {
+            if (name === 'custom') return;
+            document.getElementById('startup-flags').value = JVM_PRESETS[name] || '';
+            updateStartupPreview();
+        }
+        function startupServer() { return (window.lastStatus && window.lastStatus.servers || []).find(s => currentServer && s.id === currentServer.id) || null; }
+        function populateStartup() {
+            const s = startupServer();
+            if (!s) return;
+            document.getElementById('startup-jar').value = s.jar || 'server.jar';
+            document.getElementById('startup-stop-strategy').value = s.stopStrategy || 'STDIN';
+            document.getElementById('startup-stop-command').value = s.stopCommand || 'stop';
+            document.getElementById('startup-stop-timeout').value = s.stopTimeoutSeconds || 30;
+            document.getElementById('startup-auto-start').checked = s.autoStart !== false;
+            const idle = idleEditorValue(s.idleShutdownSeconds || 0);
+            document.getElementById('startup-idle-amount').value = idle.amount;
+            document.getElementById('startup-idle-unit').value = idle.unit;
+            let flags = s.extraFlags || '';
+            if (!flags && s.useAikarFlags) flags = JVM_PRESETS['aikar-medium'];
+            document.getElementById('startup-flags').value = flags;
+            const preset = Object.keys(JVM_PRESETS).find(name => JVM_PRESETS[name] === flags.trim());
+            document.getElementById('startup-preset').value = preset || 'custom';
+            updateStartupPreview();
+        }
+        function updateStartupPreview() {
+            const s = startupServer();
+            if (!s) return;
+            const flags = document.getElementById('startup-flags').value.trim();
+            const jar = document.getElementById('startup-jar').value.trim() || 'server.jar';
+            const heap = s.heap || '1024M';
+            const parts = ['java', '-Xms' + heap, '-Xmx' + heap, flags, '-jar', jar].filter(Boolean);
+            document.getElementById('startup-command-preview').textContent = parts.join(' ');
+        }
+        async function saveStartup() {
+            if (!currentServer) return;
+            const payload = {
+                jar: document.getElementById('startup-jar').value.trim(),
+                extraFlags: document.getElementById('startup-flags').value,
+                useAikarFlags: false,
+                stopStrategy: document.getElementById('startup-stop-strategy').value,
+                stopCommand: document.getElementById('startup-stop-command').value,
+                stopTimeoutSeconds: document.getElementById('startup-stop-timeout').value,
+                autoStart: document.getElementById('startup-auto-start').checked,
+                idleAmount: document.getElementById('startup-idle-amount').value,
+                idleUnit: document.getElementById('startup-idle-unit').value
+            };
+            const res = await fetch('/api/startup/save?server=' + encodeURIComponent(currentServer.id), { method: 'POST', body: JSON.stringify(payload) });
+            if (!res.ok) { showToast(await res.text(), 'error'); return; }
+            const data = await res.json().catch(() => ({}));
+            const banner = document.getElementById('startup-restart-banner');
+            if (banner) banner.style.display = data.restartRequired ? 'block' : 'none';
+            showToast(data.restartRequired ? 'Saved. Restart the server to apply.' : 'Startup saved', 'success');
+            await refresh();
+        }
         async function installModpack(file) {
             if (!currentServer || !file) return;
             if (!file.name.toLowerCase().endsWith('.mrpack')) return showToast('Choose a .mrpack file', 'error');
