@@ -2857,13 +2857,23 @@
                 request.upload.onprogress = event => { if (event.lengthComputable && onProgress) onProgress(event.loaded); };
                 request.onload = () => {
                     const ok = request.status >= 200 && request.status < 300;
-                    const body = (request.responseText || '').trim();
-                    resolve({ ok, status: request.status, message: ok ? body : (body || ('HTTP ' + request.status)) });
+                    resolve({ ok, status: request.status, message: ok ? '' : uploadFailureMessage(request.status, (request.responseText || '').trim()) });
                 };
-                request.onerror = () => resolve({ ok: false, status: 0, message: 'Network error - the upload did not reach the panel' });
+                request.onerror = () => resolve({ ok: false, status: 0, message: uploadFailureMessage(0, '') });
                 request.onabort = () => resolve({ ok: false, status: 0, message: 'Cancelled' });
                 request.send(file);
             });
+        }
+
+        function uploadFailureMessage(status, body) {
+            if (status === 413) return 'HTTP 413 - too large. Rootjar accepts 200 MB per file, and a reverse proxy in front of the panel may allow less. ' + (body || '');
+            if (status === 401) return 'HTTP 401 - your session expired. Reload the panel, sign in again, then retry.';
+            if (status === 403) return 'HTTP 403 - rejected. Reload the panel to get a fresh CSRF token, or check that your user may edit this server. ' + (body || '');
+            if (status === 404) return 'HTTP 404 - the server or folder was not found. ' + (body || '');
+            if (status === 500) return 'HTTP 500 - the panel could not write the file: ' + (body || 'no detail returned');
+            if (status === 502 || status === 504) return 'HTTP ' + status + ' - a proxy in front of the panel rejected or timed out the upload. ' + (body || '');
+            if (status === 0) return 'The request never reached the panel: network error, proxy timeout, or the file is larger than the proxy allows.';
+            return body || ('HTTP ' + status);
         }
 
         async function fmImportZip(file) {

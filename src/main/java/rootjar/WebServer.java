@@ -1775,7 +1775,7 @@ public class WebServer {
             try (InputStream is = ex.getRequestBody(); OutputStream os = Files.newOutputStream(target)) {
                 byte[] buffer = new byte[8192]; int read; long total = 0;
                 while ((read = is.read(buffer)) != -1) {
-                    total += read; if (total > limit) { Files.deleteIfExists(target); send(ex, 413, "Too large"); return; }
+                    total += read; if (total > limit) { Files.deleteIfExists(target); send(ex, 413, "File is larger than the 200 MB per-file limit"); return; }
                     os.write(buffer, 0, read);
                 }
             }
