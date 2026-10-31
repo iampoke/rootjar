@@ -786,6 +786,10 @@ public final class ChecksMain {
         check(JavaRuntimes.recommendedMajor("1.21.4") == 21, "recommend java 21 for 1.21.4");
         check(JavaRuntimes.recommendedMajor("26.3") == 25, "recommend java 25 for 26.3");
         check(JavaRuntimes.recommendedMajor("unknown") == 0, "recommend nothing for unknown version");
+        check(WebServer.runtimeMajor("21.0.13") == 21, "runtime major from 21.0.13");
+        check(WebServer.runtimeMajor("1.8.0_392") == 8, "runtime major from 1.8.0_392");
+        check(WebServer.runtimeMajor("17") == 17, "runtime major from a bare 17");
+        check(WebServer.runtimeMajor("") == 0, "runtime major from blank");
     }
 
     // ---- Phase 3: configured java binary reaches the command line ---------------------------

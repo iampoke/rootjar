@@ -1051,14 +1051,15 @@
                                 <div class="java-row">
                                     <select id="java-runtime-select" class="java-select" aria-label="Java runtime"></select>
                                     <button type="button" class="btn" id="java-apply-btn" onclick="applyJavaPath(document.getElementById('java-runtime-select').value)">Apply</button>
+                                    <button type="button" class="btn btn-outline" id="java-use-recommended" onclick="useRecommendedJava()">Use recommended</button>
                                 </div>
                                 <div class="java-row">
                                     <input type="text" id="java-custom-path" class="java-custom" placeholder="Custom Java path, e.g. /usr/lib/jvm/java-21/bin/java" autocomplete="off" spellcheck="false">
                                     <button type="button" class="btn btn-outline" id="java-custom-apply" onclick="applyJavaPath(document.getElementById('java-custom-path').value)">Use path</button>
                                 </div>
                                 <div class="java-row">
-                                    <button type="button" class="btn btn-outline" id="java-download-21" style="display:none;" onclick="downloadJava(21)">Download Java 21</button>
-                                    <button type="button" class="btn btn-outline" id="java-download-25" style="display:none;" onclick="downloadJava(25)">Download Java 25</button>
+                                    <select id="java-download-major" class="java-select" style="flex:0 0 auto;width:auto" aria-label="Java version to download"></select>
+                                    <button type="button" class="btn btn-outline" id="java-download-btn" style="display:none;" onclick="downloadJava(document.getElementById('java-download-major').value)">Download</button>
                                     <button type="button" class="btn btn-outline" onclick="loadJavaRuntimes(true)">Rediscover</button>
                                 </div>
                                 <div class="version-note" id="java-status" style="display:none;"></div>
@@ -1619,6 +1620,7 @@
         window.onload = async () => {
             restoreFont();
             restoreServerLayout();
+            initJavaDownloadOptions();
             const res = await fetch('/api/status');
             if (res.ok) {
                 const status = await res.json().catch(() => ({}));
@@ -2505,6 +2507,7 @@
                 if (res.ok) {
                     const data = await res.json().catch(() => ({}));
                     if (data.warning) showToast(data.warning, "error");
+                    else if (data.javaMissing) showToast("Server created. Java " + data.javaMissing + " is recommended for this version but no matching runtime is installed. Choose or download one in Change Version before starting.", "info");
                     else if (data.jar_downloaded) showToast("Server created and jar downloaded!", "success");
                     else showToast("Server created!", "success");
                     closeCreateWizard();
@@ -4453,8 +4456,9 @@
             const applyBtn = document.getElementById('java-apply-btn');
             const customInput = document.getElementById('java-custom-path');
             const customApply = document.getElementById('java-custom-apply');
-            const dl21 = document.getElementById('java-download-21');
-            const dl25 = document.getElementById('java-download-25');
+            const dl21 = document.getElementById('java-download-btn');
+            const dl25 = null;
+            const useRec = document.getElementById('java-use-recommended');
             const note = document.getElementById('java-current');
             const warn = document.getElementById('java-warning');
             const recEl = document.getElementById('java-recommended');
@@ -4462,9 +4466,8 @@
             const canEdit = !!currentServer && currentServer.canChange !== false;
             const busy = javaBusy || javaDownloading > 0;
             if (dl21) dl21.style.display = isAdmin ? '' : 'none';
-            if (dl25) dl25.style.display = isAdmin ? '' : 'none';
-            [applyBtn, customApply, dl21, dl25].forEach(btn => {
-                if (btn) btn.disabled = !canEdit || busy || (btn === dl25 && !isAdmin);
+            [applyBtn, customApply, dl21, useRec].forEach(btn => {
+                if (btn) btn.disabled = !canEdit || busy;
             });
             if (customInput) customInput.disabled = !canEdit || busy;
             if (sel) sel.disabled = !canEdit || busy;
@@ -4521,11 +4524,18 @@
                 let msg = '';
                 if (rec && curMajor && curMajor < rec) {
                     msg = 'Minecraft ' + String((info && info.mcVersion) || 'this version') + ' needs Java ' + rec + '+ but this runtime is Java ' + curMajor + '. The server may fail to start.';
+                } else if (rec && curMajor && curMajor > rec) {
+                    msg = 'This runtime is Java ' + curMajor + ', which is newer than the Java ' + rec + ' this Minecraft version supports. Older server builds are not tested on newer Java and may fail to start.';
                 } else if (rec && !curMajor && info && info.javaPath) {
                     msg = 'Could not detect the Java version for this path. Minecraft ' + String((info && info.mcVersion) || 'this version') + ' needs Java ' + rec + '+.';
                 }
                 warn.style.display = msg ? 'block' : 'none';
                 warn.textContent = msg;
+            }
+            if (useRec) {
+                const recPath = recommendedRuntimePath(javaRuntimes && javaRuntimes.recommendedMajor);
+                useRec.disabled = !canEdit || busy || !recPath;
+                useRec.title = recPath ? recPath : (javaRuntimes && javaRuntimes.recommendedMajor ? 'No Java ' + javaRuntimes.recommendedMajor + ' runtime found. Download it below or install one on the host.' : 'No recommendation for this server type');
             }
             if (managedHost) {
                 const managed = data && Array.isArray(data.managed) ? data.managed : [];
@@ -4586,6 +4596,31 @@
             }
         }
 
+        function initJavaDownloadOptions() {
+            const sel = document.getElementById('java-download-major');
+            if (!sel || sel.options.length) return;
+            for (let major = 25; major >= 8; major--) {
+                const option = document.createElement('option');
+                option.value = String(major);
+                option.textContent = 'Java ' + major;
+                sel.appendChild(option);
+            }
+        }
+        function recommendedRuntimePath(rec) {
+            if (!rec) return '';
+            const majors = list => (Array.isArray(list) ? list : [])
+                .filter(rt => rt && rt.path && javaMajor(rt.version) === rec)
+                .map(rt => String(rt.path));
+            const managed = majors(javaRuntimes && javaRuntimes.managed);
+            if (managed.length) return managed[0];
+            const detected = majors(javaRuntimes && javaRuntimes.detected);
+            return detected.length ? detected[0] : '';
+        }
+        async function useRecommendedJava() {
+            const path = recommendedRuntimePath(javaRuntimes && javaRuntimes.recommendedMajor);
+            if (!path) return showToast('No matching runtime is installed. Download it below, then press Use recommended.', 'error');
+            await applyJavaPath(path);
+        }
         async function downloadJava(major) {
             if (!isAdmin) return showToast('Only admins can download Java runtimes', 'error');
             if (!currentServer) return showToast('Open a server first', 'error');

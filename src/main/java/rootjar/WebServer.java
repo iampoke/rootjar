@@ -1010,9 +1010,13 @@ public class WebServer {
             int startOrder = supervisor.children().stream().mapToInt(c -> c.config().startOrder()).max().orElse(0) + 1;
             int stopOrder = supervisor.children().stream().mapToInt(c -> c.config().stopOrder()).max().orElse(0) + 1;
             String type = website ? "website" : (serverType != null && !serverType.isBlank() && !serverType.equals("minecraft") ? serverType : (fork != null ? fork : "paper"));
+            String mcVersion = website || bot ? "" : detectMcVersion(new ChildConfig(name, type, dir, jar, ram + "M", true, port, "0.0.0.0",
+                    StopStrategy.STDIN, "stop", 30, 0, 0, true, List.of(), List.of(), true, true, false, "", true, "", 0));
+            int recJava = JavaRuntimes.recommendedMajor(mcVersion);
+            String javaPath = website || bot ? "" : chooseJavaFor(recJava);
 
             ChildConfig newChild = new ChildConfig(name, type, dir, jar, ram + "M", true, port, "0.0.0.0",
-                website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, "", true, "", 0);
+                website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, javaPath, true, "", 0);
             supervisor.addChild(newChild);
 
             saveConfig(new RootConfig(config.server(),
@@ -1037,6 +1041,8 @@ public class WebServer {
 
             StringBuilder response = new StringBuilder("{\"id\":\"").append(jsonEscape(name))
                 .append("\",\"message\":\"Created\",\"jar_downloaded\":").append(downloaded);
+            if (!javaPath.isEmpty()) response.append(",\"javaPath\":\"").append(jsonEscape(javaPath)).append("\",\"javaSelected\":true,\"recommendedJava\":").append(recJava);
+            else if (recJava > 0) response.append(",\"javaMissing\":").append(recJava);
             if (warning != null) response.append(",\"warning\":\"").append(jsonEscape(warning)).append("\"");
             audit(ex, "server.create", name + " (port " + port + ")");
             send(ex, 200, response.append("}").toString());
@@ -1164,6 +1170,30 @@ public class WebServer {
                     + (portsWritten ? ", server.properties updated" : ""));
             send(ex, 200, "{\"id\":\"" + jsonEscape(name) + "\",\"port\":" + port + ",\"ram\":" + ram + "}");
         }
+    }
+
+    /** Picks an installed runtime for the required Java major, preferring panel-managed runtimes. */
+    private String chooseJavaFor(int major) {
+        if (major <= 0) return "";
+        try {
+            for (JavaRuntimes.JavaInfo info : javaRuntimes.managed()) {
+                if (runtimeMajor(info.version()) == major) return info.path();
+            }
+            for (JavaRuntimes.JavaInfo info : javaRuntimes.detect()) {
+                if (runtimeMajor(info.version()) == major) return info.path();
+            }
+        } catch (RuntimeException ignored) {}
+        return "";
+    }
+
+    /** Java major from a runtime version string; Java 8 reports as 1.8.0_x. */
+    static int runtimeMajor(String version) {
+        String text = version == null ? "" : version.trim();
+        if (text.isEmpty()) return 0;
+        java.util.regex.Matcher two = Pattern.compile("^(\\d+)\\.(\\d+)").matcher(text);
+        if (two.find()) return "1".equals(two.group(1)) ? Integer.parseInt(two.group(2)) : Integer.parseInt(two.group(1));
+        java.util.regex.Matcher one = Pattern.compile("^(\\d+)").matcher(text);
+        return one.find() ? Integer.parseInt(one.group(1)) : 0;
     }
 
     /**
