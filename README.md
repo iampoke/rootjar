@@ -204,6 +204,7 @@ An admin pastes each destination into Settings and enables its checkbox. Clickin
 - Java downloads now replace the JDK's relative symlinks with real copies, so Temurin archives containing `legal/` links no longer fail with "refusing symlink".
 - A new Startup tab holds the Java runtime, JVM flag presets, the jar name, stop command, strategy and timeout, auto start, idle shutdown, and a read-only preview of the command Rootjar will run.
 - JVM flag presets include Aikar's low, medium and high, Proxy Optimized, Safe-Mode and Folia Optimized, plus Custom.
+- Additional presets are taken from their published sources: MeowIce's flags, brucethemoose's Benchmarks set, hilltty's flags, Obydux's flags and Etil's flags. Selecting one shows a warning when it needs a JVM other than Temurin.
 - Creating a server now selects an installed runtime matching the required Java, and downloads and pins it automatically when none is installed.
 - Modpack installation has its own Modpacks section instead of living inside Mods.
 - Before a Minecraft server starts, Rootjar also aligns `query.port` with the assigned port and gives RCON its own free port, so copied values never collide.
