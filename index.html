@@ -3260,8 +3260,8 @@
 
         // ===== Mods / Plugins (Phase 2) =====
         const addonsState = {
-            plugin: { built: false, items: [], query: '', offset: 0, limit: 10, total: 0, mcVersion: '', loaders: [] },
-            mod:    { built: false, items: [], query: '', offset: 0, limit: 10, total: 0, mcVersion: '', loaders: [] }
+            plugin: { built: false, items: [], query: '', offset: 0, limit: 10, total: 0, mcVersion: '', loaders: [], source: 'modrinth', version: '', loader: 'auto', expanded: false, results: [] },
+            mod:    { built: false, items: [], query: '', offset: 0, limit: 10, total: 0, mcVersion: '', loaders: [], source: 'modrinth', version: '', loader: 'auto', expanded: false, results: [] }
         };
         let pendingAddon = { kind: 'plugin', projectId: null, title: '' };
         let confirmAction = null;
@@ -3289,17 +3289,26 @@
                 </div>
                 <div class="addons-warn" id="addons-warn-${key}" style="display:none;"></div>
                 <div class="addons-section">
-                    <div class="addons-section-head">
-                        <h3>Installed</h3>
-                        <span class="addons-sub" id="addons-count-${key}"></span>
-                    </div>
-                    <div class="addons-list" id="addons-list-${key}"></div>
-                </div>
-                <div class="addons-section">
-                    <div class="addons-section-head"><h3>Add from Modrinth</h3></div>
+                    <div class="addons-section-head"><h3>Find ${label.toLowerCase()}</h3></div>
                     <div class="addons-search">
-                        <input type="text" id="addons-query-${key}" placeholder="Search ${label.toLowerCase()}..." onkeydown="if(event.key==='Enter')searchModrinth('${key}')">
-                        <button class="btn" onclick="searchModrinth('${key}')">Search</button>
+                        <select id="addons-source-${key}" onchange="addonsSourceChanged('${key}')" aria-label="Source">
+                            <option value="modrinth">Modrinth</option>
+                            ${key === 'plugin' ? '<option value="hangar">Hangar (PaperMC)</option><option value="spigot">SpigotMC</option>' : ''}
+                        </select>
+                        <input type="text" id="addons-query-${key}" placeholder="Search ${label.toLowerCase()}..." onkeydown="if(event.key==='Enter')searchAddons('${key}')">
+                        <button class="btn" onclick="searchAddons('${key}')">Search</button>
+                    </div>
+                    <div class="addons-search" style="margin-top:8px">
+                        <select id="addons-version-mode-${key}" onchange="addonsVersionModeChanged('${key}')" aria-label="Version filter">
+                            <option value="any">Any version</option>
+                            <option value="mine">Only my version</option>
+                            <option value="custom">Specific version…</option>
+                        </select>
+                        <input type="text" id="addons-version-${key}" placeholder="1.21.4" style="display:none;max-width:160px" onkeydown="if(event.key==='Enter')searchAddons('${key}')">
+                        <select id="addons-loader-${key}" aria-label="Loader filter">
+                            <option value="auto">This server's loader</option>
+                            <option value="any">Any loader</option>
+                        </select>
                     </div>
                     <div class="addons-sub" id="addons-results-info-${key}"></div>
                     <div class="addons-results" id="addons-results-${key}"></div>
@@ -3307,6 +3316,16 @@
                         <button class="btn btn-outline" onclick="addonsPage('${key}', -1)">Prev</button>
                         <span id="addons-page-${key}">Page 1</span>
                         <button class="btn btn-outline" onclick="addonsPage('${key}', 1)">Next</button>
+                    </div>
+                </div>
+                <div class="addons-section">
+                    <div class="addons-section-head">
+                        <h3>Installed</h3>
+                        <span class="addons-sub" id="addons-count-${key}"></span>
+                    </div>
+                    <div class="addons-list" id="addons-list-${key}"></div>
+                    <div class="addons-pager" id="addons-more-wrap-${key}" style="display:none">
+                        <button class="btn btn-outline" id="addons-more-${key}" onclick="toggleInstalled('${key}')">View More</button>
                     </div>
                 </div>`;
             state.built = true;
@@ -3574,12 +3593,22 @@
             if (!list) return;
             if (!state.items.length) {
                 list.innerHTML = '<div class="addons-empty">Nothing installed yet.</div>';
+                const emptyMore = document.getElementById('addons-more-wrap-' + key);
+                if (emptyMore) emptyMore.style.display = 'none';
                 return;
             }
-            list.innerHTML = state.items.map(item => {
+            const collapsed = !state.expanded && state.items.length > 3;
+            const visible = collapsed ? state.items.slice(0, 3) : state.items;
+            const moreWrap = document.getElementById('addons-more-wrap-' + key);
+            if (moreWrap) moreWrap.style.display = state.items.length > 3 ? '' : 'none';
+            const moreBtn = document.getElementById('addons-more-' + key);
+            if (moreBtn) moreBtn.textContent = state.expanded ? 'Show less' : 'View More (' + (state.items.length - 3) + ' hidden)';
+            list.innerHTML = visible.map(item => {
                 const meta = [item.projectTitle ? escapeHtml(item.projectTitle) : '', item.versionNumber ? escapeHtml(item.versionNumber) : ''].filter(Boolean).join(' · ');
                 const canUpdate = item.updateAvailable && item.updateVersionId && item.updateVersionId !== item.versionId;
+                const name = item.projectTitle || item.file;
                 return `<div class="addon-row ${item.enabled ? '' : 'disabled'}">
+                    <div class="addon-icon">${item.iconUrl ? `<img src="${escapeHtml(item.iconUrl)}" alt="" loading="lazy">` : escapeHtml(String(name).charAt(0).toUpperCase())}</div>
                     <div>
                         <div class="addon-name">${escapeHtml(item.file)}</div>
                         <div class="addon-meta">${meta || 'Not on Modrinth'}</div>
@@ -3595,64 +3624,128 @@
             }).join('');
         }
 
-        async function searchModrinth(kind) {
+        function toggleInstalled(key) {
+            const state = addonsState[key];
+            state.expanded = !state.expanded;
+            renderInstalled(key, { folder: key === 'mod' ? 'mods' : 'plugins', supported: true, hasFolder: true, mcVersion: state.mcVersion, loaders: state.loaders });
+        }
+
+        function addonsSourceChanged(key) {
+            const state = addonsState[key];
+            const select = document.getElementById('addons-source-' + key);
+            state.source = select ? select.value : 'modrinth';
+            const loader = document.getElementById('addons-loader-' + key);
+            if (loader) loader.style.display = state.source === 'modrinth' ? '' : 'none';
+            if (state.query) fetchAddonSearch(key);
+        }
+        function addonsVersionModeChanged(key) {
+            const state = addonsState[key];
+            const mode = document.getElementById('addons-version-mode-' + key);
+            const field = document.getElementById('addons-version-' + key);
+            const value = mode ? mode.value : 'any';
+            if (field) field.style.display = value === 'custom' ? '' : 'none';
+            state.version = value === 'mine' ? (state.mcVersion || (currentServer && currentServer.mcVersion) || '') : (value === 'custom' && field ? field.value.trim() : '');
+            if (state.query) fetchAddonSearch(key);
+        }
+        async function searchAddons(kind) {
             const key = addonsKey(kind);
             if (!currentServer) return showToast('Open a server first', 'error');
             initAddonsTab(key);
             const state = addonsState[key];
             const input = document.getElementById('addons-query-' + key);
             state.query = input ? input.value : '';
+            const source = document.getElementById('addons-source-' + key);
+            if (source) state.source = source.value;
+            const loader = document.getElementById('addons-loader-' + key);
+            if (loader) state.loader = loader.value;
+            addonsVersionModeChanged(key);
             state.offset = 0;
-            await fetchModrinthSearch(key);
+            await fetchAddonSearch(key);
         }
+        /* Kept so older onclick handlers and bookmarks still work. */
+        async function searchModrinth(kind) { return searchAddons(kind); }
 
-        async function fetchModrinthSearch(key) {
+        async function fetchAddonSearch(key) {
             const state = addonsState[key];
             const results = document.getElementById('addons-results-' + key);
             const info = document.getElementById('addons-results-info-' + key);
-            if (results) results.innerHTML = '<div class="addons-empty">Searching Modrinth...</div>';
-            const url = '/api/modrinth/search?server=' + encodeURIComponent(currentServer.id)
-                + '&kind=' + key + '&query=' + encodeURIComponent(state.query)
+            const sourceName = state.source === 'hangar' ? 'Hangar' : (state.source === 'spigot' ? 'SpigotMC' : 'Modrinth');
+            if (results) results.innerHTML = '<div class="addons-empty">Searching ' + sourceName + '...</div>';
+            const url = '/api/addons/search?server=' + encodeURIComponent(currentServer.id)
+                + '&kind=' + key + '&source=' + encodeURIComponent(state.source)
+                + '&query=' + encodeURIComponent(state.query)
+                + '&version=' + encodeURIComponent(state.version || '')
+                + '&loader=' + encodeURIComponent(state.loader || 'auto')
                 + '&offset=' + state.offset + '&limit=' + state.limit;
             const res = await fetch(url);
             if (!res.ok) {
-                if (results) results.innerHTML = '<div class="addons-empty">Modrinth search failed. Try again in a moment.</div>';
+                if (results) results.innerHTML = '<div class="addons-empty">' + escapeHtml(sourceName + ' search failed: ' + await res.text()) + '</div>';
                 return;
             }
             const data = await res.json();
-            state.total = data.total_hits || 0;
-            if (info) info.innerText = state.total ? state.total.toLocaleString() + ' results' : 'No results';
-            renderSearchResults(key, data.hits || []);
+            state.total = data.total || 0;
+            state.results = data.items || [];
+            const filtered = state.version ? ' for ' + state.version : '';
+            if (info) info.innerText = state.total ? state.total.toLocaleString() + ' results on ' + sourceName + filtered : 'No results on ' + sourceName;
+            renderSearchResults(key, state.results);
             const page = document.getElementById('addons-page-' + key);
             const pages = Math.max(1, Math.ceil(state.total / state.limit));
             if (page) page.innerText = `Page ${Math.floor(state.offset / state.limit) + 1} of ${pages}`;
         }
+        /* Kept for older callers. */
+        async function fetchModrinthSearch(key) { return fetchAddonSearch(key); }
 
-        function renderSearchResults(key, hits) {
+        function renderSearchResults(key, items) {
             const results = document.getElementById('addons-results-' + key);
             if (!results) return;
-            if (!hits.length) { results.innerHTML = '<div class="addons-empty">Nothing matched. Try a different search.</div>'; return; }
-            results.innerHTML = hits.map(hit => `<div class="addon-card">
+            if (!items || !items.length) { results.innerHTML = '<div class="addons-empty">Nothing matched. Try a different search, another source, or set the version filter to “Any version”.</div>'; return; }
+            results.innerHTML = items.map((item, index) => `<div class="addon-card">
                 <div class="addon-card-head">
-                    <div class="addon-icon">${modrinthIcon(hit)}</div>
+                    <div class="addon-icon">${addonIcon(item)}</div>
                     <div>
-                        <div class="addon-card-title">${escapeHtml(hit.title || 'Untitled')}</div>
-                        <div class="addon-card-author">by ${escapeHtml(hit.author || 'unknown')} · ${hit.project_type === 'mod' ? 'Mod' : 'Plugin'}</div>
+                        <div class="addon-card-title">${escapeHtml(item.title || 'Untitled')}</div>
+                        <div class="addon-card-author">${escapeHtml(sourceLabel(item.source))}${item.owner ? ' · ' + escapeHtml(item.owner) : ''}${item.premium ? ' · premium' : ''}</div>
                     </div>
                 </div>
-                <div class="addon-desc">${escapeHtml(hit.description || '')}</div>
+                <div class="addon-desc">${escapeHtml(item.description || '')}</div>
                 <div class="addon-card-foot">
-                    <span class="addons-sub">${(hit.downloads || 0).toLocaleString()} downloads</span>
-                    <button class="btn" data-kind="${key}" data-project="${escapeHtml(hit.project_id || '')}" data-title="${escapeHtml(hit.title || '')}" onclick="openVersionModal(this.dataset.kind, this.dataset.project, this.dataset.title)">Install</button>
+                    <span class="addons-sub">${(item.downloads || 0).toLocaleString()} downloads</span>
+                    <button class="btn" onclick="installResult('${key}', ${index})">Install</button>
                 </div>
             </div>`).join('');
         }
 
-        function modrinthIcon(hit) {
-            const url = hit && hit.icon_url ? String(hit.icon_url) : '';
-            if (url.startsWith('https://cdn.modrinth.com/')) return `<img src="${escapeHtml(url)}" alt="" loading="lazy">`;
-            return escapeHtml((hit && hit.title ? hit.title : '?').charAt(0).toUpperCase());
+        function sourceLabel(source) {
+            return source === 'hangar' ? 'Hangar' : (source === 'spigot' ? 'SpigotMC' : 'Modrinth');
         }
+
+        async function installResult(key, index) {
+            const state = addonsState[key];
+            const item = (state.results || [])[index];
+            if (!item || !currentServer) return;
+            if (item.premium) return showToast('That is a premium SpigotMC resource; it cannot be downloaded automatically', 'error');
+            if (item.source === 'modrinth') return openVersionModal(key, item.id, item.title);
+            const params = new URLSearchParams({ server: currentServer.id, source: item.source, id: item.id, owner: item.owner || '', slug: item.slug || item.id, title: item.title || '' });
+            showToast('Downloading ' + item.title + ' from ' + sourceLabel(item.source) + '…', 'info');
+            const response = await fetch('/api/addons/install-from?' + params.toString(), { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken || '' } });
+            if (response.ok) {
+                const data = await response.json().catch(() => ({}));
+                showToast('Installed ' + (data.installed || item.title), 'success');
+                loadAddons(key, true);
+            } else {
+                showToast(await response.text(), 'error');
+            }
+        }
+
+        function addonIcon(item) {
+            const url = item && item.iconUrl ? String(item.iconUrl) : '';
+            if (url.startsWith('https://cdn.modrinth.com/') || url.startsWith('https://hangarcdn.papermc.io/') || url.startsWith('data:image/')) {
+                return `<img src="${escapeHtml(url)}" alt="" loading="lazy">`;
+            }
+            return escapeHtml((item && item.title ? item.title : '?').charAt(0).toUpperCase());
+        }
+
+        function modrinthIcon(hit) { return addonIcon(hit); }
 
         function addonsPage(kind, delta) {
             const key = addonsKey(kind);
@@ -3662,7 +3755,7 @@
             const maxPage = Math.max(0, Math.ceil(state.total / state.limit) - 1);
             if (page > maxPage) return;
             state.offset = page * state.limit;
-            fetchModrinthSearch(key);
+            fetchAddonSearch(key);
         }
 
         async function openVersionModal(kind, projectId, title) {

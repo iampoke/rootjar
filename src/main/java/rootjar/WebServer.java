@@ -171,6 +171,8 @@ public class WebServer {
         route("/api/modrinth/versions", this::handleModrinthVersions);
         route("/api/modrinth/install", this::handleModrinthInstall);
         route("/api/modrinth/updates", this::handleModrinthUpdates);
+        route("/api/addons/search", this::handleAddonSearch);
+        route("/api/addons/install-from", this::handleAddonInstallFrom);
 
         // Installed addons (Mods/Plugins tab)
         route("/api/addons/list", this::handleAddonsList);
@@ -2535,6 +2537,136 @@ public class WebServer {
         }
     }
 
+    /**
+     * Searches one registry at a time - Modrinth, Hangar or SpigotMC - and returns every result in the same
+     * shape. The version filter is only applied when the caller asks for one, because plugin authors often
+     * lag behind a Minecraft release and an exact-match filter hides plugins that would work fine.
+     */
+    private void handleAddonSearch(HttpExchange ex) throws IOException {
+        if (!isAuthed(ex)) { send(ex, 401, "Unauthorized"); return; }
+        String kind = param(ex, "kind", "plugin").toLowerCase(Locale.ROOT);
+        if (!Set.of("plugin", "mod", "modpack").contains(kind)) { send(ex, 400, "Unknown addon kind"); return; }
+        String source = param(ex, "source", "modrinth").toLowerCase(Locale.ROOT);
+        if (!Set.of("modrinth", "hangar", "spigot").contains(source)) { send(ex, 400, "Unknown source"); return; }
+        String query = param(ex, "query", "").trim();
+        if (query.isBlank() || query.length() > 96) { send(ex, 400, "Enter a search term"); return; }
+        String version = param(ex, "version", "").trim();
+        if (!version.isEmpty() && !version.matches("[A-Za-z0-9._+-]{1,32}")) { send(ex, 400, "Bad version"); return; }
+        int limit = clampInt(param(ex, "limit", "20"), 20, 1, 30);
+        int offset = clampInt(param(ex, "offset", "0"), 0, 0, 5000);
+        try {
+            String raw;
+            List<rootjar.addons.AddonSources.Item> items;
+            if (source.equals("hangar")) {
+                if (!kind.equals("plugin")) { send(ex, 400, "Hangar lists plugins only"); return; }
+                StringBuilder url = new StringBuilder("https://hangar.papermc.io/api/v1/projects?query=" + urlEncode(query)
+                        + "&limit=" + limit + "&offset=" + offset + "&platform=PAPER");
+                if (!version.isEmpty()) url.append("&version=").append(urlEncode(version));
+                raw = modrinthGet(url.toString(), HTTP_CACHE_MS);
+                items = rootjar.addons.AddonSources.hangar(raw);
+            } else if (source.equals("spigot")) {
+                if (!kind.equals("plugin")) { send(ex, 400, "SpigotMC lists plugins only"); return; }
+                raw = modrinthGet("https://api.spiget.org/v2/search/resources/" + urlEncode(query)
+                        + "?size=" + limit + "&start=" + offset + "&fields=id,name,tag,downloads,premium,icon.data", HTTP_CACHE_MS);
+                items = rootjar.addons.AddonSources.spigot(raw);
+            } else {
+                List<String> loaders = new ArrayList<>();
+                ChildProcess searchChild = supervisor.child(param(ex, "server", "")).orElse(null);
+                if (!param(ex, "loader", "").equalsIgnoreCase("any") && searchChild != null && !kind.equals("modpack")) {
+                    loaders.addAll(Addons.loaders(searchChild.config().type(), kind.equals("mod")));
+                }
+                StringBuilder facets = new StringBuilder("[[\"project_type:").append(kind).append("\"]");
+                if (!loaders.isEmpty()) {
+                    facets.append(",[");
+                    for (int i = 0; i < loaders.size(); i++) {
+                        if (i > 0) facets.append(',');
+                        facets.append("\"categories:").append(loaders.get(i)).append('"');
+                    }
+                    facets.append(']');
+                }
+                if (!version.isEmpty()) facets.append(",[\"versions:").append(version).append("\"]");
+                facets.append(']');
+                raw = modrinthGet("https://api.modrinth.com/v2/search?query=" + urlEncode(query)
+                        + "&facets=" + urlEncode(facets.toString()) + "&limit=" + limit + "&offset=" + offset, HTTP_CACHE_MS);
+                items = rootjar.addons.AddonSources.modrinth(raw);
+            }
+            long total = rootjar.addons.AddonSources.totalCount(raw);
+            if (total < 0) total = items.size() < limit ? offset + items.size() : offset + items.size() + 1;
+            send(ex, 200, rootjar.addons.AddonSources.toJson(items, total, offset, limit, source));
+        } catch (Exception e) {
+            send(ex, 502, "{\"error\":\"" + jsonEscape(String.valueOf(e.getMessage())) + "\"}");
+        }
+    }
+
+    /** Installs one plugin from Hangar or SpigotMC. Modrinth keeps its own install endpoint. */
+    private void handleAddonInstallFrom(HttpExchange ex) throws IOException {
+        String serverId = param(ex, "server", "");
+        if (!requireOperator(ex, serverId)) return;
+        ChildProcess child = supervisor.child(serverId).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        String source = param(ex, "source", "").toLowerCase(Locale.ROOT);
+        if (!source.equals("hangar") && !source.equals("spigot")) { send(ex, 400, "Unknown source"); return; }
+        String id = param(ex, "id", "");
+        String owner = param(ex, "owner", "");
+        String slug = param(ex, "slug", "");
+        String version = param(ex, "version", "");
+        if (!id.matches("[A-Za-z0-9._-]{1,64}")) { send(ex, 400, "Bad identifier"); return; }
+        if (source.equals("hangar") && (!owner.matches("[A-Za-z0-9._-]{1,64}") || !slug.matches("[A-Za-z0-9._-]{1,64}"))) {
+            send(ex, 400, "Bad project"); return;
+        }
+        if (!version.isEmpty() && !version.matches("[A-Za-z0-9._+-]{1,32}")) { send(ex, 400, "Bad version"); return; }
+        Path part = null;
+        try {
+            String url;
+            String fileName;
+            if (source.equals("hangar")) {
+                StringBuilder versions = new StringBuilder("https://hangar.papermc.io/api/v1/projects/"
+                        + urlEncode(owner) + "/" + urlEncode(slug) + "/versions?platform=PAPER&limit=1&offset=0");
+                if (!version.isEmpty()) versions.append("&version=").append(urlEncode(version));
+                rootjar.addons.AddonSources.Download download =
+                        rootjar.addons.AddonSources.hangarDownload(modrinthGet(versions.toString(), HTTP_CACHE_MS));
+                if (download == null || !allowedDownloadUrl(download.url())) {
+                    send(ex, 404, "Hangar has no downloadable Paper file for this plugin");
+                    return;
+                }
+                url = download.url();
+                fileName = download.fileName();
+            } else {
+                url = "https://api.spiget.org/v2/resources/" + urlEncode(id) + "/download";
+                fileName = (slug.isBlank() ? id : slug) + ".jar";
+            }
+            fileName = FileOps.safeName(fileName);
+            Path plugins = child.config().dir().resolve("plugins");
+            Files.createDirectories(plugins);
+            part = Files.createTempFile(plugins, ".download-", ".part");
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                    .header("User-Agent", panelUserAgent()).timeout(Duration.ofMinutes(5)).build();
+            HttpResponse<Path> response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(part));
+            if (response.statusCode() != 200 || Files.size(part) <= 0) {
+                send(ex, 502, response.statusCode() == 403 || response.statusCode() == 401
+                        ? "That is a premium resource, so it cannot be downloaded automatically"
+                        : "Download failed (HTTP " + response.statusCode() + ")");
+                return;
+            }
+            String contentType = response.headers().firstValue("Content-Type").orElse("");
+            if (contentType.contains("zip") && !fileName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                fileName = fileName.replaceAll("\\.[^.]+$", "") + ".zip";
+            }
+            if (!fileName.toLowerCase(Locale.ROOT).endsWith(".jar") && !fileName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                fileName = fileName + ".jar";
+            }
+            Path target = plugins.resolve(fileName);
+            Files.move(part, target, StandardCopyOption.REPLACE_EXISTING);
+            part = null;
+            audit(ex, serverId + ".plugin.install", target.getFileName().toString() + " (" + source + ")");
+            send(ex, 200, "{\"installed\":\"" + jsonEscape(target.getFileName().toString()) + "\",\"source\":\"" + jsonEscape(source) + "\"}");
+        } catch (Exception e) {
+            send(ex, 500, e.getMessage() == null ? "Install failed" : e.getMessage());
+        } finally {
+            if (part != null) try { Files.deleteIfExists(part); } catch (IOException ignored) {}
+        }
+    }
+
     private void handleModrinthVersions(HttpExchange ex) throws IOException {
         if (!isAuthed(ex)) { send(ex, 401, "Unauthorized"); return; }
         String projectId = param(ex, "project", "");
@@ -2777,7 +2909,9 @@ public class WebServer {
         body.append("],\"algorithm\":\"sha512\"}");
         String response = modrinthPost("https://api.modrinth.com/v2/version_files", body.toString());
         if (response == null) return out;
-        Map<String, String> titles = projectTitles(response);
+        Map<String, String> titles = new HashMap<>();
+        Map<String, String> icons = new HashMap<>();
+        projectMeta(response, titles, icons);
         for (String hash : missing) {
             String object = objectForHash(response, hash);
             String fragment = "";
@@ -2788,6 +2922,7 @@ public class WebServer {
                 String title = titles.getOrDefault(projectId, projectId);
                 fragment = "\"projectId\":\"" + jsonEscape(projectId)
                         + "\",\"projectTitle\":\"" + jsonEscape(title)
+                        + "\",\"iconUrl\":\"" + jsonEscape(icons.getOrDefault(projectId, ""))
                         + "\",\"versionId\":\"" + jsonEscape(versionId)
                         + "\",\"versionNumber\":\"" + jsonEscape(versionNumber) + "\"";
             }
@@ -2798,21 +2933,23 @@ public class WebServer {
         return out;
     }
 
-    private Map<String, String> projectTitles(String response) {
+    /** Project titles and icon URLs for every project id named in a version_files response. */
+    private void projectMeta(String response, Map<String, String> titles, Map<String, String> icons) {
         List<String> ids = new ArrayList<>();
         Matcher m = Pattern.compile("\"project_id\"\\s*:\\s*\"([A-Za-z0-9]+)\"").matcher(response);
         while (m.find() && ids.size() < 100) if (!ids.contains(m.group(1))) ids.add(m.group(1));
-        Map<String, String> titles = new HashMap<>();
-        if (ids.isEmpty()) return titles;
+        if (ids.isEmpty()) return;
         try {
             String url = "https://api.modrinth.com/v2/projects?ids=" + urlEncode("[\"" + String.join("\",\"", ids) + "\"]");
             for (String project : objectsInArray(modrinthGet(url, HASH_CACHE_MS), null)) {
                 String id = extractJson(project, "id");
                 String title = extractJson(project, "title");
-                if (!id.isEmpty() && !title.isEmpty()) titles.put(id, title);
+                String icon = extractJson(project, "icon_url");
+                if (id.isEmpty()) continue;
+                if (!title.isEmpty()) titles.put(id, title);
+                if (!icon.isEmpty()) icons.put(id, icon);
             }
         } catch (Exception ignored) {}
-        return titles;
     }
 
     private Map<String, String> lookupUpdates(List<String> hashes, String type, boolean mods, String mcVersion) {

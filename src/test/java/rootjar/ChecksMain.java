@@ -79,6 +79,7 @@ public final class ChecksMain {
         frontendSync();
         activityFeed();
         geyserAndMultiPort();
+        addonSources();
         panelNaming();
         System.out.println("unit checks: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
@@ -101,6 +102,65 @@ public final class ChecksMain {
         String appended = ChildProcess.setProperty("server-port=25565\n", "server-port", "30001");
         check(appended.contains("server-port=30001") && !appended.contains("server-port=25565"), "port alignment replaces instead of duplicating");
         check(ChildProcess.setProperty("motd=Hi", "server-port", "30001").endsWith("server-port=30001\n"), "port alignment appends a missing key");
+    }
+
+    private static void addonSources() {
+        String modrinth = "{\"hits\":[{\"project_id\":\"hXiIvTyT\",\"project_type\":\"mod\",\"all_project_types\":[\"plugin\"],"
+                + "\"slug\":\"essentialsx\",\"author\":\"mdcfe\",\"title\":\"EssentialsX\",\"description\":\"The essential plugin suite\","
+                + "\"categories\":[\"bukkit\",\"paper\"],\"versions\":[\"1.21.11\",\"26.1.2\"],\"downloads\":956849,"
+                + "\"icon_url\":\"https://cdn.modrinth.com/data/hXiIvTyT/icon.webp\"}],\"offset\":0,\"limit\":10,\"total_hits\":56}";
+        List<rootjar.addons.AddonSources.Item> modrinthItems = rootjar.addons.AddonSources.modrinth(modrinth);
+        check(modrinthItems.size() == 1, "modrinth hits are parsed");
+        check(modrinthItems.get(0).id().equals("hXiIvTyT") && modrinthItems.get(0).slug().equals("essentialsx"), "modrinth id and slug are read");
+        check(modrinthItems.get(0).title().equals("EssentialsX"), "modrinth title is read");
+        check(modrinthItems.get(0).downloads() == 956849L, "modrinth downloads are read");
+        check(modrinthItems.get(0).versions().equals(List.of("1.21.11", "26.1.2")), "modrinth versions are read");
+        check(rootjar.addons.AddonSources.totalCount(modrinth) == 56, "modrinth total_hits is read");
+
+        String hangar = "{\"pagination\":{\"count\":340,\"limit\":2,\"offset\":0},\"result\":[{\"id\":7387,"
+                + "\"name\":\"EssentialsX-Fixes\",\"namespace\":{\"owner\":\"YONN2222\",\"slug\":\"EssentialsX-Fixes\"},"
+                + "\"stats\":{\"views\":142,\"downloads\":6},\"description\":\"Unofficial addon\","
+                + "\"supportedPlatforms\":{\"PAPER\":[\"1.21.4\",\"26.2\"]},"
+                + "\"avatarUrl\":\"https://hangarcdn.papermc.io/avatars/project/7387.webp?v=1\"}]}";
+        List<rootjar.addons.AddonSources.Item> hangarItems = rootjar.addons.AddonSources.hangar(hangar);
+        check(hangarItems.size() == 1, "hangar results are parsed");
+        check(hangarItems.get(0).owner().equals("YONN2222") && hangarItems.get(0).slug().equals("EssentialsX-Fixes"), "hangar owner and slug are read");
+        check(hangarItems.get(0).id().equals("7387"), "hangar numeric id becomes a string");
+        check(hangarItems.get(0).downloads() == 6L, "hangar downloads come from the stats block");
+        check(hangarItems.get(0).versions().contains("26.2"), "hangar paper versions are read");
+        check(hangarItems.get(0).iconUrl().startsWith("https://hangarcdn.papermc.io/"), "hangar icon is read");
+        check(rootjar.addons.AddonSources.totalCount(hangar) == 340, "hangar pagination count is read");
+
+        String hangarVersions = "{\"pagination\":{\"count\":3},\"result\":[{\"name\":\"1.0.2\",\"channel\":{\"name\":\"Release\"},"
+                + "\"downloads\":{\"PAPER\":{\"fileInfo\":{\"name\":\"XFixes-1.0.2.jar\",\"sizeBytes\":88850},"
+                + "\"externalUrl\":null,\"downloadUrl\":\"https://hangarcdn.papermc.io/plugins/YONN2222/EssentialsX-Fixes/versions/1.0.2/PAPER/XFixes-1.0.2.jar\"}},"
+                + "\"platformDependencies\":{\"PAPER\":[\"1.21\",\"26.2\"]}}]}";
+        rootjar.addons.AddonSources.Download download = rootjar.addons.AddonSources.hangarDownload(hangarVersions);
+        check(download != null && download.fileName().equals("XFixes-1.0.2.jar"), "hangar file name is taken from fileInfo");
+        check(download != null && download.url().equals("https://hangarcdn.papermc.io/plugins/YONN2222/EssentialsX-Fixes/versions/1.0.2/PAPER/XFixes-1.0.2.jar"), "hangar download url is the cdn link");
+        check(rootjar.addons.AddonSources.hangarDownload("{\"result\":[]}") == null, "no hangar version means no download");
+        check(rootjar.addons.AddonSources.hangarDownload(hangar) == null, "a hangar search result is not a download");
+
+        String spigot = "[{\"name\":\"EssentialsX\",\"tag\":\"The modern Essentials suite for Spigot and Paper.\","
+                + "\"icon\":{\"data\":\"iVBORw0KGgo=\"},\"downloads\":5920254,\"premium\":false,\"id\":9089},"
+                + "{\"name\":\"Paid Plugin\",\"tag\":\"Buy me\",\"icon\":{\"data\":\"\"},\"downloads\":10,\"premium\":true,\"id\":1}]";
+        List<rootjar.addons.AddonSources.Item> spigotItems = rootjar.addons.AddonSources.spigot(spigot);
+        check(spigotItems.size() == 2, "spigot resources are parsed");
+        check(spigotItems.get(0).id().equals("9089") && spigotItems.get(0).title().equals("EssentialsX"), "spigot id and name are read");
+        check(spigotItems.get(0).description().equals("The modern Essentials suite for Spigot and Paper."), "the spigot tag becomes the description");
+        check(spigotItems.get(0).iconUrl().equals("data:image/png;base64,iVBORw0KGgo="), "the spigot icon becomes a data url");
+        check(!spigotItems.get(0).premium() && spigotItems.get(1).premium(), "premium spigot resources are flagged");
+        check(spigotItems.get(1).iconUrl().isEmpty(), "a missing spigot icon stays empty");
+        check(rootjar.addons.AddonSources.totalCount(spigot) == -1, "spigot reports no total");
+
+        String json = rootjar.addons.AddonSources.toJson(hangarItems, 340, 0, 10, "hangar");
+        check(json.startsWith("{\"source\":\"hangar\",\"total\":340,\"offset\":0,\"limit\":10,\"items\":[{\"id\":\"7387\""), "normalized json has the shared shape");
+        check(json.contains("\"versions\":[\"1.21.4\",\"26.2\"]"), "normalized json keeps versions");
+        check(json.endsWith("]}]}"), "normalized json is closed");
+        check(rootjar.addons.AddonSources.toJson(List.of(), 0, 0, 10, "spigot").contains("\"items\":[]"), "an empty result still returns valid json");
+        check(rootjar.addons.AddonSources.escape("a\"b\\c\nd").equals("a\\\"b\\\\c d"), "values are escaped for json");
+        check(rootjar.addons.AddonSources.objects("{\"result\":[]}", "result").isEmpty(), "an empty array yields no objects");
+        check(rootjar.addons.AddonSources.str("{\"a\":\"x\"}", "missing").isEmpty(), "a missing key yields an empty string");
     }
 
     private static void geyserAndMultiPort() throws Exception {
