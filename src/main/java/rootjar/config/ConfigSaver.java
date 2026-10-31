@@ -78,6 +78,9 @@ public class ConfigSaver {
             if (!c.autoStart()) sb.append("    auto_start: false\n"); // only written when the operator stopped it
             if (c.displayHost() != null && !c.displayHost().isBlank()) sb.append("    display_host: ").append(c.displayHost()).append("\n");
             if (c.idleShutdownSeconds() > 0) sb.append("    idle_shutdown_seconds: ").append(c.idleShutdownSeconds()).append("\n");
+            if (c.extraPorts() != null && !c.extraPorts().isEmpty()) {
+                sb.append("    extra_ports: [").append(c.extraPorts().stream().map(String::valueOf).reduce((a, b) -> a + ", " + b).orElse("")).append("]\n");
+            }
         }
         Files.writeString(file, sb.toString());
     }

@@ -10,6 +10,7 @@ import rootjar.config.JavaRuntimes;
 import rootjar.config.RootConfig;
 import rootjar.config.PasswordHasher;
 import rootjar.config.SoftwareRegistry;
+import rootjar.config.ServerConfig;
 import rootjar.config.StopStrategy;
 import rootjar.console.LogRingBuffer;
 import rootjar.console.StdinRouter;
@@ -77,6 +78,8 @@ public final class ChecksMain {
         portAlignment();
         frontendSync();
         activityFeed();
+        geyserAndMultiPort();
+        panelNaming();
         System.out.println("unit checks: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
@@ -98,6 +101,62 @@ public final class ChecksMain {
         String appended = ChildProcess.setProperty("server-port=25565\n", "server-port", "30001");
         check(appended.contains("server-port=30001") && !appended.contains("server-port=25565"), "port alignment replaces instead of duplicating");
         check(ChildProcess.setProperty("motd=Hi", "server-port", "30001").endsWith("server-port=30001\n"), "port alignment appends a missing key");
+    }
+
+    private static void geyserAndMultiPort() throws Exception {
+        Path dir = Files.createTempDirectory("geyser");
+        Path geyser = dir.resolve("plugins").resolve("Geyser-Spigot");
+        Files.createDirectories(geyser);
+        Files.writeString(geyser.resolve("config.yml"),
+                "# Geyser config\nbedrock:\n  address: 0.0.0.0\n  port: 19132 # Bedrock port\n  clone-remote-port: false\nremote:\n  address: auto\n  port: 25565\n");
+        check(rootjar.addons.GeyserConfig.find(dir) != null, "geyser config is discovered");
+        check(rootjar.addons.GeyserConfig.find(dir).getParent().getFileName().toString().equals("Geyser-Spigot"), "geyser folder name is matched");
+        check(rootjar.addons.GeyserConfig.bedrockPort(rootjar.addons.GeyserConfig.find(dir)) == 19132, "bedrock port is read");
+        check(rootjar.addons.GeyserConfig.setBedrockPort(rootjar.addons.GeyserConfig.find(dir), 25572), "bedrock port is rewritten");
+        String after = Files.readString(geyser.resolve("config.yml"));
+        check(after.contains("port: 25572 # Bedrock port"), "bedrock port keeps its comment");
+        check(after.contains("address: 0.0.0.0"), "other geyser settings survive");
+        check(after.contains("remote:"), "the remote block survives");
+        check(!after.contains("port: 25572 # Bedrock port\n  port:"), "only one bedrock port line is written");
+        check(rootjar.addons.GeyserConfig.bedrockPort(rootjar.addons.GeyserConfig.find(dir)) == 25572, "the new bedrock port is read back");
+        check(!after.contains("port: 25572\n  port:"), "the remote port is untouched");
+        check(after.contains("  port: 25565"), "remote port keeps its value");
+        check(rootjar.addons.GeyserConfig.find(dir.resolve("missing")) == null, "no geyser config means null");
+
+        Path plain = Files.createTempDirectory("no-geyser");
+        Files.createDirectories(plain.resolve("plugins").resolve("Other"));
+        Files.writeString(plain.resolve("plugins").resolve("Other").resolve("config.yml"), "bedrock:\n  port: 1\n");
+        check(rootjar.addons.GeyserConfig.find(plain) == null, "a non-geyser folder is not matched");
+
+        check(rootjar.addons.GeyserConfig.parsePorts("19132, 19133 19132").equals(java.util.List.of(19132, 19133)), "extra ports are parsed and de-duplicated");
+        check(rootjar.addons.GeyserConfig.parsePorts("0, 70000, abc").isEmpty(), "invalid extra ports are rejected");
+
+        ChildConfig child = new ChildConfig("Event", "paper", dir, "server.jar", "2048M", true, 25566, "0.0.0.0",
+                rootjar.config.StopStrategy.STDIN, "stop", 30, 1, 1, true, java.util.List.of(5), java.util.List.of(),
+                true, true, false, "", true, "", 0, java.util.List.of(19132, 19133));
+        check(child.usesPort(25566), "the primary port is in use");
+        check(child.usesPort(19132) && child.usesPort(19133), "extra ports are in use");
+        check(!child.usesPort(25567), "an unrelated port is free");
+        check(child.withJavaPath("/opt/java/bin/java").extraPorts().equals(java.util.List.of(19132, 19133)), "changing java keeps extra ports");
+        check(child.withIdleShutdownSeconds(600).extraPorts().equals(java.util.List.of(19132, 19133)), "changing idle shutdown keeps extra ports");
+        check(child.withExtraPorts(java.util.List.of(19132)).extraPorts().equals(java.util.List.of(19132)), "extra ports can be replaced");
+
+        Path roundTrip = Files.createTempDirectory("ports-config");
+        Path configFile = roundTrip.resolve("config.yml");
+        ServerConfig serverConfig = new ServerConfig("127.0.0.1", "127.0.0.1", 12035, 3600, 30, 10, 300,
+                PasswordHasher.hash("correct horse".toCharArray()), java.util.List.of(), 0, 5, "", false, java.util.List.of());
+        ConfigSaver.save(configFile, new RootConfig(serverConfig, java.util.List.of(child), roundTrip));
+        String yaml = Files.readString(configFile);
+        check(yaml.contains("extra_ports: [19132, 19133]"), "extra ports are written to config.yml");
+        RootConfig reloaded = ConfigLoader.load(configFile);
+        check(reloaded.children().get(0).extraPorts().equals(java.util.List.of(19132, 19133)), "extra ports survive a reload");
+    }
+
+    private static void panelNaming() {
+        check(WebServer.sanitizePanelName("  Stellarfall Network  ").equals("Stellarfall Network"), "the panel name is trimmed");
+        check(WebServer.sanitizePanelName("a\r\nb").equals("a  b"), "newlines cannot break the properties file");
+        check(WebServer.sanitizePanelName(null).isEmpty(), "a missing panel name becomes empty");
+        check(WebServer.sanitizePanelName("x".repeat(80)).length() == 48, "the panel name is capped at 48 characters");
     }
 
     private static void activityFeed() throws Exception {

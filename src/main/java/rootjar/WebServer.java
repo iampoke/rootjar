@@ -69,7 +69,7 @@ public class WebServer {
 
     /** Optional previous/next panel links shown as fixed buttons in the UI. */
     private record NodeButtons(String previousUrl, String nextUrl, boolean showPrevious, boolean showNext) {}
-    private record PanelOptions(List<Integer> ports, long diskLimitBytes, long backupLimitBytes, boolean setupComplete) {}
+    private record PanelOptions(List<Integer> ports, long diskLimitBytes, long backupLimitBytes, boolean setupComplete, String panelName, boolean showVersionBadge) {}
     private volatile NodeButtons nodeButtons;
     private volatile PanelOptions panelOptions;
     private final Path nodeButtonsPath;
@@ -185,6 +185,7 @@ public class WebServer {
         route("/api/access/save", this::handleAccessSave);
         route("/api/password", this::handlePasswordChange);
         route("/api/startup/save", this::handleStartupSave);
+        route("/api/startup/geyser", this::handleGeyserPort);
         route("/api/server/safe-mode", this::handleSafeMode);
         route("/api/files/usage", this::handleFileUsage);
         route("/api/version/check", this::handleVersionCheck);
@@ -707,6 +708,8 @@ public class WebServer {
           .append(",\"diskLimit\":").append(panelOptions.diskLimitBytes())
           .append(",\"backupLimit\":").append(panelOptions.backupLimitBytes())
           .append(",\"setupComplete\":").append(panelOptions.setupComplete())
+          .append(",\"panelName\":\"").append(jsonEscape(panelOptions.panelName())).append("\"")
+          .append(",\"showVersionBadge\":").append(panelOptions.showVersionBadge())
           .append(",\"servers\":[");
         boolean first = true;
         for (ChildStats s : stats) {
@@ -728,6 +731,7 @@ public class WebServer {
               .append("\"uptime\":\"").append(formatDuration(c.uptimeMillis())).append("\",")
               .append("\"players\":").append(c.playerCount()).append(",")
               .append("\"idleShutdownSeconds\":").append(k.idleShutdownSeconds()).append(",")
+              .append("\"extraPorts\":").append(k.extraPorts() == null || k.extraPorts().isEmpty() ? "[]" : k.extraPorts().stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(",", "[", "]"))).append(",")
               .append("\"idleRemainingMillis\":").append(c.idleShutdownRemainingMillis()).append(",")
               .append("\"ramUsed\":").append(s.ramMb()).append(",\"ramMax\":").append(parseRam(k.heap()))
               .append(",\"diskUsed\":").append(s.diskBytes())
@@ -1023,7 +1027,8 @@ public class WebServer {
             String javaPath = website || bot ? "" : chooseJavaFor(recJava);
 
             ChildConfig newChild = new ChildConfig(name, type, dir, jar, ram + "M", true, port, "0.0.0.0",
-                website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, javaPath, true, "", 0);
+                website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, javaPath, true, "", 0,
+                extraPortsFromBody(body, port) == null ? List.of() : extraPortsFromBody(body, port));
             supervisor.addChild(newChild);
 
             saveConfig(new RootConfig(config.server(),
@@ -1156,7 +1161,8 @@ public class WebServer {
             ChildConfig updated = new ChildConfig(name, type.isBlank() ? old.type() : type, newDir, jar == null ? old.jar() : jar, ram + "M", old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(), old.startOrder(),
                 old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(), old.extraFlags(),
-                old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), displayHost, idleSeconds(body, old.idleShutdownSeconds()));
+                old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), displayHost, idleSeconds(body, old.idleShutdownSeconds()),
+                extraPortsFromBody(body, port) == null ? old.extraPorts() : extraPortsFromBody(body, port));
             List<ChildConfig> children = supervisor.children().stream()
                 .map(c -> c.id().equals(id) ? updated : c.config()).toList();
             try { ConfigValidator.validate(new RootConfig(config.server(), children, config.baseDir())); }
@@ -1529,6 +1535,33 @@ public class WebServer {
         send(ex, 200, "OK");
     }
 
+    /** Binds one of this server's ports to Geyser's bedrock port, so Bedrock players use a panel-assigned port. */
+    private void handleGeyserPort(HttpExchange ex) throws IOException {
+        String serverId = param(ex, "server", "");
+        if (!requireOperator(ex, serverId)) return;
+        ChildProcess child = supervisor.child(serverId).orElse(null);
+        if (child == null) { send(ex, 404, "Not found"); return; }
+        Path geyserFile = rootjar.addons.GeyserConfig.find(child.config().dir());
+        if (geyserFile == null) { send(ex, 404, "No Geyser config.yml was found in plugins"); return; }
+        String relative = child.config().dir().relativize(geyserFile).toString().replace('\\', '/');
+        if (!ex.getRequestMethod().equalsIgnoreCase("POST")) {
+            int current;
+            try { current = rootjar.addons.GeyserConfig.bedrockPort(geyserFile); }
+            catch (IOException e) { send(ex, 500, e.getMessage()); return; }
+            send(ex, 200, "{\"file\":\"" + jsonEscape(relative) + "\",\"port\":" + current + "}");
+            return;
+        }
+        int port = clampInt(param(ex, "port", "0"), 65535, 0, 65535);
+        if (port < 1) { send(ex, 400, "Choose a port to bind"); return; }
+        if (!child.config().usesPort(port)) { send(ex, 400, "That port is not assigned to this server"); return; }
+        boolean written;
+        try { written = rootjar.addons.GeyserConfig.setBedrockPort(geyserFile, port); }
+        catch (IOException e) { send(ex, 500, e.getMessage()); return; }
+        if (!written) { send(ex, 400, "The Geyser config has no bedrock port entry"); return; }
+        audit(ex, serverId + ".geyser.bind", relative + " bedrock port " + port);
+        send(ex, 200, "{\"ok\":true,\"port\":" + port + ",\"file\":\"" + jsonEscape(relative) + "\"}");
+    }
+
     /** Saves the Startup tab: jar, Java, JVM flags, stop behaviour, auto start and idle shutdown. */
     private void handleStartupSave(HttpExchange ex) throws IOException {
         String serverId = param(ex, "server", "");
@@ -1578,7 +1611,7 @@ public class WebServer {
         ChildConfig updated = new ChildConfig(current.id(), current.type(), current.dir(), jar, current.heap(), current.xmsEqualXmx(),
                 current.port(), current.bind(), strategy, stopCommand, stopTimeout, current.startOrder(), current.stopOrder(),
                 current.restartOnCrash(), current.restartBackoffSeconds(), flags, current.consoleEnabled(), useAikar,
-                current.silent(), javaPath, autoStart, current.displayHost(), idle);
+                current.silent(), javaPath, autoStart, current.displayHost(), idle, current.extraPorts());
         supervisor.setChildConfig(serverId, updated);
         persistConfig();
         audit(ex, serverId + ".startup.save", "jar " + jar + (javaPath.isBlank() ? ", panel Java" : ", " + javaPath));
@@ -1630,7 +1663,7 @@ public class WebServer {
             ChildConfig newCfg = new ChildConfig(old.id(), old.type(), old.dir(), jar, heap, old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(),
                 old.startOrder(), old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(),
-                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), old.displayHost(), old.idleShutdownSeconds());
+                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), old.displayHost(), old.idleShutdownSeconds(), old.extraPorts());
             supervisor.updateChildConfig(id, newCfg);
             saveConfig(new RootConfig(config.server(),
                     supervisor.children().stream().map(ChildProcess::config).toList(), config.baseDir()));
@@ -2041,7 +2074,9 @@ public class WebServer {
                     + ",\"ports\":\"" + jsonEscape(portListText()) + "\""
                     + ",\"diskLimitGb\":" + (panelOptions.diskLimitBytes() / 1073741824L)
                     + ",\"backupLimitGb\":" + (panelOptions.backupLimitBytes() / 1073741824L)
-                    + ",\"setupComplete\":" + panelOptions.setupComplete() + "}");
+                    + ",\"setupComplete\":" + panelOptions.setupComplete()
+                    + ",\"panelName\":\"" + jsonEscape(panelOptions.panelName()) + "\""
+                    + ",\"showVersionBadge\":" + panelOptions.showVersionBadge() + "}");
             return;
         }
         String body = new String(ex.getRequestBody().readNBytes(8193), StandardCharsets.UTF_8);
@@ -2075,7 +2110,9 @@ public class WebServer {
             long diskBytes = jsonHas(body, "diskLimitGb") ? Math.max(0, parseLong(extractJson(body, "diskLimitGb"))) * 1073741824L : panelOptions.diskLimitBytes();
             long backupBytes = jsonHas(body, "backupLimitGb") ? Math.max(0, parseLong(extractJson(body, "backupLimitGb"))) * 1073741824L : panelOptions.backupLimitBytes();
             boolean setupComplete = jsonHas(body, "setupComplete") ? !"false".equals(extractJson(body, "setupComplete")) : panelOptions.setupComplete();
-            PanelOptions updatedOptions = new PanelOptions(jsonHas(body, "ports") ? parsePorts(extractJson(body, "ports")) : panelOptions.ports(), diskBytes, backupBytes, setupComplete);
+            PanelOptions updatedOptions = new PanelOptions(jsonHas(body, "ports") ? parsePorts(extractJson(body, "ports")) : panelOptions.ports(), diskBytes, backupBytes, setupComplete,
+                    jsonHas(body, "panelName") ? sanitizePanelName(extractJson(body, "panelName")) : panelOptions.panelName(),
+                    jsonHas(body, "showVersionBadge") ? !"false".equals(extractJson(body, "showVersionBadge")) : panelOptions.showVersionBadge());
             savePanelOptions(updatedOptions);
             panelOptions = updatedOptions;
         }
@@ -2094,6 +2131,20 @@ public class WebServer {
     }
 
     private static long parseLong(String value) { try { return Long.parseLong(value); } catch (NumberFormatException e) { return 0; } }
+
+    /**
+     * Additional ports for one server, such as a Bedrock/Geyser UDP port. The primary port is never repeated,
+     * port 0 stays reserved for bots, and a server may hold at most eight extras.
+     */
+    private static List<Integer> extraPortsFromBody(String body, int primaryPort) {
+        if (!jsonHas(body, "extraPorts")) return null;
+        List<Integer> ports = new ArrayList<>();
+        for (int port : parsePorts(extractJson(body, "extraPorts"))) {
+            if (port == primaryPort || ports.contains(port)) continue;
+            if (ports.size() < 8) ports.add(port);
+        }
+        return ports;
+    }
     private static List<Integer> parsePorts(String text) {
         List<Integer> ports = new ArrayList<>();
         for (String part : text.split("[,\\s]+")) {
@@ -2105,7 +2156,11 @@ public class WebServer {
     }
     private String portListText() { return panelOptions.ports().stream().map(String::valueOf).reduce((a, b) -> a + ", " + b).orElse(""); }
     private String availablePortsJson() {
-        Set<Integer> used = supervisor.children().stream().map(child -> child.config().port()).collect(java.util.stream.Collectors.toSet());
+        Set<Integer> used = new java.util.HashSet<>();
+        for (ChildProcess child : supervisor.children()) {
+            used.add(child.config().port());
+            if (child.config().extraPorts() != null) used.addAll(child.config().extraPorts());
+        }
         StringBuilder json = new StringBuilder("[");
         boolean first = true;
         for (int port : panelOptions.ports()) {
@@ -2120,6 +2175,8 @@ public class WebServer {
         String ports = "";
         long disk = 0, backup = 0;
         boolean setup = false;
+        String panelName = "";
+        boolean showVersionBadge = true;
         if (Files.exists(file)) {
             try {
                 for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
@@ -2131,17 +2188,29 @@ public class WebServer {
                         case "diskLimit" -> disk = parseLong(value);
                         case "backupLimit" -> backup = parseLong(value);
                         case "setupComplete" -> setup = value.equals("true");
+                        case "panelName" -> panelName = value;
+                        case "showVersionBadge" -> showVersionBadge = !value.equals("false");
                     }
                 }
             } catch (IOException ignored) {}
         }
-        return new PanelOptions(parsePorts(ports), disk, backup, setup);
+        return new PanelOptions(parsePorts(ports), disk, backup, setup, sanitizePanelName(panelName), showVersionBadge);
+    }
+
+    /** Keeps the editable panel title short and free of characters that would break the properties file or HTML. */
+    static String sanitizePanelName(String raw) {
+        if (raw == null) return "";
+        String name = raw.replace("\r", " ").replace("\n", " ").trim();
+        if (name.length() > 48) name = name.substring(0, 48);
+        return name;
     }
     private void savePanelOptions(PanelOptions options) throws IOException {
         Path file = config.baseDir().resolve("panel-options.properties");
         Files.writeString(file, "ports=" + options.ports().stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("")
                 + "\ndiskLimit=" + options.diskLimitBytes() + "\nbackupLimit=" + options.backupLimitBytes()
-                + "\nsetupComplete=" + options.setupComplete() + "\n", StandardCharsets.UTF_8);
+                + "\nsetupComplete=" + options.setupComplete()
+                + "\npanelName=" + options.panelName()
+                + "\nshowVersionBadge=" + options.showVersionBadge() + "\n", StandardCharsets.UTF_8);
     }
     private static boolean jsonHas(String json, String key) {
         return json != null && json.contains("\"" + key + "\"");
@@ -3838,7 +3907,7 @@ public class WebServer {
                         liveCfg.stopStrategy(), liveCfg.stopCommand(), liveCfg.stopTimeoutSeconds(),
                         liveCfg.startOrder(), liveCfg.stopOrder(), liveCfg.restartOnCrash(),
                         liveCfg.restartBackoffSeconds(), liveCfg.extraFlags(), liveCfg.consoleEnabled(),
-                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath(), liveCfg.autoStart(), liveCfg.displayHost(), liveCfg.idleShutdownSeconds());
+                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath(), liveCfg.autoStart(), liveCfg.displayHost(), liveCfg.idleShutdownSeconds(), liveCfg.extraPorts());
                 supervisor.updateChildConfig(serverId, newCfg);
                 owner[0] = supervisor.child(serverId).orElse(null); // updateChildConfig installs a new instance
                 persistConfig();

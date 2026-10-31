@@ -74,6 +74,10 @@ public final class ConfigLoader {
             if (!(o instanceof Long l) || l > Integer.MAX_VALUE) throw new ConfigException(w + ".restart_backoff_seconds must be a list");
             backoff.add((int) (long) l);
         }
+        List<Integer> extraPorts = new ArrayList<>();
+        for (Object o : list(m, "extra_ports", List.of(), w)) {
+            if (o instanceof Long l && l > 0 && l <= 65535) extraPorts.add((int) (long) l);
+        }
         return new ChildConfig(
                 id, str(m, "type", id, w), baseDir.resolve(str(m, "dir", null, w)).normalize(),
                 str(m, "jar", null, w), str(m, "heap", null, w), bool(m, "xms_equal_xmx", true, w),
@@ -82,11 +86,12 @@ public final class ConfigLoader {
                 num(m, "start_order", index + 1, w), num(m, "stop_order", index + 1, w),
                 bool(m, "restart_on_crash", true, w), backoff, strList(m, "extra_flags", List.of(), w),
                 bool(m, "console_enabled", true, w), bool(m, "use_aikar_flags", true, w),
-                bool(m, "silent", false, w), // NEW
-                str(m, "java", "", w), // NEW: "" means the panel's own JVM
-                bool(m, "auto_start", true, w), // NEW: old configs keep starting on boot
+                bool(m, "silent", false, w),
+                str(m, "java", "", w),
+                bool(m, "auto_start", true, w),
                 str(m, "display_host", "", w),
-                Math.max(0, num(m, "idle_shutdown_seconds", 0, w))
+                Math.max(0, num(m, "idle_shutdown_seconds", 0, w)),
+                extraPorts
         );
     }
 

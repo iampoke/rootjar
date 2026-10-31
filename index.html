@@ -305,6 +305,10 @@
         .fm-header { padding: 12px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; background: var(--bg-body); }
         .fm-table { width: 100%; border-collapse: collapse; }
         .fm-table th, .fm-table td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
+        .fm-table tbody tr { transition: background .12s ease; }
+        .fm-table tbody tr:hover { background: var(--bg-hover); cursor: pointer; }
+        .fm-table tbody tr:hover .fm-label { color: var(--text-main); }
+        .fm-table tbody tr:hover td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
         .fm-file, .fm-dir { cursor: pointer; }
         .fm-file:hover, .fm-dir:hover { text-decoration: underline; }
         
@@ -520,7 +524,7 @@
         #app option, .modal-overlay option { background:var(--bg-panel); color:var(--text-main); }
         /* File type icons */
         .fm-label { display:inline-flex; align-items:center; gap:9px; cursor:pointer; }
-        .fm-icon { width:17px; height:17px; flex:none; }
+        .fm-icon { width:18px; height:18px; flex:none; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35)); }
         .ic-folder { color:#f2b544; } .ic-archive { color:#e0834a; } .ic-jar { color:#7fb3ff; }
         .ic-config { color:#63d3a5; } .ic-code { color:#8ad06a; } .ic-text { color:#98a2b3; }
         .ic-image { color:#c084fc; } .ic-data { color:#5eead4; } .ic-file { color:#98a2b3; }
@@ -535,6 +539,40 @@
         .activity-key { font-family:var(--font-mono); font-size:11px; color:var(--text-muted); background:var(--bg-input); border:1px solid var(--border); border-radius:6px; padding:2px 7px; }
         .activity-detail { margin-top:5px; font-size:13px; color:var(--text-muted); word-break:break-word; }
         .activity-time { font-size:12px; color:var(--text-muted); white-space:nowrap; padding-top:2px; }
+        /* Theme every control, not only the ones inside .form-group */
+        :root { color-scheme: dark; }
+        #app input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="button"]):not([type="submit"]),
+        #app select, #app textarea,
+        .modal-overlay input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="button"]):not([type="submit"]),
+        .modal-overlay select, .modal-overlay textarea {
+            background: var(--bg-input) !important; border: 1px solid var(--border) !important; border-radius: 8px;
+            color: var(--text-main) !important; padding: 10px 12px; font-size: 13px; outline: none;
+            transition: border-color .12s, box-shadow .12s;
+        }
+        #app input:hover:not([type="checkbox"]):not([type="radio"]), #app select:hover, #app textarea:hover,
+        .modal-overlay input:hover:not([type="checkbox"]):not([type="radio"]), .modal-overlay select:hover, .modal-overlay textarea:hover { border-color: var(--border-light) !important; }
+        #app input:focus, #app select:focus, #app textarea:focus,
+        .modal-overlay input:focus, .modal-overlay select:focus, .modal-overlay textarea:focus {
+            border-color: var(--accent) !important; box-shadow: 0 0 0 3px hsla(215, 80%, 60%, 0.15);
+        }
+        #app input::placeholder, #app textarea::placeholder,
+        .modal-overlay input::placeholder, .modal-overlay textarea::placeholder { color: var(--text-dark) !important; opacity: 1; }
+        #app input[type="checkbox"], #app input[type="radio"],
+        .modal-overlay input[type="checkbox"], .modal-overlay input[type="radio"] { accent-color: var(--accent); padding: 0; }
+        /* Controls that stay borderless or self-coloured by design */
+        #app .console-input-box input, .modal-overlay .console-input-box input {
+            background: transparent !important; border: none !important; box-shadow: none !important;
+            color: #fff !important; padding: 12px 0; border-radius: 0;
+        }
+        #app .compact-address { background: transparent !important; border: none !important; border-top: 1px solid var(--border) !important; border-bottom: 1px solid var(--border) !important; border-radius: 0; box-shadow: none !important; padding: 12px 0; }
+        #app textarea.config-raw { background: #000 !important; color: #a3be8c !important; border-radius: 10px; }
+        #app .settings-tasks { background: #111827 !important; color: #d1d5db !important; border-radius: 10px; }
+        /* The Minecraft font has to win over the per-component monospace rules */
+        body.mc-font { --font-main: 'Minecraftia', monospace; --font-mono: 'Minecraftia', monospace; }
+        body.mc-font, body.mc-font *, body.mc-font input, body.mc-font select, body.mc-font option,
+        body.mc-font textarea, body.mc-font button, body.mc-font code, body.mc-font pre, body.mc-font kbd,
+        body.mc-font .CodeMirror, body.mc-font .CodeMirror pre, body.mc-font .CodeMirror-code,
+        body.mc-font input::placeholder, body.mc-font textarea::placeholder { font-family: 'Minecraftia', monospace !important; }
         .fm-table-wrap { flex:1; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:10px; }
         .settings-menu { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; max-width:980px; }
         .startup-preview { margin:0; padding:12px; border:1px solid var(--border); border-radius:8px; background:var(--bg-body); color:var(--text-main); font-family:var(--font-mono); font-size:12px; white-space:pre-wrap; word-break:break-all; }
@@ -608,7 +646,7 @@
     <div id="app">
         <div class="topbar">
             <div class="topbar-left">
-                <div class="logo" onclick="switchView('dashboard')">Rootjar <span id="panel-version" class="panel-version"></span></div>
+                <div class="logo" onclick="switchView('dashboard')"><span id="panel-name">Rootjar</span> <span id="panel-version" class="panel-version"></span></div>
                 <div class="breadcrumbs" id="breadcrumbs"><span>Servers</span></div>
                 
                 <div class="global-stats" id="global-stats-container">
@@ -691,6 +729,8 @@
                     <button onclick="openSettingsSection('audit')"><strong>Audit Log</strong><span>Search panel activity</span></button>
                 </div>
                 <section id="settings-general" class="settings-section"><div class="settings-grid">
+                    <label>Panel Name<input id="settings-panel-name" type="text" maxlength="48" placeholder="Rootjar"></label>
+                    <label class="settings-check"><input id="settings-show-badge" type="checkbox" checked> Show the "Rootjar v1.0.1" badge</label>
                     <label>Webhook URL<input id="settings-webhook" type="url" placeholder="https://discord.com/api/webhooks/..."></label>
                     <label>Backup retention<input id="settings-retention" type="number" min="1" max="50"></label>
                     <label class="settings-check"><input id="settings-public" type="checkbox"> Enable public status page</label>
@@ -863,6 +903,7 @@
                                   <div class="form-group"><label>Server Name</label><input id="edit-server-name" type="text"></div>
                                   <div class="form-group"><label>Server Type</label><input id="edit-server-type" type="text" placeholder="manual"></div>
                                   <div class="form-group"><label>Port</label><select id="edit-server-port" onchange="portChoiceChanged('edit-server-port')"></select><input id="edit-server-port-custom" type="number" min="0" max="65535" style="display:none;margin-top:8px" placeholder="25565"></div>
+                                   <div class="form-group"><label>Additional Ports</label><input id="edit-server-ports" type="text" placeholder="19132, 19133"><span class="version-note">Extra ports reserved for this server, such as a Bedrock port. Comma separated, up to eight.</span></div>
                                   <div class="form-group"><label>Custom IP or Domain</label><input id="edit-server-host" type="text" placeholder="stellarfall.net" maxlength="253" autocomplete="off" spellcheck="false"></div>
                                   <div class="form-group"><label>Auto Shutdown</label><div style="display:flex;gap:8px"><input id="edit-server-idle-amount" type="number" min="0" value="0" style="flex:1"><select id="edit-server-idle-unit"><option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option></select></div><span class="version-note">Stops the server after this long with no players. Zero disables it.</span></div>
                                   <div class="form-group"><label>RAM (MB)</label><input id="edit-server-ram" type="number" min="128"></div>
@@ -1165,6 +1206,17 @@
                             </div>
 
                             <div class="version-section">
+                                <div class="version-section-head"><h3>Ports</h3></div>
+                                <div class="java-row" id="startup-ports-assigned"></div>
+                                <div class="version-note" id="startup-ports-free"></div>
+                                <div class="java-row" style="margin-top:10px">
+                                    <select id="startup-geyser-port" class="java-select"></select>
+                                    <button class="btn btn-outline" onclick="bindGeyserPort()">Bind to Geyser</button>
+                                </div>
+                                <div class="version-note" id="startup-geyser-status"></div>
+                            </div>
+
+                            <div class="version-section">
                                 <div class="version-section-head"><h3>Stop</h3></div>
                                 <div class="java-row">
                                     <select id="startup-stop-strategy" class="java-select">
@@ -1235,7 +1287,7 @@
                                 <span class="info-label">UPTIME</span>
                                 <span class="info-val" id="sidebar-uptime">0h 0m 0s</span>
                             </div>
-                            <div class="info-item wide">
+                            <div class="info-item wide" id="sidebar-idle-item">
                                 <span class="info-label">AUTOMATIC SHUTDOWN IN</span>
                                 <span class="info-val" id="sidebar-idle">Off</span>
                             </div>
@@ -1777,11 +1829,16 @@
         function showPanelVersion(status) {
             const version = status && status.version ? status.version : '';
             const build = PANEL_BUILD && PANEL_BUILD.indexOf('__') !== 0 ? PANEL_BUILD : '';
-            const label = (version ? 'v' + version : '') + (build ? ' · ' + build : '');
+            const label = ('Rootjar ' + (version ? 'v' + version : '') + (build ? ' · ' + build : '')).trim();
+            const custom = status && status.panelName ? status.panelName : 'Rootjar';
+            const showBadge = !status || status.showVersionBadge !== false;
+            const nameEl = document.getElementById('panel-name');
             const badge = document.getElementById('panel-version');
             const settings = document.getElementById('settings-version');
-            if (badge) badge.textContent = label;
-            if (settings) settings.textContent = label ? 'Rootjar ' + label : '';
+            if (nameEl) nameEl.textContent = custom;
+            document.title = custom;
+            if (badge) { badge.textContent = showBadge ? label : ''; badge.style.display = showBadge ? '' : 'none'; }
+            if (settings) settings.textContent = label;
         }
 
         function serverId(value) {
@@ -2014,6 +2071,8 @@
                     document.getElementById('sidebar-status-2').innerText = s.status;
                     document.getElementById('sidebar-uptime').innerText = s.uptime;
                     document.getElementById('sidebar-idle').innerText = idleShutdownText(s);
+                    const idleItem = document.getElementById('sidebar-idle-item');
+                    if (idleItem) idleItem.style.display = s.idleShutdownSeconds ? '' : 'none';
                     document.getElementById('sidebar-players').innerText = s.players;
                     
                     document.getElementById('res-cpu-txt').innerText = s.cpuUsed + '%';
@@ -2159,7 +2218,7 @@
             tbody.innerHTML = '';
             currentServersList.forEach(s => {
                 tbody.innerHTML += `<tr class="manage-row" draggable="${isAdmin ? 'true' : 'false'}" data-server-id="${escapeHtml(s.id)}" onpointerdown="serverPointerDown(event)" onpointermove="serverPointerMove(event)" onpointerup="serverPointerUp(event)" onpointercancel="serverPointerCancel(event)" ondragstart="serverDragStart(event)" ondragover="serverDragOver(event)" ondrop="serverDrop(event)" ondragend="serverDragEnd(event)">
-                    <td><strong>${escapeHtml(s.id)}</strong></td>
+                    <td><strong>${escapeHtml(String(s.id).replace(/_/g, ' '))}</strong></td>
                     <td>${typeBadge(s.type)}</td>
                     <td>${s.port}</td>
                     <td>${s.ramMax} MB</td>
@@ -2835,15 +2894,15 @@
         }
 
         const FILE_ICONS = {
-            folder: ['ic-folder', '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'],
-            archive: ['ic-archive', '<path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/>'],
-            jar: ['ic-jar', '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>'],
-            config: ['ic-config', '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>'],
-            code: ['ic-code', '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'],
-            text: ['ic-text', '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>'],
-            image: ['ic-image', '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'],
-            data: ['ic-data', '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>'],
-            file: ['ic-file', '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>']
+            folder: ['ic-folder', '<path d="M10.6 3.2 12.4 5H20a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5a2 2 0 0 1 1.6.8z"/>'],
+            archive: ['ic-archive', '<path d="M2 3h20v5H2z"/><path d="M4 9h16v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><rect x="10" y="12" width="4" height="2.4" rx="1.2" fill="var(--bg-panel)"/>'],
+            jar: ['ic-jar', '<path d="m12 2 8.7 5v10L12 22l-8.7-5V7z"/><path d="m12 6.6 4.6 2.7v5.4L12 17.4l-4.6-2.7V9.3z" fill="var(--bg-panel)" opacity=".55"/>'],
+            config: ['ic-config', '<rect x="2.5" y="4.5" width="19" height="3.4" rx="1.7"/><rect x="2.5" y="10.3" width="13" height="3.4" rx="1.7"/><rect x="2.5" y="16.1" width="16.5" height="3.4" rx="1.7"/>'],
+            code: ['ic-code', '<path d="M9.7 4.2 2.6 12l7.1 7.8 2-1.8-5.5-6 5.5-6zM14.3 4.2l-2 1.8 5.5 6-5.5 6 2 1.8 7.1-7.8z"/>'],
+            text: ['ic-text', '<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7z" fill="var(--bg-panel)" opacity=".45"/><rect x="7" y="13" width="10" height="1.8" rx=".9" fill="var(--bg-panel)" opacity=".8"/><rect x="7" y="16.6" width="6.5" height="1.8" rx=".9" fill="var(--bg-panel)" opacity=".8"/>'],
+            image: ['ic-image', '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.6" cy="8.6" r="1.9" fill="var(--bg-panel)"/><path d="M4.6 19.4 9.8 13l3.4 4.1 2.6-2.9 3.6 5.2z" fill="var(--bg-panel)"/>'],
+            data: ['ic-data', '<ellipse cx="12" cy="5.2" rx="8" ry="3.2"/><path d="M4 5.6v5.2c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V5.6c0 1.8-3.6 3.2-8 3.2s-8-1.4-8-3.2z"/><path d="M4 11.6v5.2c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2v-5.2c0 1.8-3.6 3.2-8 3.2s-8-1.4-8-3.2z" opacity=".72"/>'],
+            file: ['ic-file', '<path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7z" fill="var(--bg-panel)" opacity=".45"/>']
         };
         const FILE_ICON_KINDS = {
             zip: 'archive', tar: 'archive', gz: 'archive', tgz: 'archive', rar: 'archive', '7z': 'archive', mrpack: 'archive', mcworld: 'archive',
@@ -2859,7 +2918,7 @@
             const ext = lower.includes('.') ? lower.slice(lower.lastIndexOf('.') + 1) : '';
             const kind = isDir ? 'folder' : (FILE_ICON_KINDS[ext] || 'file');
             const icon = FILE_ICONS[kind] || FILE_ICONS.file;
-            return `<svg class="fm-icon ${icon[0]}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon[1]}</svg>`;
+            return `<svg class="fm-icon ${icon[0]}" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">${icon[1]}</svg>`;
         }
         function fillPortOptions(selectId, selected, allowNone) {
             const select = document.getElementById(selectId);
@@ -3112,8 +3171,8 @@
         async function bulkTrash() { if (!await confirmPromise({title:'Move to Trash', body:'Move ' + fileSelection.size + ' selected item(s) to Trash?', confirmText:'Move to Trash', danger:true})) return; for (const path of [...fileSelection]) await fetch('/api/files/trash/' + currentServer.id + '?path=' + encodeURIComponent(path), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
         function updateRestartBanner() { const banner = document.getElementById('config-restart-banner'); const server = currentServersList.find(item => currentServer && item.id === currentServer.id); if (banner) banner.style.display = server && server.restartRequired ? 'block' : 'none'; }
         function openSettingsSection(name) { document.getElementById('settings-menu').style.display = name === 'menu' ? 'grid' : 'none'; document.getElementById('settings-back').style.display = name === 'menu' ? 'none' : ''; document.getElementById('settings-title').textContent = name === 'menu' ? 'Settings' : name[0].toUpperCase() + name.slice(1); document.querySelectorAll('.settings-section').forEach(section => section.classList.toggle('active', section.id === 'settings-' + name)); }
-        async function loadSettings() { const response = await fetch('/api/settings'); if (!response.ok) return; const data = await response.json(); document.getElementById('settings-webhook').value = data.webhookUrl || ''; document.getElementById('settings-retention').value = data.backupRetention || 5; document.getElementById('settings-public').checked = data.publicStatus === true; document.getElementById('settings-prev-url').value = data.nodePreviousUrl || ''; document.getElementById('settings-next-url').value = data.nodeNextUrl || ''; document.getElementById('settings-prev-show').checked = data.nodeShowPrevious !== false; document.getElementById('settings-next-show').checked = data.nodeShowNext !== false; document.getElementById('settings-ports').value = data.ports || ''; document.getElementById('settings-disk-limit').value = data.diskLimitGb || 0; document.getElementById('settings-backup-limit').value = data.backupLimitGb || 0; document.getElementById('settings-tasks').value = await (await fetch('/api/tasks')).text(); }
-        async function saveSettings() { const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({webhookUrl:document.getElementById('settings-webhook').value, backupRetention:document.getElementById('settings-retention').value, publicStatus:document.getElementById('settings-public').checked, nodePreviousUrl:document.getElementById('settings-prev-url').value, nodeNextUrl:document.getElementById('settings-next-url').value, nodeShowPrevious:document.getElementById('settings-prev-show').checked, nodeShowNext:document.getElementById('settings-next-show').checked, ports:document.getElementById('settings-ports').value, diskLimitGb:document.getElementById('settings-disk-limit').value, backupLimitGb:document.getElementById('settings-backup-limit').value, setupComplete:true})}); showToast(response.ok ? 'Settings saved' : await response.text(), response.ok ? 'success' : 'error'); if (response.ok) { localStorage.removeItem('rootjar-setup-dismissed'); loadAuditLog(); refresh(); } }
+        async function loadSettings() { const response = await fetch('/api/settings'); if (!response.ok) return; const data = await response.json(); document.getElementById('settings-panel-name').value = data.panelName || ''; document.getElementById('settings-show-badge').checked = data.showVersionBadge !== false; document.getElementById('settings-webhook').value = data.webhookUrl || ''; document.getElementById('settings-retention').value = data.backupRetention || 5; document.getElementById('settings-public').checked = data.publicStatus === true; document.getElementById('settings-prev-url').value = data.nodePreviousUrl || ''; document.getElementById('settings-next-url').value = data.nodeNextUrl || ''; document.getElementById('settings-prev-show').checked = data.nodeShowPrevious !== false; document.getElementById('settings-next-show').checked = data.nodeShowNext !== false; document.getElementById('settings-ports').value = data.ports || ''; document.getElementById('settings-disk-limit').value = data.diskLimitGb || 0; document.getElementById('settings-backup-limit').value = data.backupLimitGb || 0; document.getElementById('settings-tasks').value = await (await fetch('/api/tasks')).text(); }
+        async function saveSettings() { const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({panelName:document.getElementById('settings-panel-name').value, showVersionBadge:document.getElementById('settings-show-badge').checked, webhookUrl:document.getElementById('settings-webhook').value, backupRetention:document.getElementById('settings-retention').value, publicStatus:document.getElementById('settings-public').checked, nodePreviousUrl:document.getElementById('settings-prev-url').value, nodeNextUrl:document.getElementById('settings-next-url').value, nodeShowPrevious:document.getElementById('settings-prev-show').checked, nodeShowNext:document.getElementById('settings-next-show').checked, ports:document.getElementById('settings-ports').value, diskLimitGb:document.getElementById('settings-disk-limit').value, backupLimitGb:document.getElementById('settings-backup-limit').value, setupComplete:true})}); showToast(response.ok ? 'Settings saved' : await response.text(), response.ok ? 'success' : 'error'); if (response.ok) { localStorage.removeItem('rootjar-setup-dismissed'); loadAuditLog(); refresh(); } }
         async function finishSetup(event) { event.preventDefault(); const response = await fetch('/api/settings', {method:'POST', body:JSON.stringify({ports:document.getElementById('setup-ports').value, diskLimitGb:document.getElementById('setup-disk').value, backupLimitGb:document.getElementById('setup-backup').value, setupComplete:true})}); if (!response.ok) return showToast(await response.text(), 'error'); localStorage.removeItem('rootjar-setup-dismissed'); document.getElementById('setup-overlay').style.display = 'none'; refresh(); }
         async function saveTasks() { const response = await fetch('/api/tasks', {method:'POST', body:document.getElementById('settings-tasks').value}); showToast(response.ok ? 'Schedules saved' : await response.text(), response.ok ? 'success' : 'error'); if (response.ok) loadAuditLog(); }
         function downloadFile(path, directory) { window.open(`/api/files/${directory ? 'download-zip' : 'download'}/${currentServer.id}?path=${encodeURIComponent(path)}`); }
@@ -3304,7 +3363,40 @@
             const preset = Object.keys(JVM_PRESETS).find(name => JVM_PRESETS[name] === flags.trim());
             document.getElementById('startup-preset').value = preset || 'custom';
             showPresetWarning(preset || 'custom');
+            renderStartupPorts(s);
             updateStartupPreview();
+        }
+        function renderStartupPorts(s) {
+            const assigned = [Number(s.port || 0)].concat((s.extraPorts || []).map(Number)).filter(port => port > 0);
+            const unique = [...new Set(assigned)];
+            document.getElementById('startup-ports-assigned').innerHTML = unique.length
+                ? unique.map((port, index) => `<span class="stat-pill">${port}${index === 0 ? ' · primary' : ''}</span>`).join(' ')
+                : '<span class="version-note">No port is assigned to this server.</span>';
+            const free = (window.lastStatus && window.lastStatus.availablePorts) || [];
+            document.getElementById('startup-ports-free').textContent = free.length
+                ? 'Free ports in the pool: ' + free.join(', ') + '. Assign more to this server in Manage Server → Edit Server.'
+                : 'No free ports in the pool. Add more under Settings → Available Ports.';
+            const select = document.getElementById('startup-geyser-port');
+            select.innerHTML = unique.length
+                ? unique.map(port => `<option value="${port}">${port}</option>`).join('')
+                : '<option value="">No port</option>';
+            loadGeyserStatus();
+        }
+        async function loadGeyserStatus() {
+            const status = document.getElementById('startup-geyser-status');
+            if (!currentServer || !status) return;
+            const response = await fetch('/api/startup/geyser?server=' + encodeURIComponent(currentServer.id));
+            if (!response.ok) { status.textContent = 'Geyser was not found in this server\'s plugins. Install Geyser, then bind a Bedrock port here.'; return; }
+            const data = await response.json();
+            status.textContent = 'Geyser config ' + data.file + ' · bedrock port ' + (Number(data.port) > 0 ? data.port : 'not set');
+        }
+        async function bindGeyserPort() {
+            if (!currentServer) return;
+            const port = document.getElementById('startup-geyser-port').value;
+            if (!port) return showToast('This server has no port to bind', 'error');
+            const response = await fetch('/api/startup/geyser?server=' + encodeURIComponent(currentServer.id) + '&port=' + encodeURIComponent(port), { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken || '' } });
+            showToast(response.ok ? 'Geyser bedrock port set to ' + port : await response.text(), response.ok ? 'success' : 'error');
+            if (response.ok) loadGeyserStatus();
         }
         function updateStartupPreview() {
             const s = startupServer();
@@ -4269,6 +4361,7 @@
             document.getElementById('edit-server-type').value = server.type || 'custom';
             fillPortOptions('edit-server-port', server.port, server.type === 'discord_bot');
             document.getElementById('edit-server-host').value = server.displayHost || '';
+            document.getElementById('edit-server-ports').value = (server.extraPorts || []).join(', ');
             const idle = idleEditorValue(server.idleShutdownSeconds || 0);
             document.getElementById('edit-server-idle-amount').value = idle.amount;
             document.getElementById('edit-server-idle-unit').value = idle.unit;
@@ -4288,6 +4381,7 @@
             const jar = document.getElementById('edit-server-jar').value.trim();
             const type = document.getElementById('edit-server-type').value.trim().toLowerCase();
             const displayHost = document.getElementById('edit-server-host').value.trim().replace(/\.$/, '');
+            const extraPorts = document.getElementById('edit-server-ports').value.trim();
             const idleAmount = document.getElementById('edit-server-idle-amount').value;
             const idleUnit = document.getElementById('edit-server-idle-unit').value;
             const server = currentServersList.find(s => s.id === editingServerId);
@@ -4307,7 +4401,7 @@
             const button = document.getElementById('edit-server-save');
             button.disabled = true;
             try {
-                const response = await fetch('/api/server/edit', {method:'POST', body:JSON.stringify({id:editingServerId, name, port, ram, jar, type, displayHost, idleAmount, idleUnit})});
+                const response = await fetch('/api/server/edit', {method:'POST', body:JSON.stringify({id:editingServerId, name, port, ram, jar, type, displayHost, idleAmount, idleUnit, extraPorts})});
                 if (!response.ok) { showToast(await response.text(), 'error'); return; }
                 closeEditServer();
                 await refresh();
