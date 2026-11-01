@@ -50,6 +50,8 @@ public final class ChildProcess {
     private Thread monitor;
     private long startedAtMillis;
     private boolean intentionalStop;
+    /** Set by kill(); the exit was forced, so it is reported as KILLED and never restarts. */
+    private boolean killed;
     private boolean stopInProgress;
 
     public ChildProcess(ChildConfig cfg, ExitListener listener) {
@@ -154,6 +156,7 @@ public final class ChildProcess {
         stdin = p.getOutputStream();
         startedAtMillis = System.currentTimeMillis();
         intentionalStop = false;
+        killed = false;
         stopInProgress = false;
         playerCount = 0;
         onlinePlayers.clear();
@@ -169,7 +172,11 @@ public final class ChildProcess {
 
     public void kill() {
         Process p;
-        synchronized (this) { p = process; }
+        synchronized (this) {
+            p = process;
+            // A forced kill is still an intentional exit: it must not be treated as a crash or restarted.
+            if (p != null && p.isAlive()) { intentionalStop = true; killed = true; }
+        }
         if (p != null && p.isAlive()) {
             ConsoleOutput.root("Force killing " + id() + " (SIGKILL)");
             p.destroyForcibly();
@@ -336,14 +343,17 @@ public final class ChildProcess {
         }
 
         boolean intentional;
+        boolean wasKilled;
         long uptime;
         synchronized (this) {
             if (process != p) return;
-            intentional = intentionalStop;
+            wasKilled = killed;
+            intentional = intentionalStop || wasKilled;
             uptime = System.currentTimeMillis() - startedAtMillis;
-            state = intentional ? ChildState.STOPPED : ChildState.CRASHED;
+            state = wasKilled ? ChildState.KILLED : (intentional ? ChildState.STOPPED : ChildState.CRASHED);
+            killed = false;
         }
-        ConsoleOutput.root(id() + " exited with code " + code + (intentional ? "" : " (unexpected)"));
+        ConsoleOutput.root(id() + " exited with code " + code + (wasKilled ? " (killed)" : intentional ? "" : " (unexpected)"));
         listener.onExit(this, code, intentional, uptime);
     }
 
