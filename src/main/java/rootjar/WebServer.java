@@ -181,6 +181,7 @@ public class WebServer {
         route("/api/addons/backup", this::handleAddonsBackup);
         route("/api/addons/update-all", this::handleAddonsUpdateAll);
         route("/api/modpack/install", this::handleModpackInstall);
+        route("/api/modpack/install-url", this::handleModpackInstallUrl);
         route("/api/crash/latest", this::handleCrashLatest);
         route("/api/crash/disable", this::handleCrashDisable);
         route("/api/access/list", this::handleAccessList);
@@ -3094,46 +3095,86 @@ public class WebServer {
         if (!requireOperator(ex, server)) return;
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null || child.isAlive()) { send(ex, 409, "Stop the server before installing a modpack"); return; }
-        BackupManager.create(child.config(), "pre-modpack", true, config.server().backupRetention());
         Path pack = Files.createTempFile(child.config().dir(), ".modpack-", ".mrpack");
         try {
             try (InputStream in = ex.getRequestBody()) { Files.copy(in, pack, StandardCopyOption.REPLACE_EXISTING); }
-            if (Files.size(pack) <= 0 || Files.size(pack) > 200L * 1024 * 1024) throw new IOException("Modpack is empty or too large");
-            Path staging = child.config().dir().resolve(".modpack-" + System.currentTimeMillis());
-            FileOps.extract(pack, staging);
-            Path index = staging.resolve("modrinth.index.json");
-            if (!Files.isRegularFile(index)) throw new IOException("This is not a Modrinth .mrpack");
-            String json = Files.readString(index);
-            Path mods = child.config().dir().resolve("mods");
-            Files.createDirectories(mods);
-            int installed = 0;
-            Matcher files = Pattern.compile("\"path\"\\s*:\\s*\"([^\"]+)\"[\\s\\S]{0,1200}?\"env\"\\s*:\\s*\\{([\\s\\S]*?)\\}[\\s\\S]{0,500}?\"url\"\\s*:\\s*\"(https:[^\"]+)\"", Pattern.DOTALL).matcher(json);
-            while (files.find()) {
-                String relative = files.group(1);
-                String environment = files.group(2);
-                if (!relative.startsWith("mods/") || !relative.endsWith(".jar")) continue;
-                if (environment.contains("\"client\"") && !environment.contains("\"server\"")) continue;
-                String url = files.group(3).replace("\\/", "/");
-                if (!allowedDownloadUrl(url)) continue;
-                Path target = child.config().dir().resolve(relative).normalize();
-                if (!target.startsWith(mods)) continue;
-                Path part = Files.createTempFile(mods, ".modpack-", ".jar");
-                HttpRequest request = HttpRequest.newBuilder(URI.create(url)).header("User-Agent", panelUserAgent()).timeout(Duration.ofMinutes(5)).build();
-                HttpResponse<Path> response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(part));
-                if (response.statusCode() == 200 && Files.size(part) > 0) {
-                    Files.createDirectories(target.getParent());
-                    Files.move(part, target, StandardCopyOption.REPLACE_EXISTING);
-                    installed++;
-                } else Files.deleteIfExists(part);
-            }
-            Path overrides = staging.resolve("overrides");
-            if (Files.isDirectory(overrides)) FileOps.copyRecursive(overrides, child.config().dir());
-            deleteTree(staging);
-            audit(ex, server + ".modpack.install", installed + " mods");
-            send(ex, 200, "{\"installed\":" + installed + "}");
+            BackupManager.create(child.config(), "pre-modpack", true, config.server().backupRetention());
+            installModpack(ex, child, pack);
         } catch (Exception e) {
             send(ex, 400, e.getMessage() == null ? "Modpack install failed" : e.getMessage());
         } finally { Files.deleteIfExists(pack); }
+    }
+
+    /** Installs a modpack found by search: resolve its Modrinth file, download the .mrpack, then install it. */
+    private void handleModpackInstallUrl(HttpExchange ex) throws IOException {
+        String server = param(ex, "server", "");
+        if (!requireOperator(ex, server)) return;
+        ChildProcess child = supervisor.child(server).orElse(null);
+        if (child == null || child.isAlive()) { send(ex, 409, "Stop the server before installing a modpack"); return; }
+        String project = param(ex, "project", "");
+        String version = param(ex, "version", "");
+        if (!project.matches("[A-Za-z0-9_-]{1,64}")) { send(ex, 400, "Bad project"); return; }
+        if (!version.isEmpty() && !version.matches("[A-Za-z0-9_-]{1,64}")) { send(ex, 400, "Bad version"); return; }
+        Path pack = Files.createTempFile(child.config().dir(), ".modpack-", ".mrpack");
+        try {
+            String listing = modrinthGet("https://api.modrinth.com/v2/project/" + urlEncode(project)
+                    + (version.isEmpty() ? "/version?limit=1" : "/version/" + urlEncode(version)), HTTP_CACHE_MS);
+            List<String> versions = listing.trim().startsWith("[") ? objectsInArray(listing, null) : List.of(listing);
+            String fileUrl = "";
+            for (String candidate : versions) {
+                String url = extractJson(candidate, "url");
+                if (url.startsWith("https://cdn.modrinth.com/") && url.toLowerCase(Locale.ROOT).endsWith(".mrpack")) { fileUrl = url; break; }
+            }
+            if (fileUrl.isEmpty() || !allowedDownloadUrl(fileUrl)) { send(ex, 404, "That modpack has no downloadable .mrpack file"); return; }
+            HttpRequest request = HttpRequest.newBuilder(URI.create(fileUrl)).header("User-Agent", panelUserAgent()).timeout(Duration.ofMinutes(10)).build();
+            HttpResponse<Path> response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(pack));
+            if (response.statusCode() != 200 || Files.size(pack) <= 0) {
+                send(ex, 502, "Downloading the modpack failed (HTTP " + response.statusCode() + ")");
+                return;
+            }
+            BackupManager.create(child.config(), "pre-modpack", true, config.server().backupRetention());
+            installModpack(ex, child, pack);
+        } catch (Exception e) {
+            send(ex, 400, e.getMessage() == null ? "Modpack install failed" : e.getMessage());
+        } finally { Files.deleteIfExists(pack); }
+    }
+
+    /** Shared install body: validate the pack, extract it, fetch the server-side mods, copy the overrides. */
+    private void installModpack(HttpExchange ex, ChildProcess child, Path pack) throws Exception {
+        String server = child.id();
+        if (Files.size(pack) <= 0 || Files.size(pack) > 200L * 1024 * 1024) throw new IOException("Modpack is empty or too large");
+        Path staging = child.config().dir().resolve(".modpack-" + System.currentTimeMillis());
+        FileOps.extract(pack, staging);
+        Path index = staging.resolve("modrinth.index.json");
+        if (!Files.isRegularFile(index)) throw new IOException("This is not a Modrinth .mrpack");
+        String json = Files.readString(index);
+        Path mods = child.config().dir().resolve("mods");
+        Files.createDirectories(mods);
+        int installed = 0;
+        Matcher files = Pattern.compile("\"path\"\\s*:\\s*\"([^\"]+)\"[\\s\\S]{0,1200}?\"env\"\\s*:\\s*\\{([\\s\\S]*?)\\}[\\s\\S]{0,500}?\"url\"\\s*:\\s*\"(https:[^\"]+)\"", Pattern.DOTALL).matcher(json);
+        while (files.find()) {
+            String relative = files.group(1);
+            String environment = files.group(2);
+            if (!relative.startsWith("mods/") || !relative.endsWith(".jar")) continue;
+            if (environment.contains("\"client\"") && !environment.contains("\"server\"")) continue;
+            String url = files.group(3).replace("\\/", "/");
+            if (!allowedDownloadUrl(url)) continue;
+            Path target = child.config().dir().resolve(relative).normalize();
+            if (!target.startsWith(mods)) continue;
+            Path part = Files.createTempFile(mods, ".modpack-", ".jar");
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url)).header("User-Agent", panelUserAgent()).timeout(Duration.ofMinutes(5)).build();
+            HttpResponse<Path> response = httpClient.send(request, HttpResponse.BodyHandlers.ofFile(part));
+            if (response.statusCode() == 200 && Files.size(part) > 0) {
+                Files.createDirectories(target.getParent());
+                Files.move(part, target, StandardCopyOption.REPLACE_EXISTING);
+                installed++;
+            } else Files.deleteIfExists(part);
+        }
+        Path overrides = staging.resolve("overrides");
+        if (Files.isDirectory(overrides)) FileOps.copyRecursive(overrides, child.config().dir());
+        deleteTree(staging);
+        audit(ex, server + ".modpack.install", installed + " mods");
+        send(ex, 200, "{\"installed\":" + installed + "}");
     }
 
     private static void deleteTree(Path root) throws IOException {
