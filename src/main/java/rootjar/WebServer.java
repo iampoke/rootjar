@@ -474,7 +474,9 @@ public class WebServer {
         }
         // The UI ships inside the jar and is regenerated on disk; never let the browser pin an old copy,
         // or the panel keeps running stale JavaScript after an upgrade.
-        ex.getResponseHeaders().set("Content-Type", "text/html");
+        // The charset is not optional: the panel carries non-ASCII glyphs, and without it a browser that
+        // ignores the <meta> tag decodes the UTF-8 bytes as Latin-1 and shows "â†“" instead of an arrow.
+        ex.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
         ex.getResponseHeaders().set("Cache-Control", "no-cache, no-store, must-revalidate");
         ex.getResponseHeaders().set("Pragma", "no-cache");
         ex.sendResponseHeaders(200, bytes.length);
@@ -770,7 +772,7 @@ public class WebServer {
     private void handleSilent(HttpExchange ex) throws IOException {
         if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
         String id = ex.getRequestURI().getPath().substring(ex.getRequestURI().getPath().lastIndexOf('/') + 1);
-        boolean silent = Boolean.parseBoolean(new String(ex.getRequestBody().readAllBytes()));
+        boolean silent = Boolean.parseBoolean(new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
         
         supervisor.setSilent(id, silent);
         persistConfig();
@@ -1314,7 +1316,7 @@ public class WebServer {
         String id = ex.getRequestURI().getPath().substring(ex.getRequestURI().getPath().lastIndexOf('/') + 1);
         if (!requireOperator(ex, id)) return;
         if (!rateAllows(ex, "power", 30)) { send(ex, 429, "Too many actions"); return; }
-        String action = new String(ex.getRequestBody().readAllBytes());
+        String action = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         activity(id, ex, "server." + action, "");
         if (action.equals("kill")) supervisor.child(id).ifPresent(ChildProcess::kill);
         else supervisor.requestLifecycle(id, action);
@@ -1531,7 +1533,7 @@ public class WebServer {
         if (!isAuthed(ex)) { send(ex, 401, "Unauthorized"); return; }
         String id = ex.getRequestURI().getPath().substring(ex.getRequestURI().getPath().lastIndexOf('/') + 1);
         if (!canAccessServer(ex, id)) { send(ex, 403, "No permission"); return; }
-        String cmd = new String(ex.getRequestBody().readAllBytes());
+        String cmd = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         String trimmed = cmd.length() > 200 ? cmd.substring(0, 200) + "…" : cmd;
         audit(ex, id + ".console.command", "\"" + trimmed.replace("\n", " ").replace("\r", "") + "\"");
         supervisor.child(id).ifPresent(c -> c.sendLine(cmd));
@@ -1645,7 +1647,7 @@ public class WebServer {
     private void handleStartupUpdate(HttpExchange ex) throws IOException {
         if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
         String id = ex.getRequestURI().getPath().substring(ex.getRequestURI().getPath().lastIndexOf('/') + 1);
-        String body = new String(ex.getRequestBody().readAllBytes());
+        String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         String heap = extractJson(body, "heap"); String jar = extractJson(body, "jar"); String portStr = extractJson(body, "port");
         ChildProcess child = supervisor.child(id).orElse(null);
         if (child == null) { send(ex, 404, "Not found"); return; }
@@ -4674,7 +4676,7 @@ public class WebServer {
         if (!isAuthed(ex)) { send(ex, 401, "Unauthorized"); return; }
         String id = extractQuery(ex.getRequestURI().getRawQuery(), "server");
         String fileName = extractQuery(ex.getRequestURI().getRawQuery(), "file");
-        String body = new String(ex.getRequestBody().readAllBytes());
+        String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         ChildProcess child = supervisor.child(id).orElse(null);
         if (child == null || fileName == null || !canAccessServer(ex, id)) { send(ex, 400, "Bad Request"); return; }
         try {
@@ -4889,7 +4891,7 @@ public class WebServer {
 
     private void handleUsersAssign(HttpExchange ex) throws IOException {
         if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
-        String body = new String(ex.getRequestBody().readAllBytes());
+        String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         String targetUser = extractJson(body, "user");
         String targetServer = extractJson(body, "server");
         String action = extractJson(body, "action");

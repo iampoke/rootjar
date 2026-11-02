@@ -77,6 +77,7 @@ public final class ChecksMain {
         bukkitDatapackRepair();
         portAlignment();
         frontendSync();
+        frontendEncoding();
         activityFeed();
         geyserAndMultiPort();
         addonSources();
@@ -252,6 +253,40 @@ public final class ChecksMain {
         check(Files.readString(index).equals(bundled), "frontend sync replaces the stale panel");
         check(Files.isRegularFile(dir.resolve("index.html.old")), "frontend sync keeps the previous panel as index.html.old");
         check(Files.readString(dir.resolve("index.html.old")).contains("stale panel"), "frontend sync backup holds the old panel");
+    }
+
+    /**
+     * The panel is one file carrying non-ASCII glyphs. An editor that assumes a single-byte charset rewrites
+     * U+2193 as the three characters "â†“"; the build bundles that verbatim and every deployment then shows
+     * mojibake, so this checks the copy the jar actually serves rather than trusting the source.
+     */
+    private static void frontendEncoding() throws Exception {
+        String html = rootjar.Frontend.html();
+        check(html.contains("mc-font"), "bundled panel is the real UI, not the missing-resource fallback");
+        check(!html.startsWith("\uFEFF"), "bundled panel carries no UTF-8 byte-order mark");
+        check(html.contains("<meta charset=\"UTF-8\">"), "bundled panel declares its charset");
+        // None of these occur legitimately in the panel; each heads a UTF-8 sequence that was decoded as
+        // CP1252 and re-encoded, which is how a clean arrow turns into visible garbage.
+        String[] corrupted = {"\u00C2", "\u00C3", "\u00E2\u20AC", "\u00E2\u2020"};
+        for (String mark : corrupted) {
+            check(!html.contains(mark), "bundled panel has no double-encoded UTF-8 at U+" + codePoints(mark));
+        }
+        String[] glyphs = {"\u2190", "\u2191", "\u2192", "\u2193", "\u00B7", "\u2026", "\u2014"};
+        for (String g : glyphs) check(html.contains(g), "bundled panel keeps U+" + codePoints(g) + " intact");
+        // A byte-order mark on disk must not make an otherwise matching panel look stale on every start.
+        Path dir = Files.createTempDirectory("frontend-bom");
+        Path index = dir.resolve("index.html");
+        Files.writeString(index, "\uFEFF" + html, StandardCharsets.UTF_8);
+        check("unchanged".equals(rootjar.Frontend.syncToDisk(index)), "frontend sync ignores a byte-order mark when comparing");
+    }
+
+    private static String codePoints(String s) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            if (i > 0) sb.append(' ');
+            sb.append(Integer.toHexString(s.charAt(i)).toUpperCase());
+        }
+        return sb.toString();
     }
 
     private static void bukkitDatapackRepair() throws Exception {

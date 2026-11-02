@@ -22,19 +22,26 @@ public final class Frontend {
     public static String syncToDisk(java.nio.file.Path indexFile) throws IOException {
         String bundled = html();
         if (!java.nio.file.Files.exists(indexFile)) {
-            java.nio.file.Files.writeString(indexFile, bundled);
+            java.nio.file.Files.writeString(indexFile, bundled, StandardCharsets.UTF_8);
             return "created";
         }
-        String onDisk = java.nio.file.Files.readString(indexFile);
+        String onDisk = stripBom(java.nio.file.Files.readString(indexFile, StandardCharsets.UTF_8));
         if (onDisk.equals(bundled)) return "unchanged";
-        java.nio.file.Files.writeString(indexFile.resolveSibling(indexFile.getFileName() + ".old"), onDisk);
-        java.nio.file.Files.writeString(indexFile, bundled);
+        java.nio.file.Files.writeString(indexFile.resolveSibling(indexFile.getFileName() + ".old"), onDisk, StandardCharsets.UTF_8);
+        java.nio.file.Files.writeString(indexFile, bundled, StandardCharsets.UTF_8);
         return "refreshed";
     }
 
+    /**
+     * A byte-order mark is invisible in an editor but makes two identical panels compare unequal, which
+     * would rewrite index.html and its .old backup on every start. It also means some tool saved the file
+     * outside UTF-8, which is how the panel's arrows ended up rendering as "â†“".
+     */
+    private static String stripBom(String s) { return s.startsWith("\uFEFF") ? s.substring(1) : s; }
+
     public static String html() {
         try (InputStream in = Frontend.class.getResourceAsStream("/index.html")) {
-            if (in != null) return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            if (in != null) return stripBom(new String(in.readAllBytes(), StandardCharsets.UTF_8));
         } catch (IOException ignored) {}
         return "<!DOCTYPE html><html><head><title>Panel</title></head><body style=\"background:#111;color:#eee;font-family:sans-serif\">"
                 + "<h1>Panel UI missing</h1><p>This jar was built without the bundled index.html. "
