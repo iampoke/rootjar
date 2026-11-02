@@ -173,6 +173,7 @@ public class WebServer {
         route("/api/modrinth/updates", this::handleModrinthUpdates);
         route("/api/addons/search", this::handleAddonSearch);
         route("/api/addons/install-from", this::handleAddonInstallFrom);
+        route("/api/addons/versions", this::handleAddonVersions);
 
         // Installed addons (Mods/Plugins tab)
         route("/api/addons/list", this::handleAddonsList);
@@ -389,12 +390,25 @@ public class WebServer {
         return java.net.URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 
+    /**
+     * Percent-encoding for a URL <em>path</em> segment. {@link java.net.URLEncoder} is form encoding, so it
+     * turns a space into "+", which a query string reads as a space but a path reads as a literal plus.
+     * SpiGet takes the search term as a path segment: "/search/resources/world+edit" answers 404 while
+     * "/search/resources/world%20edit" answers 200, so every two-word SpigotMC search used to fail.
+     */
+    private static String urlEncodePath(String s) {
+        return java.net.URLEncoder.encode(s, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
     private static int clampInt(String raw, int def, int min, int max) {
         try { return Math.max(min, Math.min(max, Integer.parseInt(raw))); }
         catch (Exception e) { return def; }
     }
 
-    /** Cached JSON GET against Modrinth; throws on non-200 so callers can answer 502. */
+    /**
+     * Cached JSON GET against a registry; throws on non-200 so callers can answer 502. The name is historical:
+     * this also fetches Hangar and SpigotMC, so the failure message has to say which service actually answered.
+     */
     private String modrinthGet(String url, long ttlMs) throws IOException, InterruptedException {
         long now = System.currentTimeMillis();
         Cached hit = httpCache.get(url);
@@ -405,10 +419,22 @@ public class WebServer {
                 .timeout(Duration.ofSeconds(15))
                 .build();
         HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-        if (res.statusCode() != 200) throw new IOException("Modrinth returned HTTP " + res.statusCode());
+        if (res.statusCode() != 200) throw new IOException(registryName(url) + " returned HTTP " + res.statusCode());
         if (httpCache.size() > 400) httpCache.clear();
         httpCache.put(url, new Cached(now, res.body()));
         return res.body();
+    }
+
+    /** Human name of the registry behind a request URL, so a search failure does not blame the wrong service. */
+    private static String registryName(String url) {
+        String host;
+        try { host = URI.create(url).getHost(); } catch (Exception e) { return "The registry"; }
+        if (host == null) return "The registry";
+        host = host.toLowerCase(Locale.ROOT);
+        if (host.endsWith("spiget.org") || host.endsWith("spigotmc.org")) return "SpigotMC";
+        if (host.endsWith("papermc.io")) return "Hangar";
+        if (host.endsWith("modrinth.com")) return "Modrinth";
+        return "The registry";
     }
 
     /** best-effort JSON POST helper; returns null on any failure (offline, rate limit, bad body). */
@@ -2569,7 +2595,7 @@ public class WebServer {
                 items = rootjar.addons.AddonSources.hangar(raw);
             } else if (source.equals("spigot")) {
                 if (!kind.equals("plugin")) { send(ex, 400, "SpigotMC lists plugins only"); return; }
-                raw = modrinthGet("https://api.spiget.org/v2/search/resources/" + urlEncode(query)
+                raw = modrinthGet("https://api.spiget.org/v2/search/resources/" + urlEncodePath(query)
                         + "?size=" + limit + "&start=" + offset + "&fields=id,name,tag,downloads,premium,icon.data", HTTP_CACHE_MS);
                 items = rootjar.addons.AddonSources.spigot(raw);
             } else {
@@ -2622,6 +2648,8 @@ public class WebServer {
         try {
             String url;
             String fileName;
+            String sha256 = "";
+            long expectedSize = 0;
             if (source.equals("hangar")) {
                 StringBuilder versions = new StringBuilder("https://hangar.papermc.io/api/v1/projects/"
                         + urlEncode(owner) + "/" + urlEncode(slug) + "/versions?platform=PAPER&limit=1&offset=0");
@@ -2634,8 +2662,11 @@ public class WebServer {
                 }
                 url = download.url();
                 fileName = download.fileName();
+                sha256 = download.sha256();
+                expectedSize = download.size();
             } else {
                 url = "https://api.spiget.org/v2/resources/" + urlEncode(id) + "/download";
+                if (!version.isEmpty()) url = url + "?version=" + urlEncode(version);
                 fileName = (slug.isBlank() ? id : slug) + ".jar";
             }
             fileName = FileOps.safeName(fileName);
@@ -2651,7 +2682,28 @@ public class WebServer {
                         : "Download failed (HTTP " + response.statusCode() + ")");
                 return;
             }
+            // The registry may have redirected the request to a web page instead of a file.
+            String finalUrl = response.uri().toString();
             String contentType = response.headers().firstValue("Content-Type").orElse("");
+            if (!isArchive(part, contentType)) {
+                send(ex, 409, "{\"code\":\"external_resource\",\"url\":\"" + jsonEscape(finalUrl)
+                        + "\",\"message\":\"" + jsonEscape("This plugin is not hosted on " + registryName(url)
+                        + ". The download redirects to its project page, so there is no jar to fetch. "
+                        + "Open the link and download it yourself.") + "\"}");
+                return;
+            }
+            if (!allowedDownloadUrl(finalUrl)) {
+                send(ex, 502, "The registry redirected the download to a host the panel does not fetch from");
+                return;
+            }
+            if (!sha256.isBlank() && !digestHex(part, "SHA-256").equalsIgnoreCase(sha256.trim())) {
+                send(ex, 502, "Download checksum mismatch");
+                return;
+            }
+            if (expectedSize > 0 && Files.size(part) != expectedSize) {
+                send(ex, 502, "Download incomplete (" + Files.size(part) + " of " + expectedSize + " bytes)");
+                return;
+            }
             if (contentType.contains("zip") && !fileName.toLowerCase(Locale.ROOT).endsWith(".zip")) {
                 fileName = fileName.replaceAll("\\.[^.]+$", "") + ".zip";
             }
@@ -2668,6 +2720,111 @@ public class WebServer {
         } finally {
             if (part != null) try { Files.deleteIfExists(part); } catch (IOException ignored) {}
         }
+    }
+
+    /**
+     * True when the downloaded bytes are a jar or zip, meaning they open with the ZIP local-file header.
+     * SpiGet answers an "external" resource with a redirect to the project page, which returns 200 and an
+     * HTML body; without this check that page is written into plugins/ as a jar the server cannot load,
+     * while the panel reports a successful install.
+     */
+    private static boolean isArchive(Path file, String contentType) throws IOException {
+        if (contentType != null && contentType.toLowerCase(Locale.ROOT).contains("text/html")) return false;
+        byte[] head = new byte[4];
+        int read;
+        try (InputStream in = Files.newInputStream(file)) { read = in.readNBytes(head, 0, 4); }
+        return read == 4 && head[0] == 'P' && head[1] == 'K' && head[2] == 3 && head[3] == 4;
+    }
+
+    /**
+     * Version list for one addon, normalized across registries so a single picker serves all three. Modrinth
+     * and Hangar report the plugins a version depends on; SpiGet reports no dependency data at all, so
+     * SpigotMC entries carry an empty list rather than one that looks resolved.
+     */
+    private void handleAddonVersions(HttpExchange ex) throws IOException {
+        if (!isAuthed(ex)) { send(ex, 401, "Unauthorized"); return; }
+        String source = param(ex, "source", "modrinth").toLowerCase(Locale.ROOT);
+        if (!Set.of("modrinth", "hangar", "spigot").contains(source)) { send(ex, 400, "Unknown source"); return; }
+        String id = param(ex, "id", "");
+        String owner = param(ex, "owner", "");
+        String slug = param(ex, "slug", "");
+        String kind = param(ex, "kind", "plugin").toLowerCase(Locale.ROOT);
+        String version = param(ex, "version", "");
+        if (!version.isEmpty() && !version.matches("[A-Za-z0-9._+-]{1,32}")) { send(ex, 400, "Bad version"); return; }
+        try {
+            List<rootjar.addons.AddonSources.Version> versions;
+            if (source.equals("hangar")) {
+                if (!id.matches("[A-Za-z0-9._-]{1,64}") || !owner.matches("[A-Za-z0-9._-]{1,64}")
+                        || !slug.matches("[A-Za-z0-9._-]{1,64}")) { send(ex, 400, "Bad project"); return; }
+                versions = rootjar.addons.AddonSources.hangarVersions(modrinthGet(
+                        "https://hangar.papermc.io/api/v1/projects/" + urlEncode(owner) + "/" + urlEncode(slug)
+                                + "/versions?platform=PAPER&limit=30&offset=0", HTTP_CACHE_MS));
+            } else if (source.equals("spigot")) {
+                if (!id.matches("[A-Za-z0-9._-]{1,64}")) { send(ex, 400, "Bad identifier"); return; }
+                versions = rootjar.addons.AddonSources.spigotVersions(modrinthGet(
+                        "https://api.spiget.org/v2/resources/" + urlEncodePath(id) + "/versions?size=30", HTTP_CACHE_MS));
+            } else {
+                if (!id.matches("[A-Za-z0-9_-]{3,40}")) { send(ex, 400, "Bad project"); return; }
+                versions = rootjar.addons.AddonSources.modrinthVersions(modrinthGet(
+                        modrinthVersionUrl(id, kind, param(ex, "server", ""), version), HTTP_CACHE_MS));
+                versions = rootjar.addons.AddonSources.withDependencyNames(versions, modrinthTitles(versions));
+            }
+            send(ex, 200, rootjar.addons.AddonSources.toJsonVersions(versions, source));
+        } catch (Exception e) {
+            send(ex, 502, "{\"error\":\"" + jsonEscape(String.valueOf(e.getMessage())) + "\"}");
+        }
+    }
+
+    /**
+     * Modrinth's version-list URL for a project, filtered to the loaders and game version this server uses, so
+     * the picker offers versions the server can actually load.
+     */
+    private String modrinthVersionUrl(String projectId, String kind, String serverId, String version) {
+        boolean mods = "mod".equals(kind);
+        ChildProcess child = supervisor.child(serverId).orElse(null);
+        if (version.isEmpty() && child != null) version = detectMcVersion(child.config());
+        List<String> loaders = child == null ? List.of() : Addons.loaders(child.config().type(), mods);
+        StringBuilder url = new StringBuilder("https://api.modrinth.com/v2/project/").append(projectId).append("/version");
+        List<String> params = new ArrayList<>();
+        if (!loaders.isEmpty()) {
+            StringBuilder arr = new StringBuilder("[");
+            for (int i = 0; i < loaders.size(); i++) {
+                if (i > 0) arr.append(',');
+                arr.append('"').append(loaders.get(i)).append('"');
+            }
+            params.add("loaders=" + urlEncode(arr.append(']').toString()));
+        }
+        if (!version.isEmpty()) params.add("game_versions=" + urlEncode("[\"" + version + "\"]"));
+        if (!params.isEmpty()) url.append('?').append(String.join("&", params));
+        return url.toString();
+    }
+
+    /**
+     * Titles for the projects a Modrinth version list depends on. Modrinth identifies a dependency by project
+     * id and only sometimes supplies a file name, so the picker would otherwise show "AANobbMI" where the user
+     * expects "Sodium". Lookups are deduplicated and served from the HTTP cache afterwards; a name is
+     * cosmetic, so one that cannot be resolved must never fail the whole version list.
+     */
+    private java.util.Map<String, String> modrinthTitles(List<rootjar.addons.AddonSources.Version> versions) {
+        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+        for (rootjar.addons.AddonSources.Version version : versions) {
+            for (rootjar.addons.AddonSources.Dependency dependency : version.dependencies()) {
+                boolean unnamed = dependency.name().isBlank() || dependency.name().equals(dependency.projectId());
+                if (unnamed && !dependency.projectId().isBlank()) ids.add(dependency.projectId());
+                if (ids.size() >= 12) break;
+            }
+            if (ids.size() >= 12) break;
+        }
+        java.util.Map<String, String> titles = new java.util.HashMap<>();
+        for (String id : ids) {
+            if (!id.matches("[A-Za-z0-9_-]{3,40}")) continue;
+            try {
+                String title = rootjar.addons.AddonSources.str(
+                        modrinthGet("https://api.modrinth.com/v2/project/" + id, HTTP_CACHE_MS), "title");
+                if (!title.isBlank()) titles.put(id, title);
+            } catch (Exception ignored) {}
+        }
+        return titles;
     }
 
     private void handleModrinthVersions(HttpExchange ex) throws IOException {

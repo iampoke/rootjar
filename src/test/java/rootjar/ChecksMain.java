@@ -157,11 +157,94 @@ public final class ChecksMain {
         String json = rootjar.addons.AddonSources.toJson(hangarItems, 340, 0, 10, "hangar");
         check(json.startsWith("{\"source\":\"hangar\",\"total\":340,\"offset\":0,\"limit\":10,\"items\":[{\"id\":\"7387\""), "normalized json has the shared shape");
         check(json.contains("\"versions\":[\"1.21.4\",\"26.2\"]"), "normalized json keeps versions");
-        check(json.endsWith("]}]}"), "normalized json is closed");
+        check(json.contains("\"source\":\"hangar\"}]}"), "normalized json is closed");
+        // The picker routes on the per-item source. With the source only at the top level, item.source was
+        // undefined, the version modal never opened, and every install sent source=undefined, which the
+        // backend rejects with "Unknown source".
+        check(json.split("\"source\"").length == 3, "every normalized item carries its own source");
+        check(rootjar.addons.AddonSources.toJson(spigotItems, 0, 0, 10, "spigot").contains("\"source\":\"spigot\"}]}"), "a spigot result is stamped as spigot");
         check(rootjar.addons.AddonSources.toJson(List.of(), 0, 0, 10, "spigot").contains("\"items\":[]"), "an empty result still returns valid json");
         check(rootjar.addons.AddonSources.escape("a\"b\\c\nd").equals("a\\\"b\\\\c d"), "values are escaped for json");
         check(rootjar.addons.AddonSources.objects("{\"result\":[]}", "result").isEmpty(), "an empty array yields no objects");
         check(rootjar.addons.AddonSources.str("{\"a\":\"x\"}", "missing").isEmpty(), "a missing key yields an empty string");
+        check(rootjar.addons.AddonSources.valueBody("{\"a\":{\"b\":1}}", "a").equals("{\"b\":1}"), "a nested object body is read");
+        check(rootjar.addons.AddonSources.valueBody("{\"a\":[1,2]}", "a").equals("[1,2]"), "a nested array body is read");
+        check(rootjar.addons.AddonSources.objectBody("{\"a\":\"x\"}", "a").isEmpty(), "a scalar value has no object body");
+        check(rootjar.addons.AddonSources.valueBody("{\"a\":{\"b\":\"}\"}}", "a").equals("{\"b\":\"}\"}"), "a brace inside a string does not end the body");
+        addonVersions();
+    }
+
+    /** Version lists and dependency resolution across all three registries. */
+    private static void addonVersions() {
+        // Hangar nests the file under downloads.PAPER and keeps dependencies apart from the supported
+        // Minecraft versions, which platformDependencies deceptively resembles.
+        String hangar = "{\"result\":[{\"name\":\"5.12.3\",\"downloads\":{"
+                + "\"VELOCITY\":{\"fileInfo\":{\"name\":\"Wrong-1.0.jar\"},\"downloadUrl\":\"https://hangarcdn.papermc.io/wrong.jar\"},"
+                + "\"PAPER\":{\"fileInfo\":{\"name\":\"ViaVersion-5.12.3.jar\",\"sizeBytes\":6518457,"
+                + "\"sha256Hash\":\"36b81cffa71862d0eae63ae9860dec3c49a4abfaca8e30438a59ccd96c1af37f\"},"
+                + "\"externalUrl\":null,\"downloadUrl\":\"https://hangarcdn.papermc.io/plugins/ViaVersion.jar\"}},"
+                + "\"pluginDependencies\":{\"PAPER\":[{\"name\":\"ViaBackwards\",\"projectId\":12,\"required\":false,"
+                + "\"externalUrl\":null,\"platform\":\"PAPER\"}]},"
+                + "\"platformDependencies\":{\"PAPER\":[\"1.21\",\"26.2\"]}}]}";
+        List<rootjar.addons.AddonSources.Version> hangarVersions = rootjar.addons.AddonSources.hangarVersions(hangar);
+        check(hangarVersions.size() == 1, "hangar versions are parsed");
+        check(hangarVersions.get(0).id().equals("5.12.3") && hangarVersions.get(0).name().equals("5.12.3"), "the hangar version name is the picker id");
+        check(hangarVersions.get(0).url().endsWith("ViaVersion.jar"), "the paper file is chosen over another platform listed first");
+        check(hangarVersions.get(0).fileName().equals("ViaVersion-5.12.3.jar"), "the hangar file name comes from fileInfo");
+        check(hangarVersions.get(0).size() == 6518457L, "the hangar file size is read");
+        check(hangarVersions.get(0).sha256().length() == 64, "the hangar sha256 is read for verification");
+        check(hangarVersions.get(0).dependencies().size() == 1, "hangar plugin dependencies are read");
+        check(hangarVersions.get(0).dependencies().get(0).name().equals("ViaBackwards")
+                && hangarVersions.get(0).dependencies().get(0).projectId().equals("12"), "a hangar dependency keeps its name and project id");
+        check(!hangarVersions.get(0).dependencies().get(0).required(), "an optional hangar dependency is not marked required");
+        check(rootjar.addons.AddonSources.hangarDownload(hangar).url().endsWith("ViaVersion.jar"), "hangarDownload resolves the same paper file");
+        check(rootjar.addons.AddonSources.hangarVersions("{\"result\":[]}").isEmpty(), "no hangar version means no entries");
+
+        String spigot = "[{\"downloads\":20859,\"url\":\"resources/essentialsx.9089/download?version=32729\","
+                + "\"name\":\"2.0.1\",\"releaseDate\":1436209920,\"resource\":9089,\"id\":32729},"
+                + "{\"downloads\":1,\"name\":\"\",\"id\":7}]";
+        List<rootjar.addons.AddonSources.Version> spigotVersions = rootjar.addons.AddonSources.spigotVersions(spigot);
+        check(spigotVersions.size() == 1, "spigot versions are parsed and a nameless one is dropped");
+        check(spigotVersions.get(0).id().equals("32729"), "the spigot version id is the one ?version= takes");
+        check(spigotVersions.get(0).name().equals("2.0.1"), "the spigot version name is shown in the picker");
+        check(spigotVersions.get(0).dependencies().isEmpty(), "spiget reports no dependency data");
+
+        String modrinth = "[{\"id\":\"vK9x2\",\"version_number\":\"1.2.3\",\"name\":\"Fabric API 1.2.3\","
+                + "\"files\":[{\"url\":\"https://cdn.modrinth.com/extra.jar\",\"filename\":\"extra.jar\",\"size\":10,\"primary\":false},"
+                + "{\"url\":\"https://cdn.modrinth.com/main.jar\",\"filename\":\"main.jar\",\"size\":2048,\"primary\":true}],"
+                + "\"dependencies\":[{\"version_id\":null,\"project_id\":\"VOYxIjFI\",\"file_name\":null,\"dependency_type\":\"incompatible\"},"
+                + "{\"version_id\":\"depV1\",\"project_id\":\"depP1\",\"file_name\":\"Vault.jar\",\"dependency_type\":\"required\"},"
+                + "{\"version_id\":null,\"project_id\":\"depP2\",\"file_name\":null,\"dependency_type\":\"embedded\"}]}]";
+        List<rootjar.addons.AddonSources.Version> modrinthVersions = rootjar.addons.AddonSources.modrinthVersions(modrinth);
+        check(modrinthVersions.size() == 1, "modrinth versions are parsed");
+        check(modrinthVersions.get(0).id().equals("vK9x2"), "the modrinth version id is the install target");
+        check(modrinthVersions.get(0).name().equals("1.2.3"), "the modrinth version number is shown, not the display name");
+        check(modrinthVersions.get(0).url().endsWith("main.jar"), "the primary modrinth file wins over an earlier extra");
+        check(modrinthVersions.get(0).fileName().equals("main.jar") && modrinthVersions.get(0).size() == 2048L, "the modrinth file name and size are read");
+        check(modrinthVersions.get(0).dependencies().size() == 1, "only installable modrinth dependencies are kept");
+        check(modrinthVersions.get(0).dependencies().get(0).required(), "a required modrinth dependency is flagged");
+        check(modrinthVersions.get(0).dependencies().get(0).projectId().equals("depP1")
+                && modrinthVersions.get(0).dependencies().get(0).versionId().equals("depV1"), "a modrinth dependency keeps both identifiers");
+
+        String versions = rootjar.addons.AddonSources.toJsonVersions(modrinthVersions, "modrinth");
+        check(versions.startsWith("{\"source\":\"modrinth\",\"items\":[{\"id\":\"vK9x2\""), "the versions json has the shared shape");
+        check(versions.contains("\"dependencies\":[{\"name\":\"Vault.jar\",\"projectId\":\"depP1\",\"versionId\":\"depV1\",\"required\":true"), "dependencies are rendered for the picker");
+        check(!versions.contains("cdn.modrinth.com"), "the versions json never exposes a download url");
+        check(rootjar.addons.AddonSources.toJsonVersions(List.of(), "spigot").contains("\"items\":[]"), "an empty version list is still valid json");
+
+        // Modrinth names a dependency by project id, so the picker needs the project title to be readable.
+        List<rootjar.addons.AddonSources.Version> anonymous = rootjar.addons.AddonSources.modrinthVersions(
+                "[{\"id\":\"v2\",\"version_number\":\"2.0\",\"files\":[],\"dependencies\":["
+                + "{\"version_id\":\"VHtnT9Q4\",\"project_id\":\"AANobbMI\",\"file_name\":null,\"dependency_type\":\"required\"}]}]");
+        check(anonymous.get(0).dependencies().get(0).name().equals("AANobbMI"), "a nameless modrinth dependency falls back to its project id");
+        List<rootjar.addons.AddonSources.Version> named = rootjar.addons.AddonSources.withDependencyNames(
+                anonymous, java.util.Map.of("AANobbMI", "Sodium"));
+        check(named.get(0).dependencies().get(0).name().equals("Sodium"), "a dependency known only by project id gets its title");
+        check(named.get(0).dependencies().get(0).projectId().equals("AANobbMI")
+                && named.get(0).dependencies().get(0).versionId().equals("VHtnT9Q4"), "renaming a dependency keeps its identifiers");
+        check(named.get(0).id().equals("v2") && named.get(0).dependencies().get(0).required(), "renaming a dependency leaves the rest of the version alone");
+        check(rootjar.addons.AddonSources.withDependencyNames(modrinthVersions, java.util.Map.of("depP1", "Sodium"))
+                .get(0).dependencies().get(0).name().equals("Vault.jar"), "a dependency that already has a file name keeps it");
     }
 
     private static void geyserAndMultiPort() throws Exception {

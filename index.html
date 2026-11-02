@@ -286,6 +286,14 @@
         .addon-card-foot { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
         .addons-pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; font-size: 12px; color: var(--text-muted); }
         .addons-empty { font-size: 13px; color: var(--text-muted); padding: 8px 2px; }
+        .version-deps { border: 1px solid var(--border); background: var(--bg-input); border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; }
+        .version-deps h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); margin-bottom: 8px; }
+        .version-dep { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 0; }
+        .version-dep-name { flex: 1; word-break: break-all; }
+        .version-dep-tag { font-size: 10px; padding: 2px 6px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); flex-shrink: 0; }
+        .version-dep-tag.required { color: var(--danger); border-color: hsla(350,70%,60%,.35); }
+        .version-deps-note { font-size: 11px; color: var(--text-muted); margin-top: 8px; line-height: 1.45; }
+        .external-link { display: block; font-family: var(--font-mono); font-size: 12px; word-break: break-all; color: var(--accent); text-decoration: underline; }
 
         .type-badge { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: var(--bg-hover); color: var(--text-muted); }
         .type-badge.type-paper, .type-badge.type-folia { background: hsla(38, 92%, 55%, .15); color: hsl(38, 92%, 68%); }
@@ -1426,15 +1434,31 @@
     </div>
 
     <div class="fm-modal" id="version-modal">
-        <div class="fm-modal-content" style="height: auto; max-width: 400px;">
+        <div class="fm-modal-content" style="height: auto; max-width: 440px;">
             <div style="padding:16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between;">
                 <span id="version-modal-title">Select Version</span>
-                <button class="btn btn-outline" onclick="document.getElementById('version-modal').classList.remove('active')">X</button>
+                <button class="btn btn-outline" onclick="closeVersionModal()">X</button>
             </div>
             <div style="padding:20px;">
                 <p style="font-size:14px; margin-bottom:15px; color:var(--text-muted);">Please select a version to install:</p>
-                <select id="version-select" style="width:100%; padding:10px; background:var(--bg-input); border:1px solid var(--border); color:white; border-radius:8px; margin-bottom:20px;"></select>
+                <select id="version-select" onchange="renderVersionDependencies()" style="width:100%; padding:10px; background:var(--bg-input); border:1px solid var(--border); color:white; border-radius:8px; margin-bottom:20px;"></select>
+                <div id="version-deps" style="display:none;"></div>
                 <button class="btn" style="width:100%;" onclick="confirmInstallVersion()">Install Selected Version</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shown when a registry redirects to a web page instead of a file, so the jar cannot be fetched here. -->
+    <div class="fm-modal" id="external-modal">
+        <div class="fm-modal-content" style="height: auto; max-width: 460px;">
+            <div style="padding:16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between;">
+                <span id="external-title">External plugin</span>
+                <button class="btn btn-outline" onclick="closeExternalModal()">X</button>
+            </div>
+            <div style="padding:20px;">
+                <p id="external-body" style="font-size:13px; line-height:1.5; color:var(--text-muted); margin-bottom:14px;"></p>
+                <a id="external-link" href="#" target="_blank" rel="noopener noreferrer" class="external-link"></a>
+                <button class="btn" style="width:100%; margin-top:16px;" onclick="closeExternalModal()">Close</button>
             </div>
         </div>
     </div>
@@ -3271,7 +3295,7 @@
             plugin: { built: false, items: [], query: '', offset: 0, limit: 10, total: 0, mcVersion: '', loaders: [], source: 'modrinth', version: '', loader: 'auto', expanded: false, results: [] },
             mod:    { built: false, items: [], query: '', offset: 0, limit: 10, total: 0, mcVersion: '', loaders: [], source: 'modrinth', version: '', loader: 'auto', expanded: false, results: [] }
         };
-        let pendingAddon = { kind: 'plugin', projectId: null, title: '' };
+        let pendingAddon = { kind: 'plugin', source: 'modrinth', item: null, title: '', versions: [] };
         let confirmAction = null;
 
         function addonsKey(kind) { return kind === 'mod' ? 'mod' : 'plugin'; }
@@ -3693,6 +3717,9 @@
             const data = await res.json();
             state.total = data.total || 0;
             state.results = data.items || [];
+            // Install routing is chosen from each item's own source. The backend stamps it per item now; these
+            // fallbacks stop an older jar from sending source=undefined and getting "Unknown source" back.
+            for (const item of state.results) if (!item.source) item.source = data.source || state.source;
             const filtered = state.version ? ' for ' + state.version : '';
             if (info) info.innerText = state.total ? state.total.toLocaleString() + ' results on ' + sourceName + filtered : 'No results on ' + sourceName;
             renderSearchResults(key, state.results);
@@ -3732,17 +3759,55 @@
             const item = (state.results || [])[index];
             if (!item || !currentServer) return;
             if (item.premium) return showToast('That is a premium SpigotMC resource; it cannot be downloaded automatically', 'error');
-            if (item.source === 'modrinth') return openVersionModal(key, item.id, item.title);
-            const params = new URLSearchParams({ server: currentServer.id, source: item.source, id: item.id, owner: item.owner || '', slug: item.slug || item.id, title: item.title || '' });
-            showToast('Downloading ' + item.title + ' from ' + sourceLabel(item.source) + '…', 'info');
-            const response = await fetch('/api/addons/install-from?' + params.toString(), { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken || '' } });
-            if (response.ok) {
-                const data = await response.json().catch(() => ({}));
-                showToast('Installed ' + (data.installed || item.title), 'success');
-                loadAddons(key, true);
-            } else {
-                showToast(await response.text(), 'error');
+            // All three registries answer /api/addons/versions, so every result gets the picker. It used to
+            // open for Modrinth only, and because item.source was undefined nothing opened at all.
+            return openVersionModal(key, item.source || state.source || 'modrinth', item);
+        }
+
+        /**
+         * Installs one addon from Hangar or SpigotMC. A 409 means the registry redirected to a web page
+         * rather than a file; the response carries that page so the user can fetch the jar themselves.
+         */
+        async function installFromRegistry(kind, source, item, versionId) {
+            const params = new URLSearchParams({
+                server: currentServer.id, source,
+                id: item.id || '', owner: item.owner || '', slug: item.slug || item.id || '',
+                version: versionId || ''
+            });
+            showToast('Downloading ' + (item.title || item.id) + ' from ' + sourceLabel(source) + '…', 'info');
+            const res = await fetch('/api/addons/install-from?' + params.toString(),
+                { method: 'POST', headers: { 'X-CSRF-Token': window.csrfToken || '' } });
+            if (res.ok) {
+                const data = await res.json().catch(() => ({}));
+                showToast('Installed ' + (data.installed || item.title || item.id), 'success');
+                loadAddons(addonsKey(kind), true);
+                return true;
             }
+            if (res.status === 409) {
+                showExternalResource(await res.json().catch(() => ({})), item);
+                return false;
+            }
+            showToast((await res.text()) || 'Install failed', 'error');
+            return false;
+        }
+
+        /** The registry has no file for this plugin, only a page it redirects to. Offer that page as a link. */
+        function showExternalResource(detail, item) {
+            const modal = document.getElementById('external-modal');
+            if (!modal) return showToast(detail.message || 'That plugin cannot be downloaded automatically', 'error');
+            document.getElementById('external-title').innerText = (item && (item.title || item.id)) || 'External plugin';
+            document.getElementById('external-body').innerText = detail.message
+                || 'This plugin is not hosted on the registry, so the download redirects to its project page.';
+            const link = document.getElementById('external-link');
+            const url = detail.url || '';
+            if (url) { link.href = url; link.innerText = url; link.style.display = ''; }
+            else { link.removeAttribute('href'); link.innerText = ''; link.style.display = 'none'; }
+            modal.classList.add('active');
+        }
+
+        function closeExternalModal() {
+            const modal = document.getElementById('external-modal');
+            if (modal) modal.classList.remove('active');
         }
 
         function addonIcon(item) {
@@ -3766,45 +3831,147 @@
             fetchAddonSearch(key);
         }
 
-        async function openVersionModal(kind, projectId, title) {
+        /** Opens the version picker for any registry, then lists the chosen version's dependencies. */
+        async function openVersionModal(kind, source, item) {
             const key = addonsKey(kind);
-            if (!currentServer || !projectId) return;
-            pendingAddon = { kind: key, projectId, title: title || '' };
-            document.getElementById('version-modal-title').innerText = 'Install ' + (title || projectId);
+            if (!currentServer || !item || !item.id) return showToast('That result has no identifier', 'error');
+            pendingAddon = { kind: key, source, item, title: item.title || item.id, versions: [] };
+            document.getElementById('version-modal-title').innerText = 'Install ' + (item.title || item.id);
             const sel = document.getElementById('version-select');
+            const deps = document.getElementById('version-deps');
+            if (deps) { deps.style.display = 'none'; deps.innerHTML = ''; }
             sel.innerHTML = '<option value="">Loading versions...</option>';
             document.getElementById('version-modal').classList.add('active');
-            const res = await fetch('/api/modrinth/versions?project=' + encodeURIComponent(projectId)
-                + '&server=' + encodeURIComponent(currentServer.id) + '&kind=' + key);
-            if (!res.ok) { sel.innerHTML = '<option value="">Failed to load versions</option>'; return; }
-            const versions = await res.json();
+            const state = addonsState[key];
+            const res = await fetch('/api/addons/versions?server=' + encodeURIComponent(currentServer.id)
+                + '&kind=' + key + '&source=' + encodeURIComponent(source)
+                + '&id=' + encodeURIComponent(item.id)
+                + '&owner=' + encodeURIComponent(item.owner || '')
+                + '&slug=' + encodeURIComponent(item.slug || '')
+                + '&version=' + encodeURIComponent(state.version || ''));
+            if (!res.ok) {
+                sel.innerHTML = '<option value="">Failed to load versions</option>';
+                return showToast((await res.text()) || 'Could not load versions', 'error');
+            }
+            const data = await res.json();
+            const versions = data.items || [];
+            pendingAddon.versions = versions;
             sel.innerHTML = '';
-            if (!Array.isArray(versions) || !versions.length) {
+            if (!versions.length) {
                 sel.innerHTML = '<option value="">No version matches this server</option>';
+                if (deps) {
+                    deps.style.display = 'block';
+                    deps.innerHTML = '<div class="version-deps-note">Try setting the version filter to “Any version” and searching again.</div>';
+                }
                 return;
             }
             versions.forEach(v => {
-                const file = (v.files || []).find(f => f.primary) || (v.files || [])[0];
                 const opt = document.createElement('option');
                 opt.value = v.id;
-                opt.innerText = `${v.version_number} - ${(v.game_versions || []).slice(-1)[0] || '?'}${file ? ' · ' + fmtBytes(file.size) : ''}`;
+                opt.innerText = v.name + (v.size ? ' · ' + fmtBytes(v.size) : '');
                 sel.appendChild(opt);
             });
+            renderVersionDependencies();
         }
 
         function closeVersionModal() {
             document.getElementById('version-modal').classList.remove('active');
         }
 
+        /** Renders the selected version's dependencies as an "Install dependencies?" prompt. */
+        function renderVersionDependencies() {
+            const box = document.getElementById('version-deps');
+            if (!box) return;
+            const selected = document.getElementById('version-select').value;
+            const version = (pendingAddon.versions || []).find(v => v.id === selected);
+            const deps = (version && version.dependencies) || [];
+            box.style.display = 'block';
+            if (!deps.length) {
+                box.innerHTML = '<div class="version-deps-note">' + (pendingAddon.source === 'spigot'
+                    ? 'SpigotMC publishes no dependency data, so check the plugin page if it needs another plugin.'
+                    : 'This version lists no dependencies.') + '</div>';
+                return;
+            }
+            const required = deps.filter(d => d.required).length;
+            box.innerHTML = `<div class="version-deps">
+                <h4>Install dependencies?</h4>
+                ${deps.map((d, i) => `<label class="version-dep">
+                    <input type="checkbox" class="version-dep-check" data-index="${i}" ${d.required ? 'checked' : ''}>
+                    <span class="version-dep-name">${escapeHtml(d.name)}</span>
+                    <span class="version-dep-tag${d.required ? ' required' : ''}">${d.required ? 'required' : 'optional'}</span>
+                </label>`).join('')}
+                <div class="version-deps-note">${required} required, ${deps.length - required} optional. Only what is ticked here is installed, after the plugin itself.</div>
+            </div>`;
+        }
+
         async function confirmInstallVersion() {
-            const versionId = document.getElementById('version-select').value;
-            if (!versionId || !/^[A-Za-z0-9_-]{1,40}$/.test(versionId)) return showToast('Wait for the version list to load', 'error');
-            await installAddon(pendingAddon.kind, versionId, false);
+            const selected = document.getElementById('version-select').value;
+            const version = (pendingAddon.versions || []).find(v => v.id === selected);
+            if (!version) return showToast('Wait for the version list to load', 'error');
+            const { source, kind, item } = pendingAddon;
+            const chosen = Array.from(document.querySelectorAll('#version-deps .version-dep-check'))
+                .filter(box => box.checked)
+                .map(box => (version.dependencies || [])[Number(box.dataset.index)])
+                .filter(Boolean);
+            closeVersionModal();
+            const installed = source === 'modrinth'
+                ? await installAddon(kind, version.id, false)
+                : await installFromRegistry(kind, source, item, version.id);
+            if (installed && chosen.length) await installDependencies(kind, source, chosen);
+        }
+
+        /**
+         * Installs the ticked dependencies after the plugin itself. Each registry identifies a dependency
+         * differently - Modrinth by project with an optional pinned version, Hangar by name only - so each is
+         * resolved to something the install routes accept first, and anything unresolvable is reported rather
+         * than quietly dropped.
+         */
+        async function installDependencies(kind, source, deps) {
+            let done = 0;
+            const missed = [];
+            for (const dep of deps) {
+                showToast('Installing dependency ' + dep.name + '…', 'info');
+                try {
+                    const resolved = await resolveDependency(kind, source, dep);
+                    if (!resolved) { missed.push(dep.name); continue; }
+                    const ok = resolved.source === 'modrinth'
+                        ? await installAddon(kind, resolved.versionId, true)
+                        : await installFromRegistry(kind, 'hangar', resolved.item, '');
+                    if (ok) done++; else missed.push(dep.name);
+                } catch (_) { missed.push(dep.name); }
+            }
+            if (done) showToast(done + ' dependenc' + (done === 1 ? 'y' : 'ies') + ' installed', 'success');
+            if (missed.length) showToast('Could not install: ' + missed.join(', '), 'error');
+            loadAddons(addonsKey(kind), true);
+        }
+
+        /** Turns one dependency into something an install route accepts, or null when it cannot be resolved. */
+        async function resolveDependency(kind, source, dep) {
+            const key = addonsKey(kind);
+            if (source === 'modrinth') {
+                if (dep.versionId) return { source: 'modrinth', versionId: dep.versionId };
+                if (!dep.projectId) return null;
+                const res = await fetch('/api/addons/versions?server=' + encodeURIComponent(currentServer.id)
+                    + '&kind=' + key + '&source=modrinth&id=' + encodeURIComponent(dep.projectId));
+                const data = res.ok ? await res.json() : { items: [] };
+                const newest = (data.items || [])[0];
+                return newest ? { source: 'modrinth', versionId: newest.id } : null;
+            }
+            // Hangar names the dependency but gives no owner or slug, so it has to be found by name.
+            if (source === 'hangar' && dep.name) {
+                const res = await fetch('/api/addons/search?server=' + encodeURIComponent(currentServer.id)
+                    + '&kind=plugin&source=hangar&query=' + encodeURIComponent(dep.name));
+                if (!res.ok) return null;
+                const items = (await res.json()).items || [];
+                const match = items.find(i => (i.title || '').toLowerCase() === dep.name.toLowerCase()) || items[0];
+                return match ? { source: 'hangar', item: match } : null;
+            }
+            return null;
         }
 
         async function installAddon(kind, versionId, force) {
             const key = addonsKey(kind);
-            if (!currentServer || !versionId) return;
+            if (!currentServer || !versionId) return false;
             const res = await fetch('/api/modrinth/install?server=' + encodeURIComponent(currentServer.id)
                 + '&version_id=' + encodeURIComponent(versionId) + '&kind=' + key + (force ? '&force=1' : ''),
                 { method: 'POST' });
@@ -3818,13 +3985,14 @@
                     confirmText: 'Install anyway',
                     onConfirm: () => installAddon(key, versionId, true)
                 });
-                return;
+                return false;
             }
-            if (!res.ok) return showToast('Install failed', 'error');
+            if (!res.ok) { showToast('Install failed', 'error'); return false; }
             const data = await res.json().catch(() => ({}));
             closeVersionModal();
             showToast((data.replaced ? 'Replaced ' : 'Installed ') + (data.file || (key === 'mod' ? 'mod' : 'plugin')), 'success');
             loadAddons(key, true);
+            return true;
         }
 
         async function toggleAddon(kind, file) {
@@ -4205,6 +4373,7 @@
             if (popupOpen('delete-modal')) { closeDeleteModal(); return; }
             if (popupOpen('version-picker-modal')) { closeVersionPicker(); return; }
             if (popupOpen('version-modal')) { closeVersionModal(); return; }
+            if (popupOpen('external-modal')) { closeExternalModal(); return; }
             if (popupOpen('fm-modal')) { document.getElementById('fm-modal').classList.remove('active'); return; }
             if (popupOpen('edit-server-overlay')) { closeEditServer(); return; }
             if (popupOpen('create-wizard-overlay')) { closeCreateWizard(); return; }

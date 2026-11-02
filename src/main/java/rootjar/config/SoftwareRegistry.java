@@ -104,6 +104,7 @@ public final class SoftwareRegistry {
             "hangar.papermc.io",
             "hangarcdn.papermc.io",
             "api.spiget.org",
+            "cdn.spiget.org",
             "github.com",
             "objects.githubusercontent.com",
             "release-assets.githubusercontent.com",

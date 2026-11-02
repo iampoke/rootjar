@@ -2,6 +2,7 @@ package rootjar.addons;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Turns Modrinth, Hangar and SpigotMC search responses into one shape the panel can render, so the addons
@@ -17,8 +18,19 @@ public final class AddonSources {
     public record Item(String id, String slug, String owner, String title, String description,
                        String iconUrl, long downloads, List<String> versions, boolean premium) {}
 
-    /** A resolved download: the URL to fetch and the file name to save it as. */
-    public record Download(String url, String fileName) {}
+    /** A resolved download: the URL to fetch, the file name to save it as, and the digest to verify it with. */
+    public record Download(String url, String fileName, String sha256, long size) {}
+
+    /**
+     * One dependency of a chosen version. Modrinth identifies a dependency by project and optionally by an
+     * exact version; Hangar identifies it by project id and a display name. Either may be blank, and a
+     * dependency with neither cannot be installed automatically.
+     */
+    public record Dependency(String name, String projectId, String versionId, boolean required, String externalUrl) {}
+
+    /** One selectable version of an addon, normalized across registries. */
+    public record Version(String id, String name, String url, String fileName, long size,
+                          String sha256, List<Dependency> dependencies) {}
 
     // ---- normalization ---------------------------------------------------------------------
 
@@ -64,21 +76,119 @@ public final class AddonSources {
         return count > 0 ? count : -1;
     }
 
-    /** The first downloadable Paper file in a Hangar versions response. */
+    /** The newest downloadable Paper file in a Hangar versions response. */
     public static Download hangarDownload(String versionsJson) {
-        List<String> versions = objects(versionsJson, "result");
-        if (versions.isEmpty()) return null;
-        String first = versions.get(0);
-        String url = str(first, "downloadUrl");
-        if (url.isEmpty() || !url.startsWith("https://")) return null;
-        // The version object's own "name" is the version number, so the file name must come from fileInfo.
-        int fileInfo = first.indexOf("\"fileInfo\"");
-        String fileName = fileInfo >= 0 ? str(first.substring(fileInfo), "name") : "";
-        if (!fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".jar")) {
-            String fallback = str(first, "name");
-            fileName = (fallback.isBlank() ? "hangar-plugin" : fallback) + ".jar";
+        for (Version version : hangarVersions(versionsJson)) {
+            return new Download(version.url(), version.fileName(), version.sha256(), version.size());
         }
-        return new Download(url, fileName);
+        return null;
+    }
+
+    /**
+     * Every version in a Hangar versions response, newest first, each with its Paper file and its plugin
+     * dependencies. Hangar nests the link two levels deep - {@code downloads.PAPER.downloadUrl} - so a flat
+     * search for "downloadUrl" returns whichever platform the server listed first, or a dependency's link.
+     */
+    public static List<Version> hangarVersions(String json) {
+        List<Version> versions = new ArrayList<>();
+        for (String object : objects(json, "result")) {
+            String name = str(object, "name");
+            String platform = platformValue(object, "downloads", "PAPER");
+            String url = str(platform, "downloadUrl");
+            if (url.isEmpty() || !url.startsWith("https://")) continue;
+            String fileInfo = objectBody(platform, "fileInfo");
+            String fileName = str(fileInfo, "name");
+            if (!fileName.toLowerCase(java.util.Locale.ROOT).endsWith(".jar")) {
+                fileName = (name.isBlank() ? "hangar-plugin" : name) + ".jar";
+            }
+            versions.add(new Version(name, name, url, fileName, num(fileInfo, "sizeBytes"),
+                    str(fileInfo, "sha256Hash"), hangarDependencies(object)));
+        }
+        return versions;
+    }
+
+    /** Hangar keys its per-platform maps by platform name; fall back to the first entry when PAPER is absent. */
+    private static String platformValue(String versionObject, String key, String platform) {
+        String all = valueBody(versionObject, key);
+        if (all.isEmpty()) return "";
+        String wanted = valueBody(all, platform);
+        return wanted.isEmpty() ? firstNestedValue(all) : wanted;
+    }
+
+    /**
+     * The plugins a Hangar version says it needs. {@code platformDependencies} is *not* this - it lists the
+     * Minecraft versions the plugin supports, which reads like a dependency list and is not one.
+     */
+    private static List<Dependency> hangarDependencies(String versionObject) {
+        List<Dependency> dependencies = new ArrayList<>();
+        for (String object : objects(platformValue(versionObject, "pluginDependencies", "PAPER"), null)) {
+            String name = str(object, "name");
+            long projectId = num(object, "projectId");
+            if (name.isBlank() && projectId <= 0) continue;
+            dependencies.add(new Dependency(name, projectId > 0 ? String.valueOf(projectId) : "", "",
+                    bool(object, "required"), str(object, "externalUrl")));
+        }
+        return dependencies;
+    }
+
+    /**
+     * Versions from SpiGet's {@code /resources/{id}/versions}. The numeric {@code id} is what SpiGet's
+     * download endpoint takes as {@code ?version=}, so the caller builds the absolute URL itself and a
+     * third-party string never becomes a request target.
+     */
+    public static List<Version> spigotVersions(String json) {
+        List<Version> versions = new ArrayList<>();
+        for (String object : objects(json, null)) {
+            long id = num(object, "id");
+            String name = str(object, "name");
+            if (id <= 0 || name.isBlank()) continue;
+            // SpiGet carries no dependency data at all, so the list stays empty rather than looking resolved.
+            versions.add(new Version(String.valueOf(id), name, "", "", 0, "", List.of()));
+        }
+        return versions;
+    }
+
+    /** Versions from Modrinth's {@code /project/{id}/version}, each with its primary file and dependencies. */
+    public static List<Version> modrinthVersions(String json) {
+        List<Version> versions = new ArrayList<>();
+        for (String object : objects(json, null)) {
+            String id = str(object, "id");
+            if (id.isEmpty()) continue;
+            String url = "", fileName = "";
+            long size = 0;
+            for (String file : objects(valueBody(object, "files"), null)) {
+                String fileUrl = str(file, "url");
+                String name = str(file, "filename");
+                if (fileUrl.isEmpty() || name.isEmpty()) continue;
+                if (url.isEmpty() || bool(file, "primary")) {
+                    url = fileUrl;
+                    fileName = name;
+                    size = num(file, "size");
+                    if (bool(file, "primary")) break;
+                }
+            }
+            String number = str(object, "version_number");
+            String name = str(object, "name");
+            versions.add(new Version(id, number.isBlank() ? name : number, url, fileName, size, "",
+                    modrinthDependencies(object)));
+        }
+        return versions;
+    }
+
+    private static List<Dependency> modrinthDependencies(String versionObject) {
+        List<Dependency> dependencies = new ArrayList<>();
+        for (String object : objects(valueBody(versionObject, "dependencies"), null)) {
+            String type = str(object, "dependency_type");
+            // "embedded" already ships inside the jar and "incompatible" is a conflict, not something to add.
+            if (!type.equals("required") && !type.equals("optional")) continue;
+            String projectId = str(object, "project_id");
+            String versionId = str(object, "version_id");
+            if (projectId.isEmpty() && versionId.isEmpty()) continue;
+            String fileName = str(object, "file_name");
+            dependencies.add(new Dependency(fileName.isBlank() ? projectId : fileName,
+                    projectId, versionId, type.equals("required"), ""));
+        }
+        return dependencies;
     }
 
     private static String first(String value, String fallback) {
@@ -110,6 +220,37 @@ public final class AddonSources {
                 if (!firstVersion) json.append(',');
                 firstVersion = false;
                 json.append('"').append(escape(version)).append('"');
+            }
+            json.append("],\"source\":\"").append(escape(source)).append("\"}");
+        }
+        return json.append("]}").toString();
+    }
+
+    /**
+     * Renders normalized versions as the JSON the version picker expects. The download URL is deliberately
+     * left out: the browser has no business fetching a registry file directly, and the install route rebuilds
+     * it server-side from the version id.
+     */
+    public static String toJsonVersions(List<Version> versions, String source) {
+        StringBuilder json = new StringBuilder("{\"source\":\"").append(escape(source)).append("\",\"items\":[");
+        boolean first = true;
+        for (Version version : versions) {
+            if (!first) json.append(',');
+            first = false;
+            json.append("{\"id\":\"").append(escape(version.id()))
+                .append("\",\"name\":\"").append(escape(version.name()))
+                .append("\",\"fileName\":\"").append(escape(version.fileName()))
+                .append("\",\"size\":").append(version.size())
+                .append(",\"dependencies\":[");
+            boolean firstDependency = true;
+            for (Dependency dependency : version.dependencies()) {
+                if (!firstDependency) json.append(',');
+                firstDependency = false;
+                json.append("{\"name\":\"").append(escape(dependency.name()))
+                    .append("\",\"projectId\":\"").append(escape(dependency.projectId()))
+                    .append("\",\"versionId\":\"").append(escape(dependency.versionId()))
+                    .append("\",\"required\":").append(dependency.required())
+                    .append(",\"externalUrl\":\"").append(escape(dependency.externalUrl())).append("\"}");
             }
             json.append("]}");
         }
@@ -144,6 +285,86 @@ public final class AddonSources {
             if (c == ']' && depth == 0) break;
         }
         return found;
+    }
+
+    /**
+     * Fills in dependency display names from a project-id to title map, leaving every other field alone.
+     * Modrinth names a dependency by project id and only sometimes supplies a file name, so without this the
+     * picker shows "AANobbMI" where the user expects "Sodium".
+     */
+    public static List<Version> withDependencyNames(List<Version> versions, Map<String, String> titles) {
+        if (titles == null || titles.isEmpty()) return versions;
+        List<Version> renamed = new ArrayList<>();
+        for (Version version : versions) {
+            List<Dependency> dependencies = new ArrayList<>();
+            for (Dependency dependency : version.dependencies()) {
+                String title = titles.get(dependency.projectId());
+                boolean unnamed = dependency.name().isBlank() || dependency.name().equals(dependency.projectId());
+                dependencies.add(title != null && unnamed
+                        ? new Dependency(title, dependency.projectId(), dependency.versionId(),
+                                dependency.required(), dependency.externalUrl())
+                        : dependency);
+            }
+            renamed.add(new Version(version.id(), version.name(), version.url(), version.fileName(),
+                    version.size(), version.sha256(), dependencies));
+        }
+        return renamed;
+    }
+
+    /**
+     * The balanced text of the array or object stored under {@code key}, brackets included, or "" when the key
+     * is absent or holds a scalar. Hangar nests two levels deep ({@code downloads.PAPER.fileInfo.name}), which
+     * the flat readers below cannot reach.
+     */
+    public static String valueBody(String json, String key) {
+        int at = valueStart(json, key);
+        if (at < 0) return "";
+        char open = json.charAt(at);
+        if (open != '{' && open != '[') return "";
+        return balanced(json, at);
+    }
+
+    /** The balanced object stored under {@code key}, or "" when it is absent or is not an object. */
+    public static String objectBody(String json, String key) {
+        String body = valueBody(json, key);
+        return body.startsWith("{") ? body : "";
+    }
+
+    /** The first nested array or object inside {@code body}, whatever its key happens to be called. */
+    private static String firstNestedValue(String body) {
+        boolean inString = false;
+        for (int i = 1; i < body.length(); i++) {
+            char c = body.charAt(i);
+            if (inString) {
+                if (c == '\\') i++;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            if (c == '"') { inString = true; continue; }
+            if (c == '{' || c == '[') return balanced(body, i);
+        }
+        return "";
+    }
+
+    /** The balanced {@code {...}} or {@code [...]} run starting at {@code at}, or "" if it never closes. */
+    private static String balanced(String json, int at) {
+        int depth = 0;
+        boolean inString = false;
+        for (int i = at; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (inString) {
+                if (c == '\\') i++;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            if (c == '"') { inString = true; continue; }
+            if (c == '{' || c == '[') depth++;
+            else if (c == '}' || c == ']') {
+                depth--;
+                if (depth == 0) return json.substring(at, i + 1);
+            }
+        }
+        return "";
     }
 
     public static String str(String json, String key) {
