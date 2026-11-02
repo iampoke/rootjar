@@ -199,6 +199,14 @@ public final class ChecksMain {
         check(!hangarVersions.get(0).dependencies().get(0).required(), "an optional hangar dependency is not marked required");
         check(rootjar.addons.AddonSources.hangarDownload(hangar).url().endsWith("ViaVersion.jar"), "hangarDownload resolves the same paper file");
         check(rootjar.addons.AddonSources.hangarVersions("{\"result\":[]}").isEmpty(), "no hangar version means no entries");
+        // Hangar rejects "version" as a filter on the versions endpoint, so the install path fetches a chosen
+        // version by URL, which returns the version object itself with no "result" wrapper.
+        String single = "{\"name\":\"5.12.3\",\"downloads\":{\"PAPER\":{\"fileInfo\":{\"name\":\"ViaVersion.jar\",\"sizeBytes\":7},"
+                + "\"downloadUrl\":\"https://hangarcdn.papermc.io/plugins/ViaVersion.jar\"}},\"pluginDependencies\":{\"PAPER\":[]}}";
+        List<rootjar.addons.AddonSources.Version> one = rootjar.addons.AddonSources.hangarVersions(single);
+        check(one.size() == 1 && one.get(0).name().equals("5.12.3"), "a single hangar version object parses like a list");
+        check(rootjar.addons.AddonSources.hangarDownload(single) != null, "hangarDownload accepts the single-version response");
+        check(rootjar.addons.AddonSources.hangarVersions("{}").isEmpty(), "an object with no version data yields no entries");
 
         String spigot = "[{\"downloads\":20859,\"url\":\"resources/essentialsx.9089/download?version=32729\","
                 + "\"name\":\"2.0.1\",\"releaseDate\":1436209920,\"resource\":9089,\"id\":32729},"

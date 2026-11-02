@@ -91,7 +91,11 @@ public final class AddonSources {
      */
     public static List<Version> hangarVersions(String json) {
         List<Version> versions = new ArrayList<>();
-        for (String object : objects(json, "result")) {
+        // A version fetched by path (GET /versions/{name}) is the version object itself, while the paginated
+        // list wraps it in "result". Accept both so one parser serves the picker and the install path.
+        List<String> entries = objects(json, "result");
+        if (entries.isEmpty() && json.trim().startsWith("{")) entries = List.of(json.trim());
+        for (String object : entries) {
             String name = str(object, "name");
             String platform = platformValue(object, "downloads", "PAPER");
             String url = str(platform, "downloadUrl");

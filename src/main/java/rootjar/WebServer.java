@@ -2651,11 +2651,16 @@ public class WebServer {
             String sha256 = "";
             long expectedSize = 0;
             if (source.equals("hangar")) {
-                StringBuilder versions = new StringBuilder("https://hangar.papermc.io/api/v1/projects/"
-                        + urlEncode(owner) + "/" + urlEncode(slug) + "/versions?platform=PAPER&limit=1&offset=0");
-                if (!version.isEmpty()) versions.append("&version=").append(urlEncode(version));
+                // Hangar rejects "version" as a filter here ("[version] are invalid parameters/filters"), so a
+                // chosen version has to be fetched by path. That response is the version object itself, not a
+                // paginated result list, which hangarVersions accepts.
+                String versions = version.isEmpty()
+                        ? "https://hangar.papermc.io/api/v1/projects/" + urlEncode(owner) + "/" + urlEncode(slug)
+                                + "/versions?platform=PAPER&limit=1&offset=0"
+                        : "https://hangar.papermc.io/api/v1/projects/" + urlEncode(owner) + "/" + urlEncode(slug)
+                                + "/versions/" + urlEncodePath(version);
                 rootjar.addons.AddonSources.Download download =
-                        rootjar.addons.AddonSources.hangarDownload(modrinthGet(versions.toString(), HTTP_CACHE_MS));
+                        rootjar.addons.AddonSources.hangarDownload(modrinthGet(versions, HTTP_CACHE_MS));
                 if (download == null || !allowedDownloadUrl(download.url())) {
                     send(ex, 404, "Hangar has no downloadable Paper file for this plugin");
                     return;

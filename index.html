@@ -263,7 +263,9 @@
         .addons-section-head { display: flex; align-items: center; justify-content: space-between; }
         .addons-section-head h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); }
         .addons-list { display: flex; flex-direction: column; gap: 6px; }
-        .addon-row { display: grid; grid-template-columns: minmax(0,1fr) 120px auto; gap: 12px; align-items: center; padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; }
+        /* Four cells: icon, text, toggle, actions. It used to declare three, so the icon sat in the 1fr
+           cell and its text was pushed into the next column, leaving a wide gap after the icon. */
+        .addon-row { display: grid; grid-template-columns: auto minmax(0,1fr) auto auto; gap: 10px; align-items: center; padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; }
         .addon-row.disabled { opacity: .55; }
         .addon-name { font-family: var(--font-mono); font-size: 12px; word-break: break-all; }
         .addon-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
@@ -1267,7 +1269,13 @@
                                 <div class="fm-spacer"></div>
                                 <button class="fm-btn fm-btn-accent" onclick="document.getElementById('modpack-input').click()">Upload .mrpack</button>
                             </div>
-                            <p class="version-note">Install a Modrinth modpack into this server. Stop the server first: Rootjar creates a full backup, installs only the server-side mods, copies the pack's override files, then you can start it.</p>
+                            <p class="version-note">Search Modrinth for a modpack, or upload a .mrpack. Stop the server first: Rootjar creates a full backup, installs only the server-side mods, copies the pack's override files, then you can start it.</p>
+                            <div class="fm-search-row" style="display:flex">
+                                <input id="modpack-search-input" placeholder="Search Modrinth modpacks..." onkeydown="if(event.key==='Enter')searchModpacks()">
+                                <button class="btn" onclick="searchModpacks()">Search</button>
+                            </div>
+                            <div class="version-note" id="modpack-search-status"></div>
+                            <div class="addons-results" id="modpack-results"></div>
                             <input id="modpack-input" type="file" accept=".mrpack" hidden onchange="installModpack(this.files[0])">
                             <div class="version-note">Plugins and ordinary mods stay in their own tabs.</div>
                         </div>
@@ -3487,6 +3495,57 @@
             const data = response.ok ? await response.json().catch(() => ({})) : {};
             showToast(response.ok ? (data.installed || 0) + ' mods installed' : await response.text(), response.ok ? 'success' : 'error');
             if (response.ok) loadAddons('mod', true);
+        }
+        /**
+         * Searches Modrinth for modpacks. The install takes the newest version, which is what this tab offers;
+         * per-version choice for packs is not wired yet.
+         */
+        async function searchModpacks() {
+            if (!currentServer) return showToast('Open a server first', 'error');
+            const query = document.getElementById('modpack-search-input').value.trim();
+            if (!query) return showToast('Enter a search term', 'error');
+            const status = document.getElementById('modpack-search-status');
+            const results = document.getElementById('modpack-results');
+            const response = await fetch('/api/addons/search?server=' + encodeURIComponent(currentServer.id)
+                + '&kind=modpack&source=modrinth&query=' + encodeURIComponent(query) + '&limit=20');
+            if (!response.ok) { status.textContent = ''; return showToast((await response.text()) || 'Search failed', 'error'); }
+            const items = (await response.json()).items || [];
+            status.textContent = items.length
+                ? items.length + ' result(s). Installing takes the newest version.'
+                : 'Nothing matched that search.';
+            results.innerHTML = items.map(item => `<div class="addon-card">
+                <div class="addon-card-head">
+                    <div class="addon-icon">${addonIcon(item)}</div>
+                    <div>
+                        <div class="addon-card-title">${escapeHtml(item.title || 'Untitled')}</div>
+                        <div class="addon-card-author">Modrinth${item.owner ? ' · ' + escapeHtml(item.owner) : ''}</div>
+                    </div>
+                </div>
+                <div class="addon-desc">${escapeHtml(item.description || '')}</div>
+                <div class="addon-card-foot">
+                    <span class="addons-sub">${(item.downloads || 0).toLocaleString()} downloads</span>
+                    <button class="btn" data-project="${escapeHtml(item.id)}" data-title="${escapeHtml(item.title || 'this modpack')}" onclick="installModpackFromSearch(this)">Install</button>
+                </div>
+            </div>`).join('');
+        }
+
+        /** Installs the newest version of a modpack found by search, after the same confirmation the upload uses. */
+        async function installModpackFromSearch(button) {
+            if (!currentServer) return;
+            const project = button.dataset.project;
+            if (!project) return;
+            const title = button.dataset.title || 'this modpack';
+            if (!await confirmPromise({ title: 'Install modpack', body: 'Install ' + title + ' into this server? The server must be stopped. Rootjar creates a full backup, installs only the server-side mods, then copies the pack overrides.', confirmText: 'Install', danger: true })) return;
+            button.disabled = true;
+            button.textContent = 'Installing…';
+            const response = await fetch('/api/modpack/install-url?server=' + encodeURIComponent(currentServer.id)
+                + '&project=' + encodeURIComponent(project), { method: 'POST' });
+            button.disabled = false;
+            button.textContent = 'Install';
+            if (!response.ok) return showToast((await response.text()) || 'Modpack install failed', 'error');
+            const data = await response.json().catch(() => ({}));
+            showToast((data.installed || 0) + ' mods installed', 'success');
+            loadAddons('mod', true);
         }
         async function showCrashDiagnosis() {
             if (!currentServer) return;
