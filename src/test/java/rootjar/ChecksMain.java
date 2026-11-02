@@ -72,6 +72,7 @@ public final class ChecksMain {
         addons();
         staticWebsite();
         fileOps();
+        uploadLimits();
         backups();
         permissionRepair();
         bukkitDatapackRepair();
@@ -84,6 +85,16 @@ public final class ChecksMain {
         panelNaming();
         System.out.println("unit checks: " + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
+    }
+
+    /** The upload handler's Content-Length guard, which stops a cut-short body being published. */
+    private static void uploadLimits() {
+        check(WebServer.declaredLength("1234") == 1234L, "a declared content length is read");
+        check(WebServer.declaredLength(" 42 ") == 42L, "a padded content length is read");
+        check(WebServer.declaredLength(null) == -1L, "a missing content length is unknown");
+        check(WebServer.declaredLength("") == -1L, "a blank content length is unknown");
+        check(WebServer.declaredLength("nope") == -1L, "an unparseable content length is unknown");
+        check(WebServer.declaredLength("-9") == -1L, "a negative content length is unknown");
     }
 
     private static void portAlignment() {

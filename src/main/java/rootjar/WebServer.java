@@ -1836,21 +1836,58 @@ public class WebServer {
         String filename = extractQuery(ex.getRequestURI().getRawQuery(), "name");
         ChildProcess child = supervisor.child(id).orElse(null);
         if (child == null || path == null || filename == null || !canAccessServer(ex, id)) { send(ex, 400, "Bad Request"); return; }
+        Path part = null;
         try {
             Path dir = safeResolve(child, path);
             Path target = dir.resolve(filename).normalize();
             if (!target.startsWith(dir)) { send(ex, 403, "Invalid filename"); return; }
             long limit = 200L * 1024 * 1024;
-            try (InputStream is = ex.getRequestBody(); OutputStream os = Files.newOutputStream(target)) {
-                byte[] buffer = new byte[8192]; int read; long total = 0;
+            long expected = declaredLength(ex.getRequestHeaders().getFirst("Content-Length"));
+            if (expected > limit) { send(ex, 413, "File is larger than the 200 MB per-file limit"); return; }
+            // Write beside the target and move it into place only once the whole body arrived. Writing straight
+            // to the final name meant a cancelled upload, or a dropped connection, left a truncated file that
+            // looked like a real plugin while the panel reported success.
+            part = target.resolveSibling("." + target.getFileName() + ".part-" + System.nanoTime());
+            long total = 0;
+            boolean tooLarge = false;
+            try (InputStream is = ex.getRequestBody(); OutputStream os = Files.newOutputStream(part)) {
+                byte[] buffer = new byte[8192];
+                int read;
                 while ((read = is.read(buffer)) != -1) {
-                    total += read; if (total > limit) { Files.deleteIfExists(target); send(ex, 413, "File is larger than the 200 MB per-file limit"); return; }
+                    total += read;
+                    if (total > limit) { tooLarge = true; break; }
                     os.write(buffer, 0, read);
                 }
             }
+            if (tooLarge) { send(ex, 413, "File is larger than the 200 MB per-file limit"); return; }
+            if (expected >= 0 && total != expected) {
+                send(ex, 400, "Upload was cut short: received " + total + " of " + expected + " bytes");
+                return;
+            }
+            Files.move(part, target, StandardCopyOption.REPLACE_EXISTING);
+            part = null;
             audit(ex, id + ".file.upload", path + "/" + filename);
             send(ex, 200, "Uploaded");
-        } catch (Exception e) { send(ex, 500, e.getMessage()); }
+        } catch (Exception e) {
+            send(ex, 500, e.getMessage() == null ? "Upload failed" : e.getMessage());
+        } finally {
+            if (part != null) try { Files.deleteIfExists(part); } catch (IOException ignored) {}
+        }
+    }
+
+    /**
+     * Declared Content-Length, or -1 when the header is absent or unparseable. The upload handler compares it
+     * with the bytes it actually received, because a body that ends early can look like a clean end of stream
+     * and would otherwise publish a truncated file.
+     */
+    static long declaredLength(String header) {
+        if (header == null || header.isBlank()) return -1;
+        try {
+            long value = Long.parseLong(header.trim());
+            return value < 0 ? -1 : value;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     private ChildProcess fileChild(HttpExchange ex, boolean mutate) throws IOException {
