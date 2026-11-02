@@ -2633,8 +2633,13 @@ public class WebServer {
             } else if (source.equals("spigot")) {
                 if (!kind.equals("plugin")) { send(ex, 400, "SpigotMC lists plugins only"); return; }
                 raw = modrinthGet("https://api.spiget.org/v2/search/resources/" + urlEncodePath(query)
-                        + "?size=" + limit + "&start=" + offset + "&fields=id,name,tag,downloads,premium,icon.data", HTTP_CACHE_MS);
-                items = rootjar.addons.AddonSources.spigot(raw);
+                        + "?size=" + Math.min(100, limit * 2) + "&start=" + offset
+                        + "&fields=id,name,tag,downloads,premium,icon.data", HTTP_CACHE_MS);
+                // Premium resources need a SpigotMC login to download, so they are dropped instead of being
+                // listed with an Install button that can only fail. SpiGet has no premium filter, so ask for
+                // twice the page and trim after filtering.
+                items = rootjar.addons.AddonSources.withoutPremium(rootjar.addons.AddonSources.spigot(raw));
+                if (items.size() > limit) items = items.subList(0, limit);
             } else {
                 List<String> loaders = new ArrayList<>();
                 ChildProcess searchChild = supervisor.child(param(ex, "server", "")).orElse(null);
@@ -2823,9 +2828,15 @@ public class WebServer {
      */
     private String modrinthVersionUrl(String projectId, String kind, String serverId, String version) {
         boolean mods = "mod".equals(kind);
+        // A modpack is neither a plugin nor a mod, so neither this server's loader list nor its detected
+        // Minecraft version describes it. Measured on a real pack: the loader filter changed nothing, but the
+        // game_versions filter hid every release, because a pack carries its own Minecraft version.
+        boolean packs = "modpack".equals(kind);
         ChildProcess child = supervisor.child(serverId).orElse(null);
-        if (version.isEmpty() && child != null) version = detectMcVersion(child.config());
-        List<String> loaders = child == null ? List.of() : Addons.loaders(child.config().type(), mods);
+        // A modpack brings its own Minecraft version, so filtering by this server's detected one hides packs
+        // the user could still install; list every version and let the picker show what the pack supports.
+        if (version.isEmpty() && child != null && !packs) version = detectMcVersion(child.config());
+        List<String> loaders = (child == null || packs) ? List.of() : Addons.loaders(child.config().type(), mods);
         StringBuilder url = new StringBuilder("https://api.modrinth.com/v2/project/").append(projectId).append("/version");
         List<String> params = new ArrayList<>();
         if (!loaders.isEmpty()) {

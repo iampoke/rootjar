@@ -79,6 +79,7 @@ public final class ChecksMain {
         portAlignment();
         frontendSync();
         frontendEncoding();
+        eulaAgreement();
         activityFeed();
         geyserAndMultiPort();
         addonSources();
@@ -174,6 +175,10 @@ public final class ChecksMain {
         // backend rejects with "Unknown source".
         check(json.split("\"source\"").length == 3, "every normalized item carries its own source");
         check(rootjar.addons.AddonSources.toJson(spigotItems, 0, 0, 10, "spigot").contains("\"source\":\"spigot\"}]}"), "a spigot result is stamped as spigot");
+        // Premium resources need a SpigotMC login, so listing them offers an Install button that cannot work.
+        check(rootjar.addons.AddonSources.withoutPremium(spigotItems).size() == 1, "premium spigot resources are dropped from results");
+        check(rootjar.addons.AddonSources.withoutPremium(spigotItems).get(0).title().equals("EssentialsX"), "the free spigot result survives the premium filter");
+        check(rootjar.addons.AddonSources.withoutPremium(List.of()).isEmpty(), "filtering an empty result stays empty");
         check(rootjar.addons.AddonSources.toJson(List.of(), 0, 0, 10, "spigot").contains("\"items\":[]"), "an empty result still returns valid json");
         check(rootjar.addons.AddonSources.escape("a\"b\\c\nd").equals("a\\\"b\\\\c d"), "values are escaped for json");
         check(rootjar.addons.AddonSources.objects("{\"result\":[]}", "result").isEmpty(), "an empty array yields no objects");
@@ -380,6 +385,35 @@ public final class ChecksMain {
         Path index = dir.resolve("index.html");
         Files.writeString(index, "\uFEFF" + html, StandardCharsets.UTF_8);
         check("unchanged".equals(rootjar.Frontend.syncToDisk(index)), "frontend sync ignores a byte-order mark when comparing");
+        // The pixel font is inlined: the panel used to hotlink a CDN, which leaked operator IPs and left it
+        // with no pixel font when offline. Minecraftia's cmap has no arrow glyphs, so arrows are wrapped in
+        // .arrow and drawn from a font that does have them.
+        check(!html.contains("cdnfonts"), "bundled panel does not hotlink a font CDN");
+        check(html.contains("data:font/woff;base64,"), "bundled panel inlines the pixel font");
+        check(!html.contains("<body class=\"mc-font\">"), "the pixel font comes from storage, not a hardcoded body class");
+        check(html.contains(".arrow {"), "arrows have a font that contains them");
+        check(html.contains("<span class=\"arrow\">\u2190</span>"), "the back button arrow is styled");
+    }
+
+    /** Every start agrees to the Minecraft EULA; imported and copied servers often arrive without it. */
+    private static void eulaAgreement() throws Exception {
+        Path fresh = Files.createTempDirectory("eula-missing");
+        check(ChildProcess.ensureEulaFile(fresh), "a missing eula.txt is written");
+        check(Files.readString(fresh.resolve("eula.txt")).contains("eula=true"), "the written file agrees to the EULA");
+        check(!ChildProcess.ensureEulaFile(fresh), "an agreed eula.txt is left alone");
+
+        Path refused = Files.createTempDirectory("eula-false");
+        Files.writeString(refused.resolve("eula.txt"), "#By changing the setting below you agree to the EULA\neula=false\n");
+        check(ChildProcess.ensureEulaFile(refused), "a refused eula.txt is rewritten");
+        check(Files.readString(refused.resolve("eula.txt")).contains("eula=true"), "the rewrite agrees to the EULA");
+
+        Path commented = Files.createTempDirectory("eula-comment");
+        Files.writeString(commented.resolve("eula.txt"), "#eula=true is required\neula=false\n");
+        check(ChildProcess.ensureEulaFile(commented), "a commented-out agreement still counts as refused");
+
+        Path spaced = Files.createTempDirectory("eula-spaced");
+        Files.writeString(spaced.resolve("eula.txt"), "eula = TRUE\n");
+        check(!ChildProcess.ensureEulaFile(spaced), "an agreement with odd spacing is recognised");
     }
 
     private static String codePoints(String s) {

@@ -371,6 +371,11 @@ public final class AddonSources {
         return "";
     }
 
+    /** Drops premium resources: they need a SpigotMC login, so the panel cannot download them. */
+    public static List<Item> withoutPremium(List<Item> items) {
+        return items.stream().filter(item -> !item.premium()).toList();
+    }
+
     public static String str(String json, String key) {
         int at = valueStart(json, key);
         if (at < 0 || json.charAt(at) != '"') return "";

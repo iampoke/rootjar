@@ -121,6 +121,38 @@ public final class ChildProcess {
         if (state == ChildState.CRASHED) state = ChildState.RESTARTING;
     }
 
+    /**
+     * Minecraft refuses to boot while eula.txt is missing or says false, and the panel agrees on the user's
+     * behalf when it creates a server. Servers that were imported, copied, or created before that rule still
+     * carry the old file, which shows up as a start that dies instantly with nothing useful in the log, so
+     * every start makes sure the file says true.
+     */
+    private void ensureEula() {
+        if (cfg.type().equals("website")) return;
+        if (ensureEulaFile(cfg.dir())) ConsoleOutput.root("agreed to the Minecraft EULA for " + id());
+    }
+
+    /** Writes eula=true unless the file already agrees. Returns true when it had to write. */
+    public static boolean ensureEulaFile(Path dir) {
+        try {
+            Path eula = dir.resolve("eula.txt");
+            boolean agreed = false;
+            if (Files.isRegularFile(eula)) {
+                // Match the assignment, not the word: a commented "#eula=true is required" line above a
+                // "eula=false" still means the server refuses to start.
+                for (String line : Files.readAllLines(eula)) {
+                    if (line.trim().matches("(?i)eula\\s*=\\s*true.*")) { agreed = true; break; }
+                }
+            }
+            if (agreed) return false;
+            Files.createDirectories(dir);
+            Files.writeString(eula, "eula=true\n");
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     public synchronized boolean start() {
         if (startDisabled) return false;
         if (process != null && process.isAlive()) return false;
@@ -139,6 +171,7 @@ public final class ChildProcess {
         ConsoleOutput.root("starting " + id() + " in " + cfg.dir() + ": " + String.join(" ", cmd));
         alignServerPort();
         ensureBukkitDatapack();
+        ensureEula();
         if (PermissionRepair.repairOnce(cfg.dir(), id())) ConsoleOutput.root("repaired copied file permissions in " + id());
         Process p;
         try {

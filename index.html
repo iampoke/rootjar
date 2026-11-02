@@ -5,9 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.cdnfonts.com/css/minecraftia" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.18/lib/codemirror.min.css">
     <style>
+        /* Self-hosted: the panel used to hotlink a third-party font CDN, which leaked operator IPs and
+           left the panel with no pixel font offline. The woff is 5.5 KB, so it is inlined. */
+        @font-face { font-family: 'Minecraftia'; font-style: normal; font-weight: 400;
+          src: local('Minecraftia'), url(data:font/woff;base64,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) format('woff'); }
+        /* Minecraftia has no arrow glyphs (its cmap stops at ASCII plus a few punctuation marks), so
+           arrows are wrapped in .arrow and drawn from a font that has them instead of falling back oddly. */
+        .arrow { font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", system-ui, sans-serif !important; font-weight: normal; }
         :root { --hue: 215; --bg-body: hsl(var(--hue), 20%, 8%); --bg-panel: hsl(var(--hue), 20%, 12%); --bg-card: hsl(var(--hue), 20%, 15%); --bg-hover: hsl(var(--hue), 20%, 20%); --bg-input: hsl(var(--hue), 20%, 10%); --text-main: hsl(var(--hue), 10%, 90%); --text-muted: hsl(var(--hue), 10%, 60%); --text-dark: hsl(var(--hue), 10%, 40%); --accent: hsl(var(--hue), 80%, 60%); --accent-hover: hsl(var(--hue), 80%, 50%); --success: hsl(150, 70%, 50%); --danger: hsl(350, 70%, 60%); --warning: hsl(40, 90%, 60%); --border: hsl(var(--hue), 20%, 18%); --border-light: hsl(var(--hue), 20%, 25%); --shadow: 0 8px 24px rgba(0,0,0,0.4); --font-main: 'Inter', sans-serif; --font-mono: monospace; }
         
         body.mc-font { font-family: 'Minecraftia', monospace; font-variant: normal; text-transform: none; -webkit-font-smoothing: none; image-rendering: pixelated; font-size: 16px; }
@@ -648,7 +654,12 @@
         .fm-name { cursor:pointer; }
     </style>
 </head>
-<body class="mc-font">
+<body>
+<script>
+/* Apply the saved font choice before first paint. The class used to be hardcoded on <body>, so anyone
+   who had turned the pixel font off watched it flash on and then off again while restoreFont() ran. */
+try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc-font') !== '0'); } catch (e) {}
+</script>
     <div id="toast-container"></div>
     <div id="upload-indicator" style="display:none" onclick="switchTab('files')" title="Show upload progress"></div>
     <div id="ctx-menu" class="ctx-menu">
@@ -745,7 +756,7 @@
 
         <div id="view-settings" class="view-wrapper">
             <div class="dashboard-content">
-                <div class="dashboard-header"><div><button class="btn btn-outline" id="settings-back" style="display:none;margin-bottom:12px" onclick="openSettingsSection('menu')">← Settings</button><h1 id="settings-title">Settings</h1></div><span id="settings-version" class="version-note"></span></div>
+                <div class="dashboard-header"><div><button class="btn btn-outline" id="settings-back" style="display:none;margin-bottom:12px" onclick="openSettingsSection('menu')"><span class="arrow">←</span> Settings</button><h1 id="settings-title">Settings</h1></div><span id="settings-version" class="version-note"></span></div>
                 <div id="settings-menu" class="settings-menu">
                     <button onclick="openSettingsSection('general')"><strong>General</strong><span>Webhook, backups, and status page</span></button>
                     <button onclick="openSettingsSection('nodes')"><strong>Nodes</strong><span>Previous and next node buttons</span></button>
@@ -936,7 +947,7 @@
         <div id="view-console" class="view-wrapper">
             <div class="console-layout">
                 <div class="sidebar-left">
-                    <div class="back-btn" onclick="switchView('dashboard')">← BACK</div>
+                    <div class="back-btn" onclick="switchView('dashboard')"><span class="arrow">←</span> BACK</div>
                     
                     <div class="server-status-box">
                         <div class="status-actions">
@@ -1385,8 +1396,8 @@
                         <div class="network-row">
                             <div class="net-label">Network</div>
                             <div class="net-stats">
-                                <span class="net-down" id="net-down-txt" style="color: var(--accent);">↓ 0 KiB/s</span>
-                                <span class="net-up" id="net-up-txt" style="color: var(--accent);">↑ 0 KiB/s</span>
+                                <span class="net-down" id="net-down-txt" style="color: var(--accent);"><span class="arrow">↓</span> 0 KiB/s</span>
+                                <span class="net-up" id="net-up-txt" style="color: var(--accent);"><span class="arrow">↑</span> 0 KiB/s</span>
                             </div>
                         </div>
                     </div>
@@ -2136,8 +2147,8 @@
                     document.getElementById('res-disk-max').innerText = 'used';
                     document.getElementById('res-disk-bar').style.width = diskPct + '%';
 
-                    document.getElementById('net-down-txt').innerText = '↓ ' + data.netRx + ' KiB/s';
-                    document.getElementById('net-up-txt').innerText = '↑ ' + data.netTx + ' KiB/s';
+                    document.getElementById('net-down-txt').innerHTML = '<span class="arrow">↓</span> ' + escapeHtml(data.netRx) + ' KiB/s';
+                    document.getElementById('net-up-txt').innerHTML = '<span class="arrow">↑</span> ' + escapeHtml(data.netTx) + ' KiB/s';
                 }
             }
         }
@@ -3515,9 +3526,9 @@
                 ? unique.map((port, index) => `<span class="stat-pill">${port}${index === 0 ? ' · primary' : ''}</span>`).join(' ')
                 : '<span class="version-note">No port is assigned to this server.</span>';
             const free = (window.lastStatus && window.lastStatus.availablePorts) || [];
-            document.getElementById('startup-ports-free').textContent = free.length
-                ? 'Free ports in the pool: ' + free.join(', ') + '. Assign more to this server in Manage Server → Edit Server.'
-                : 'No free ports in the pool. Add more under Settings → Available Ports.';
+            document.getElementById('startup-ports-free').innerHTML = free.length
+                ? 'Free ports in the pool: ' + escapeHtml(free.join(', ')) + '. Assign more to this server in Manage Server <span class="arrow">→</span> Edit Server.'
+                : 'No free ports in the pool. Add more under Settings <span class="arrow">→</span> Available Ports.';
             const select = document.getElementById('startup-geyser-port');
             select.innerHTML = unique.length
                 ? unique.map(port => `<option value="${port}">${port}</option>`).join('')
@@ -3580,9 +3591,10 @@
             if (response.ok) loadAddons('mod', true);
         }
         /**
-         * Searches Modrinth for modpacks. The install takes the newest version, which is what this tab offers;
-         * per-version choice for packs is not wired yet.
+         * Searches Modrinth for modpacks. Installing opens the version picker, whose first entry is the
+         * newest version, so there is one flow for "latest" and for a specific release.
          */
+        let modpackResults = [];
         async function searchModpacks() {
             if (!currentServer) return showToast('Open a server first', 'error');
             const query = document.getElementById('modpack-search-input').value.trim();
@@ -3593,10 +3605,11 @@
                 + '&kind=modpack&source=modrinth&query=' + encodeURIComponent(query) + '&limit=20');
             if (!response.ok) { status.textContent = ''; return showToast((await response.text()) || 'Search failed', 'error'); }
             const items = (await response.json()).items || [];
+            modpackResults = items;
             status.textContent = items.length
-                ? items.length + ' result(s). Installing takes the newest version.'
+                ? items.length + ' result(s).'
                 : 'Nothing matched that search.';
-            results.innerHTML = items.map(item => `<div class="addon-card">
+            results.innerHTML = items.map((item, index) => `<div class="addon-card">
                 <div class="addon-card-head">
                     <div class="addon-icon">${addonIcon(item)}</div>
                     <div>
@@ -3607,24 +3620,27 @@
                 <div class="addon-desc">${escapeHtml(item.description || '')}</div>
                 <div class="addon-card-foot">
                     <span class="addons-sub">${(item.downloads || 0).toLocaleString()} downloads</span>
-                    <button class="btn" data-project="${escapeHtml(item.id)}" data-title="${escapeHtml(item.title || 'this modpack')}" onclick="installModpackFromSearch(this)">Install</button>
+                    <button class="btn" onclick="openModpackVersions(${index})">Install</button>
                 </div>
             </div>`).join('');
         }
 
-        /** Installs the newest version of a modpack found by search, after the same confirmation the upload uses. */
-        async function installModpackFromSearch(button) {
-            if (!currentServer) return;
-            const project = button.dataset.project;
-            if (!project) return;
-            const title = button.dataset.title || 'this modpack';
+        /** Opens the shared version picker for a modpack found by search. */
+        function openModpackVersions(index) {
+            const item = modpackResults[index];
+            if (!item) return;
+            return openVersionModal('modpack', 'modrinth', item);
+        }
+
+        /** Installs the chosen modpack version through the same route the .mrpack upload uses. */
+        async function installChosenModpack(item, versionId) {
+            if (!currentServer || !item) return;
+            const title = item.title || 'this modpack';
             if (!await confirmPromise({ title: 'Install modpack', body: 'Install ' + title + ' into this server? The server must be stopped. Rootjar creates a full backup, installs only the server-side mods, then copies the pack overrides.', confirmText: 'Install', danger: true })) return;
-            button.disabled = true;
-            button.textContent = 'Installing…';
+            showToast('Downloading ' + title + '…', 'info');
             const response = await fetch('/api/modpack/install-url?server=' + encodeURIComponent(currentServer.id)
-                + '&project=' + encodeURIComponent(project), { method: 'POST' });
-            button.disabled = false;
-            button.textContent = 'Install';
+                + '&project=' + encodeURIComponent(item.id)
+                + (versionId ? '&version=' + encodeURIComponent(versionId) : ''), { method: 'POST' });
             if (!response.ok) return showToast((await response.text()) || 'Modpack install failed', 'error');
             const data = await response.json().catch(() => ({}));
             showToast((data.installed || 0) + ' mods installed', 'success');
@@ -3695,7 +3711,8 @@
             } else {
                 document.querySelectorAll('#config-editor [data-path]').forEach(el => {
                     const value = el.dataset.type === 'boolean' ? (el.checked ? 'true' : 'false') : el.value;
-                    if (value !== el.dataset.original) changes.push(el.dataset.path + ': ' + el.dataset.original + ' → ' + value);
+                    // Plain text sink: the confirmation body is set with innerText, so a styled span would show as markup.
+                    if (value !== el.dataset.original) changes.push(el.dataset.path + ': ' + el.dataset.original + ' -> ' + value);
                 });
             }
             confirmPromise({ title: 'Config changes', body: changes.join('\n') || 'No unsaved changes.', confirmText: 'Close' });
@@ -3975,7 +3992,7 @@
 
         /** Opens the version picker for any registry, then lists the chosen version's dependencies. */
         async function openVersionModal(kind, source, item) {
-            const key = addonsKey(kind);
+            const key = kind === 'modpack' ? 'modpack' : addonsKey(kind);
             if (!currentServer || !item || !item.id) return showToast('That result has no identifier', 'error');
             pendingAddon = { kind: key, source, item, title: item.title || item.id, versions: [] };
             document.getElementById('version-modal-title').innerText = 'Install ' + (item.title || item.id);
@@ -3984,7 +4001,7 @@
             if (deps) { deps.style.display = 'none'; deps.innerHTML = ''; }
             sel.innerHTML = '<option value="">Loading versions...</option>';
             document.getElementById('version-modal').classList.add('active');
-            const state = addonsState[key];
+            const state = addonsState[key] || {};
             const res = await fetch('/api/addons/versions?server=' + encodeURIComponent(currentServer.id)
                 + '&kind=' + key + '&source=' + encodeURIComponent(source)
                 + '&id=' + encodeURIComponent(item.id)
@@ -4028,6 +4045,10 @@
             const version = (pendingAddon.versions || []).find(v => v.id === selected);
             const deps = (version && version.dependencies) || [];
             box.style.display = 'block';
+            if (pendingAddon.kind === 'modpack') {
+                box.innerHTML = '<div class="version-deps-note">A modpack brings its own mods, so there is nothing to add here.</div>';
+                return;
+            }
             if (!deps.length) {
                 box.innerHTML = '<div class="version-deps-note">' + (pendingAddon.source === 'spigot'
                     ? 'SpigotMC publishes no dependency data, so check the plugin page if it needs another plugin.'
@@ -4051,6 +4072,10 @@
             const version = (pendingAddon.versions || []).find(v => v.id === selected);
             if (!version) return showToast('Wait for the version list to load', 'error');
             const { source, kind, item } = pendingAddon;
+            if (kind === 'modpack') {
+                closeVersionModal();
+                return installChosenModpack(item, version.id);
+            }
             const chosen = Array.from(document.querySelectorAll('#version-deps .version-dep-check'))
                 .filter(box => box.checked)
                 .map(box => (version.dependencies || [])[Number(box.dataset.index)])
