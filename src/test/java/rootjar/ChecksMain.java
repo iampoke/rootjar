@@ -433,6 +433,9 @@ public final class ChecksMain {
         // A reverse proxy answers an oversized upload with its own HTML page before the panel sees it.
         check(html.contains("client_max_body_size"), "an oversized upload names the proxy limit to raise");
         check(html.contains("status === 429"), "a rate-limited upload is explained");
+        // The browser keeps 1,000 lines, which is what the console backfills on connect; if either number
+        // moves the other should move with it.
+        check(html.contains("consoleLines.length > 1000"), "the browser keeps as many lines as the console backfills");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */
@@ -694,6 +697,18 @@ public final class ChecksMain {
         check(b.since(5).isEmpty(), "since(last) is empty");
         b.append("x".repeat(5000));
         check(b.since(5).get(0).line().length() < 2100, "long lines are truncated");
+        // The console asks for its last CONSOLE_BACKFILL_LINES lines on connect, so since() has to clamp that
+        // window rather than return nothing when fewer lines exist or the buffer has wrapped.
+        check(b.since(Math.max(0, b.lastSeq() - 1000)).size() == 3, "a backfill window is clamped to what a wrapped buffer still holds");
+        LogRingBuffer big = new LogRingBuffer(10_000);
+        for (int i = 1; i <= 2500; i++) big.append("l" + i);
+        var window = big.since(Math.max(0, big.lastSeq() - 1000));
+        check(window.size() == 1000, "a 1,000-line backfill window is retrievable");
+        check(window.get(0).line().equals("l1501") && window.get(999).line().equals("l2500"), "the backfill window ends at the newest line");
+        LogRingBuffer small = new LogRingBuffer(10_000);
+        for (int i = 1; i <= 40; i++) small.append("s" + i);
+        check(small.since(Math.max(0, small.lastSeq() - 1000)).size() == 40, "a short log backfills everything it has");
+        check(new LogRingBuffer(10_000).since(Math.max(0, -1000)).isEmpty(), "an empty log backfills nothing");
     }
 
     private static void backoff() {

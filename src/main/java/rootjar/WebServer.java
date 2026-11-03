@@ -117,6 +117,12 @@ public class WebServer {
     private static final long MAX_INSTALLER_BYTES = 64L * 1024L * 1024L;
     /** Phase 3 request bodies are tiny JSON objects; refuse bigger bodies instead of buffering them. */
     private static final int MAX_SMALL_BODY = 8 * 1024;
+    /**
+     * Lines sent to a console when it first connects. Matches the browser's own cap - it keeps 1,000 lines and
+     * drops anything older - so sending more would only be discarded. This used to be 50, which left almost all
+     * of the 10,000-line ring buffer unreachable from the console view.
+     */
+    private static final int CONSOLE_BACKFILL_LINES = 1000;
     /** Never read a whole latest.log: it can grow to hundreds of megabytes. */
     private static final int LOG_HEAD_LINES = 200;
     private static final long LOG_HEAD_BYTES = 256L * 1024L;
@@ -1516,7 +1522,7 @@ public class WebServer {
         ex.getResponseHeaders().set("Content-Type", "text/event-stream");
         ex.getResponseHeaders().set("Cache-Control", "no-cache");
         ex.sendResponseHeaders(200, 0);
-        long lastSeq = child.log().lastSeq() > 100 ? child.log().lastSeq() - 50 : 0;
+        long lastSeq = Math.max(0, child.log().lastSeq() - CONSOLE_BACKFILL_LINES);
         
         try (OutputStream os = ex.getResponseBody()) {
             long lastWrite = System.currentTimeMillis();
@@ -1524,9 +1530,12 @@ public class WebServer {
                 var logs = child.log().since(lastSeq);
                 for (var entry : logs) {
                     os.write(("data: " + filterConsoleIps(ex, entry.line()).replace("\r", "").replace("\n", "") + "\n\n").getBytes(StandardCharsets.UTF_8));
-                    os.flush(); lastSeq = entry.seq();
+                    lastSeq = entry.seq();
                 }
                 if (!logs.isEmpty()) {
+                    // One flush per batch, not per line: a 1,000-line catch-up flushed line by line is visibly
+                    // slow, and live output still reaches the browser within a single poll interval.
+                    os.flush();
                     lastWrite = System.currentTimeMillis();
                 } else if (System.currentTimeMillis() - lastWrite >= 10_000) {
                     os.write(": keepalive\n\n".getBytes(StandardCharsets.UTF_8)); // stops proxies dropping idle streams
