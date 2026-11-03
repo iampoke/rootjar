@@ -250,6 +250,7 @@
         .console-btn { padding: 6px 10px; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 6px; color: var(--text-main); font-size: 12px; font-weight: 600; cursor: pointer; }
         .console-btn:hover { color: var(--accent); border-color: var(--accent); }
         .console-output { flex: 1; padding: 14px 16px; overflow-y: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.45; color: var(--text-main); }
+        .console-output a { color: var(--accent); text-decoration: underline; }
         .console-line { white-space: pre-wrap; word-break: break-word; margin-bottom: 1px; }
         .console-time { color: var(--text-muted); opacity: .65; margin-right: 8px; }
         .console-msg { white-space: pre-wrap; }
@@ -1728,6 +1729,64 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             return !q || entry.raw.toLowerCase().indexOf(q) !== -1;
         }
 
+        // Log text is already HTML-escaped by ansiToHtml, so linkifying only the text between tags cannot let a
+        // log line inject markup or reach an attribute. Three shapes are linked: http(s) URLs, bare IPv4 with an
+        // optional port, and host:port. The last two need guards, because a stack frame such as
+        // "(Thread.java:1043)" has exactly the host:port shape.
+        const CONSOLE_LINK_RE = /(https?:\/\/[^\s<>"']*[^\s<>"'.,);:\]])|(\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b)|(\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}:\d{1,5}\b)/gi;
+
+        // A "host" ending in one of these is a source file from a stack trace, not a server.
+        const CONSOLE_SOURCE_EXT = /\.(java|js|mjs|cjs|ts|tsx|py|kt|kts|scala|class|json|ya?ml|xml|properties|log|txt|md|sh|bat|ps1|cs|cpp|cc|c|h|hpp|rb|go|php|html?|css|mcmeta|toml|ini|conf|cfg)$/i;
+
+        function consoleLinkHref(url, ip, hostPort) {
+            if (url) return url;
+            const bare = ip || hostPort;
+            if (!bare) return '';
+            const colon = bare.lastIndexOf(':');
+            const host = colon < 0 ? bare : bare.slice(0, colon);
+            const port = colon < 0 ? '' : bare.slice(colon + 1);
+            if (port && (Number(port) < 1 || Number(port) > 65535)) return '';
+            if (CONSOLE_SOURCE_EXT.test(host)) return '';
+            // Class and logger names have exactly the host:port shape ("com.mojang.authlib.Agent:42"), so
+            // require what DNS actually allows: no underscore and no capitals.
+            if (host.indexOf('_') >= 0 || /[A-Z]/.test(host)) return '';
+            if (host === '0.0.0.0') return '';
+            if (ip) {
+                const octets = host.split('.');
+                if (octets.length !== 4 || octets.some(o => !/^\d{1,3}$/.test(o) || Number(o) > 255)) return '';
+            }
+            return 'http://' + bare;
+        }
+
+        function linkifyConsoleText(text) {
+            return text.replace(CONSOLE_LINK_RE, (match, url, ip, hostPort, offset, whole) => {
+                // A bare host or IP that follows "(", "." or a word character is part of something larger - a
+                // stack frame, a logger name, a version string - so it stays plain text.
+                if (!url && offset > 0) {
+                    const before = whole.charAt(offset - 1);
+                    if (before === '(' || before === '.' || /[A-Za-z0-9_-]/.test(before)) return match;
+                }
+                const href = consoleLinkHref(url, ip, hostPort);
+                if (!href) return match;
+                return `<a href="${href}" target="_blank" rel="noopener noreferrer">${match}</a>`;
+            });
+        }
+
+        function linkifyConsole(html) {
+            // Tag parts pass through untouched, and text inside an existing anchor is skipped, so a link is
+            // never nested inside another one.
+            let insideAnchor = false;
+            return html.split(/(<[^>]*>)/).map(part => {
+                if (part.charAt(0) === '<') {
+                    const lower = part.toLowerCase();
+                    if (lower.startsWith('<a')) insideAnchor = true;
+                    else if (lower.startsWith('</a')) insideAnchor = false;
+                    return part;
+                }
+                return insideAnchor ? part : linkifyConsoleText(part);
+            }).join('');
+        }
+
         function appendConsoleEntry(entry) {
             const out = document.getElementById('console-output');
             const holder = document.createElement('div');
@@ -1744,7 +1803,7 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             const isContinuation = /^(\s|at\s|Caused by:|\.\.\.)/.test(text);
             const entry = {
                 raw: text,
-                html: ansiToHtml(text),
+                html: linkifyConsole(ansiToHtml(text)),
                 level: detected || (isContinuation ? previous : 'INFO'),
                 time: new Date().toLocaleTimeString()
             };

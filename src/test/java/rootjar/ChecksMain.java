@@ -405,6 +405,12 @@ public final class ChecksMain {
         check(html.contains("event.clientY - height"), "the context menu flips above the cursor when it would overflow");
         check(html.contains("max-height: calc(100vh - 16px)"), "the context menu caps its own height");
         check(!html.contains("menu.style.left = event.pageX"), "the context menu no longer uses page coordinates");
+        // Console links are produced after escaping, and only in text between tags.
+        check(html.contains("linkifyConsole(ansiToHtml(text))"), "console lines are linkified after they are escaped");
+        check(!html.contains("html: ansiToHtml(text)"), "no console path skips linkifying");
+        check(html.contains("rel=\"noopener noreferrer\""), "console links open a new tab without leaking the session");
+        check(html.contains(".console-output a {"), "console links are styled");
+        check(html.contains("CONSOLE_SOURCE_EXT"), "stack-trace frames are kept out of the console link matcher");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */
