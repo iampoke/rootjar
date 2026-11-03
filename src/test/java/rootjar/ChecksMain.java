@@ -393,6 +393,19 @@ public final class ChecksMain {
         check(!html.contains("<body class=\"mc-font\">"), "the pixel font comes from storage, not a hardcoded body class");
         check(html.contains(".arrow {"), "arrows have a font that contains them");
         check(html.contains("<span class=\"arrow\">\u2190</span>"), "the back button arrow is styled");
+        // The right-click menu: every entry carries an icon, and permanent delete sits apart from Trash.
+        check(count(html, "class=\"ctx-item") == count(html, "class=\"ctx-ico\""), "every context-menu item carries an icon");
+        check(count(html, "class=\"ctx-item") == 7, "the context menu has seven entries");
+        check(html.contains("ctxAction('delete')"), "the context menu offers a permanent delete");
+        check(html.contains("ctxAction('trash')"), "the context menu keeps the trash action");
+        check(html.contains(">Trash</div>"), "the trash entry is labelled Trash");
+    }
+
+    /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */
+    private static int count(String haystack, String needle) {
+        int found = 0, at = 0;
+        while ((at = haystack.indexOf(needle, at)) >= 0) { found++; at += needle.length(); }
+        return found;
     }
 
     /** Every start agrees to the Minecraft EULA; imported and copied servers often arrive without it. */

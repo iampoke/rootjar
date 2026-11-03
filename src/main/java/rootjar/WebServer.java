@@ -1771,7 +1771,14 @@ public class WebServer {
         if (child == null || relPath == null || !canAccessServer(ex, id)) { send(ex, 400, "Bad Request"); return; }
         try {
             Path file = safeResolve(child, relPath);
-            Files.delete(file);
+            // A permanent delete of the server folder itself would take the whole instance with it, and
+            // Files.delete cannot remove a non-empty directory, so handle both cases explicitly.
+            if (relPath.isBlank() || relPath.equals(".") || file.equals(child.config().dir())) {
+                send(ex, 400, "Refusing to delete the server folder");
+                return;
+            }
+            if (Files.isDirectory(file)) deleteTree(file);
+            else Files.delete(file);
             audit(ex, id + ".file.delete", relPath);
             send(ex, 200, "Deleted");
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
