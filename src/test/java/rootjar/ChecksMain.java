@@ -411,6 +411,11 @@ public final class ChecksMain {
         check(html.contains("rel=\"noopener noreferrer\""), "console links open a new tab without leaking the session");
         check(html.contains(".console-output a {"), "console links are styled");
         check(html.contains("CONSOLE_SOURCE_EXT"), "stack-trace frames are kept out of the console link matcher");
+        // The console log area is themed; the raw config editor keeps its deliberate black-on-green look.
+        check(html.contains(".console-container { flex: 1; background: var(--bg-input);"), "the console log area uses a theme colour");
+        check(count(html, "background: #000") == 3, "only the console lost its hardcoded black");
+        check(html.contains(".console-time { color: var(--text-muted); opacity: .8;"), "console timestamps are brightened for the lighter surface");
+        check(html.contains("parts.push('opacity:.85')"), "ANSI dim text is brightened for the lighter surface");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */

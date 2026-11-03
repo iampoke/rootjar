@@ -242,7 +242,7 @@
         .tab-container { display: none; flex: 1; flex-direction: column; overflow: hidden; }
         .tab-container.active { display: flex; }
         
-        .console-container { flex: 1; background: #000; border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; }
+        .console-container { flex: 1; background: var(--bg-input); border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; }
         .console-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-panel); }
         .console-select { padding: 6px 8px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-main); font-size: 12px; font-weight: 700; outline: none; }
         .console-search { flex: 1; min-width: 120px; padding: 6px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-main); font-size: 12px; outline: none; }
@@ -252,7 +252,7 @@
         .console-output { flex: 1; padding: 14px 16px; overflow-y: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.45; color: var(--text-main); }
         .console-output a { color: var(--accent); text-decoration: underline; }
         .console-line { white-space: pre-wrap; word-break: break-word; margin-bottom: 1px; }
-        .console-time { color: var(--text-muted); opacity: .65; margin-right: 8px; }
+        .console-time { color: var(--text-muted); opacity: .8; margin-right: 8px; }
         .console-msg { white-space: pre-wrap; }
         .console-input-row { padding: 10px 12px 12px; border-top: 1px solid var(--border); background: var(--bg-panel); }
         .console-input-box { display: flex; align-items: center; gap: 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 10px; padding: 0 12px; }
@@ -1649,7 +1649,9 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
                 if (fg) parts.push('color:' + fg);
                 if (bg) parts.push('background:' + bg);
                 if (bold) parts.push('font-weight:700');
-                if (dim) parts.push('opacity:.7');
+                // Raised from .7: the log area is a theme surface now rather than pure black, and dim lines had to
+                // stay readable against it.
+                if (dim) parts.push('opacity:.85');
                 if (italic) parts.push('font-style:italic');
                 const deco = [];
                 if (underline) deco.push('underline');
