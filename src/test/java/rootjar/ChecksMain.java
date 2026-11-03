@@ -416,6 +416,15 @@ public final class ChecksMain {
         check(count(html, "background: #000") == 3, "only the console lost its hardcoded black");
         check(html.contains(".console-time { color: var(--text-muted); opacity: .8;"), "console timestamps are brightened for the lighter surface");
         check(html.contains("parts.push('opacity:.85')"), "ANSI dim text is brightened for the lighter surface");
+        // Move uses a folder picker now, not a typed path.
+        check(html.contains("id=\"move-modal\""), "the move picker modal is in the markup");
+        check(html.contains("function openMovePicker("), "the move picker exists");
+        check(html.contains("function bulkMove() { openMovePicker([...fileSelection]); }"), "bulk move opens the picker");
+        check(!html.contains("promptModal({title:'Move Selected'"), "the typed destination prompt is gone");
+        check(html.contains("Cannot move a folder into itself"), "the picker refuses to move a folder into itself");
+        check(html.contains("movePickerBack") && html.contains("movePickerForward"), "the picker keeps back and forward history");
+        check(html.contains("movePickerNewFolder"), "the picker can create a folder and move into it");
+        check(html.contains("filter(entry => entry.dir)"), "the picker lists folders only");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */

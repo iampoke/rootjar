@@ -1726,7 +1726,9 @@ public class WebServer {
                     try {
                         String name = p.getFileName().toString(); boolean isDir = Files.isDirectory(p);
                         long size = isDir ? 0 : Files.size(p); long modified = Files.getLastModifiedTime(p).toMillis();
-                        files.add(String.format("{\"name\":\"%s\",\"dir\":%b,\"size\":%d,\"modified\":%d}", name.replace("\"", "\\\""), isDir, size, modified));
+                        // jsonEscape rather than replacing quotes by hand: a filename may contain a backslash or a control
+                        // character, and either one produced a body the browser could not parse.
+                        files.add(String.format("{\"name\":\"%s\",\"dir\":%b,\"size\":%d,\"modified\":%d}", jsonEscape(name), isDir, size, modified));
                     } catch (Exception ignored) {}
                 });
             }

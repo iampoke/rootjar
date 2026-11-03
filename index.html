@@ -531,6 +531,13 @@
         .fm-spacer { flex:1; }
         .fm-breadcrumb { display:flex; gap:6px; color:var(--text-muted); font-size:13px; flex-wrap:wrap; }
         .fm-breadcrumb button { background:none; border:0; color:var(--accent); cursor:pointer; font:inherit; }
+        /* Destination picker for Move: folders only, so every row is a valid target. */
+        .move-list { display:flex; flex-direction:column; gap:4px; max-height:46vh; overflow:auto; border:1px solid var(--border); border-radius:10px; padding:6px; background:var(--bg-input); }
+        .move-row { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:8px; font-size:13px; }
+        .move-row:hover { background:var(--bg-hover); }
+        .move-row .move-name { flex:1; min-width:0; word-break:break-all; cursor:pointer; }
+        .move-row .fm-btn { padding:5px 10px; font-size:11px; flex-shrink:0; }
+        .move-empty { font-size:12px; color:var(--text-muted); padding:12px; }
         .fm-search-row input { flex:1; min-width:180px; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-main); }
         /* Inline upload queue above the file table: one row per file. */
         .fm-uploads { border:1px solid var(--border); background:var(--bg-panel); border-radius:10px; padding:10px 12px; margin-bottom:10px; }
@@ -1490,6 +1497,28 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
                 <p id="external-body" style="font-size:13px; line-height:1.5; color:var(--text-muted); margin-bottom:14px;"></p>
                 <a id="external-link" href="#" target="_blank" rel="noopener noreferrer" class="external-link"></a>
                 <button class="btn" style="width:100%; margin-top:16px;" onclick="closeExternalModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Destination picker for Move. Folders only; every row can be entered or used as the target. -->
+    <div class="fm-modal" id="move-modal">
+        <div class="fm-modal-content" style="height:auto; max-height:82vh; max-width:560px;">
+            <div style="padding:16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px;">
+                <span id="move-modal-title">Move</span>
+                <div class="fm-spacer"></div>
+                <button class="btn btn-outline" id="move-back" onclick="movePickerBack()">Back</button>
+                <button class="btn btn-outline" id="move-forward" onclick="movePickerForward()">Forward</button>
+                <button class="btn btn-outline" onclick="closeMovePicker()">X</button>
+            </div>
+            <div style="padding:16px; display:flex; flex-direction:column; gap:10px;">
+                <div class="fm-breadcrumb" id="move-breadcrumb"></div>
+                <div class="move-list" id="move-list"></div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <button class="fm-btn" onclick="movePickerNewFolder()">New folder</button>
+                    <div class="fm-spacer"></div>
+                    <button class="btn" onclick="moveToFolder(movePicker.path)">Move here</button>
+                </div>
             </div>
         </div>
     </div>
@@ -3371,7 +3400,140 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
         function toggleAllFiles(checked) { fileSelection.clear(); document.querySelectorAll('.fm-row-check').forEach(box => { box.checked = checked; if (checked) fileSelection.add(box.dataset.path); box.closest('tr').classList.toggle('fm-selected', checked); }); document.getElementById('fm-selection-bar').style.display = fileSelection.size ? 'flex' : 'none'; document.getElementById('fm-selection-count').textContent = fileSelection.size + ' selected'; }
         function clearFileSelection() { fileSelection.clear(); const all = document.getElementById('fm-select-all'); if (all) all.checked = false; const bar = document.getElementById('fm-selection-bar'); if (bar) bar.style.display = 'none'; }
         async function bulkArchive() { for (const path of [...fileSelection]) await fetch('/api/files/zip/' + currentServer.id + '?path=' + encodeURIComponent(path), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
-        async function bulkMove() { const destination = await promptModal({title:'Move Selected', label:'Destination folder', value:currentPath, confirmText:'Move'}); if (!destination) return; for (const path of [...fileSelection]) await fetch('/api/files/move/' + currentServer.id + '?old=' + encodeURIComponent(path) + '&new=' + encodeURIComponent(destination.replace(/\/$/, '') + '/' + path.split('/').pop()), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
+        // Destination picker for Move. It used to be a typed path in a prompt, which meant knowing the exact
+        // folder name and having no way to check it before moving. Folders only, since a file is never a
+        // valid destination.
+        let movePicker = { targets: [], path: '.', history: [], future: [] };
+
+        function moveParent(path) {
+            if (!path || path === '.' || path.indexOf('/') < 0) return '.';
+            return path.slice(0, path.lastIndexOf('/'));
+        }
+
+        function openMovePicker(targets) {
+            if (!currentServer) return showToast('Open a server first', 'error');
+            const list = (targets || []).filter(Boolean);
+            if (!list.length) return showToast('Select something to move first', 'error');
+            movePicker = { targets: list, path: moveParent(list[0]), history: [], future: [] };
+            document.getElementById('move-modal-title').textContent = list.length === 1
+                ? 'Move ' + (list[0].split('/').pop() || list[0])
+                : 'Move ' + list.length + ' items';
+            document.getElementById('move-modal').classList.add('active');
+            renderMovePicker();
+        }
+
+        function closeMovePicker() {
+            const modal = document.getElementById('move-modal');
+            if (modal) modal.classList.remove('active');
+        }
+
+        async function renderMovePicker() {
+            const list = document.getElementById('move-list');
+            const crumb = document.getElementById('move-breadcrumb');
+            document.getElementById('move-back').disabled = !movePicker.history.length;
+            document.getElementById('move-forward').disabled = !movePicker.future.length;
+            const parts = movePicker.path === '.' ? [] : movePicker.path.split('/');
+            let acc = '.';
+            crumb.innerHTML = ['<button data-crumb=".">root</button>'].concat(parts.map(part => {
+                acc = acc === '.' ? part : acc + '/' + part;
+                return `<span>/</span><button data-crumb="${escapeHtml(acc)}">${escapeHtml(part)}</button>`;
+            })).join(' ');
+            crumb.querySelectorAll('button').forEach(button => {
+                button.onclick = () => movePickerGo(button.dataset.crumb);
+            });
+            list.innerHTML = '<div class="move-empty">Loading…</div>';
+            const response = await fetch('/api/files/list/' + currentServer.id + '?path=' + encodeURIComponent(movePicker.path));
+            if (!response.ok) {
+                list.innerHTML = '<div class="move-empty">' + escapeHtml(await response.text()) + '</div>';
+                return;
+            }
+            const folders = (await response.json()).filter(entry => entry.dir);
+            list.innerHTML = '';
+            if (movePicker.path !== '.') {
+                const up = document.createElement('div');
+                up.className = 'move-row';
+                up.innerHTML = '<span class="move-name"><span class="arrow">↑</span> Up one level</span>';
+                up.querySelector('.move-name').onclick = () => movePickerGo(moveParent(movePicker.path));
+                list.appendChild(up);
+            }
+            if (!folders.length) {
+                const empty = document.createElement('div');
+                empty.className = 'move-empty';
+                empty.textContent = 'No folders here. Use New folder, or go up.';
+                list.appendChild(empty);
+                return;
+            }
+            folders.forEach(entry => {
+                const path = movePicker.path === '.' ? entry.name : movePicker.path + '/' + entry.name;
+                const row = document.createElement('div');
+                row.className = 'move-row';
+                const name = document.createElement('span');
+                name.className = 'move-name';
+                name.textContent = entry.name;
+                name.onclick = () => movePickerGo(path);
+                const button = document.createElement('button');
+                button.className = 'fm-btn';
+                button.textContent = 'Move';
+                button.onclick = () => moveToFolder(path);
+                row.append(name, button);
+                list.appendChild(row);
+            });
+        }
+
+        function movePickerGo(path) {
+            movePicker.history.push(movePicker.path);
+            movePicker.future = [];
+            movePicker.path = path;
+            renderMovePicker();
+        }
+
+        function movePickerBack() {
+            if (!movePicker.history.length) return;
+            movePicker.future.push(movePicker.path);
+            movePicker.path = movePicker.history.pop();
+            renderMovePicker();
+        }
+
+        function movePickerForward() {
+            if (!movePicker.future.length) return;
+            movePicker.history.push(movePicker.path);
+            movePicker.path = movePicker.future.pop();
+            renderMovePicker();
+        }
+
+        async function movePickerNewFolder() {
+            const name = await promptModal({ title: 'New folder', label: 'Folder name', value: '', confirmText: 'Create and move' });
+            if (!name) return;
+            if (!/^[A-Za-z0-9._ -]+$/.test(name)) return showToast('Use letters, numbers, spaces, dots, dashes or underscores', 'error');
+            const path = movePicker.path === '.' ? name : movePicker.path + '/' + name;
+            const response = await fetch('/api/files/mkdir/' + currentServer.id + '?path=' + encodeURIComponent(path), { method: 'POST' });
+            if (!response.ok) return showToast((await response.text()) || 'Could not create the folder', 'error');
+            await moveToFolder(path);
+        }
+
+        async function moveToFolder(destination) {
+            const targets = movePicker.targets;
+            if (!targets.length) return;
+            // Moving a folder into itself or into its own subtree would lose it.
+            if (targets.some(target => destination === target || destination.startsWith(target + '/'))) {
+                return showToast('Cannot move a folder into itself', 'error');
+            }
+            const failures = [];
+            for (const target of targets) {
+                const name = target.split('/').pop();
+                const next = destination === '.' ? name : destination.replace(/\/$/, '') + '/' + name;
+                const response = await fetch('/api/files/move/' + currentServer.id
+                    + '?old=' + encodeURIComponent(target) + '&new=' + encodeURIComponent(next), { method: 'POST' });
+                if (!response.ok) failures.push(name + ': ' + (await response.text()));
+            }
+            closeMovePicker();
+            clearFileSelection();
+            loadFileList(currentPath);
+            if (failures.length) return showToast(failures.join(' · '), 'error');
+            showToast(targets.length === 1 ? 'Moved ' + (targets[0].split('/').pop() || targets[0]) : 'Moved ' + targets.length + ' items', 'success');
+        }
+
+        function bulkMove() { openMovePicker([...fileSelection]); }
         async function bulkTrash() { if (!await confirmPromise({title:'Move to Trash', body:'Move ' + fileSelection.size + ' selected item(s) to Trash?', confirmText:'Move to Trash', danger:true})) return; for (const path of [...fileSelection]) await fetch('/api/files/trash/' + currentServer.id + '?path=' + encodeURIComponent(path), {method:'POST'}); clearFileSelection(); loadFileList(currentPath); }
         function updateRestartBanner() { const banner = document.getElementById('config-restart-banner'); const server = currentServersList.find(item => currentServer && item.id === currentServer.id); if (banner) banner.style.display = server && server.restartRequired ? 'block' : 'none'; }
         function openSettingsSection(name) { document.getElementById('settings-menu').style.display = name === 'menu' ? 'grid' : 'none'; document.getElementById('settings-back').style.display = name === 'menu' ? 'none' : ''; document.getElementById('settings-title').textContent = name === 'menu' ? 'Settings' : name[0].toUpperCase() + name.slice(1); document.querySelectorAll('.settings-section').forEach(section => section.classList.toggle('active', section.id === 'settings-' + name)); }
@@ -4650,6 +4812,7 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             if (popupOpen('version-picker-modal')) { closeVersionPicker(); return; }
             if (popupOpen('version-modal')) { closeVersionModal(); return; }
             if (popupOpen('external-modal')) { closeExternalModal(); return; }
+            if (popupOpen('move-modal')) { closeMovePicker(); return; }
             if (popupOpen('fm-modal')) { document.getElementById('fm-modal').classList.remove('active'); return; }
             if (popupOpen('edit-server-overlay')) { closeEditServer(); return; }
             if (popupOpen('create-wizard-overlay')) { closeCreateWizard(); return; }
