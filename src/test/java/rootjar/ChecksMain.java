@@ -430,6 +430,9 @@ public final class ChecksMain {
         check(html.contains("movePickerBack") && html.contains("movePickerForward"), "the picker keeps back and forward history");
         check(html.contains("movePickerNewFolder"), "the picker can create a folder and move into it");
         check(html.contains("filter(entry => entry.dir)"), "the picker lists folders only");
+        // A reverse proxy answers an oversized upload with its own HTML page before the panel sees it.
+        check(html.contains("client_max_body_size"), "an oversized upload names the proxy limit to raise");
+        check(html.contains("status === 429"), "a rate-limited upload is explained");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */

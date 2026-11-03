@@ -1852,7 +1852,7 @@ public class WebServer {
             if (!target.startsWith(dir)) { send(ex, 403, "Invalid filename"); return; }
             long limit = 200L * 1024 * 1024;
             long expected = declaredLength(ex.getRequestHeaders().getFirst("Content-Length"));
-            if (expected > limit) { send(ex, 413, "File is larger than the 200 MB per-file limit"); return; }
+            if (expected > limit) { sendWithoutBody(ex, 413, "File is larger than the 200 MB per-file limit"); return; }
             // Write beside the target and move it into place only once the whole body arrived. Writing straight
             // to the final name meant a cancelled upload, or a dropped connection, left a truncated file that
             // looked like a real plugin while the panel reported success.
@@ -1868,9 +1868,9 @@ public class WebServer {
                     os.write(buffer, 0, read);
                 }
             }
-            if (tooLarge) { send(ex, 413, "File is larger than the 200 MB per-file limit"); return; }
+            if (tooLarge) { sendWithoutBody(ex, 413, "File is larger than the 200 MB per-file limit"); return; }
             if (expected >= 0 && total != expected) {
-                send(ex, 400, "Upload was cut short: received " + total + " of " + expected + " bytes");
+                sendWithoutBody(ex, 400, "Upload was cut short: received " + total + " of " + expected + " bytes");
                 return;
             }
             Files.move(part, target, StandardCopyOption.REPLACE_EXISTING);
@@ -1882,6 +1882,16 @@ public class WebServer {
         } finally {
             if (part != null) try { Files.deleteIfExists(part); } catch (IOException ignored) {}
         }
+    }
+
+    /**
+     * Answers a request whose body was never read, or was abandoned part-way through. Closing the connection
+     * is what lets the browser see the status at all: with unread bytes still inbound, a keep-alive response
+     * is usually discarded, and an oversized upload then looks like a network failure rather than a 413.
+     */
+    private void sendWithoutBody(HttpExchange ex, int code, String body) throws IOException {
+        ex.getResponseHeaders().set("Connection", "close");
+        send(ex, code, body);
     }
 
     /**
