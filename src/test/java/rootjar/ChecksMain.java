@@ -399,6 +399,12 @@ public final class ChecksMain {
         check(html.contains("ctxAction('delete')"), "the context menu offers a permanent delete");
         check(html.contains("ctxAction('trash')"), "the context menu keeps the trash action");
         check(html.contains(">Trash</div>"), "the trash entry is labelled Trash");
+        // Placement: the menu is fixed and clamped, so the last entries stay reachable on a short window.
+        check(html.contains(".ctx-menu { position: fixed;"), "the context menu is fixed so it can be clamped to the viewport");
+        check(html.contains("window.innerHeight"), "the context menu is clamped against the viewport height");
+        check(html.contains("event.clientY - height"), "the context menu flips above the cursor when it would overflow");
+        check(html.contains("max-height: calc(100vh - 16px)"), "the context menu caps its own height");
+        check(!html.contains("menu.style.left = event.pageX"), "the context menu no longer uses page coordinates");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */

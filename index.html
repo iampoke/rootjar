@@ -383,7 +383,7 @@
         .compact-row.KILLED .compact-status { background: var(--danger); }
         .sc-status.CRASHED { background: rgba(239,68,68,0.18); color: var(--danger); }
         
-        .ctx-menu { position: absolute; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; display: none; flex-direction: column; z-index: 100; box-shadow: var(--shadow); min-width: 176px; }
+        .ctx-menu { position: fixed; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px; display: none; flex-direction: column; z-index: 100; box-shadow: var(--shadow); min-width: 176px; max-height: calc(100vh - 16px); overflow-y: auto; }
         /* Inline SVG rather than glyphs: the self-hosted pixel font has no symbol characters, so icon text
            would fall back to another face and break the look when the font toggle is on. */
         .ctx-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px; cursor: pointer; font-size: 13px; }
@@ -3339,9 +3339,42 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             event.preventDefault();
             ctxTarget = { path, name: path.split('/').pop() };
             const menu = document.getElementById('ctx-menu');
-            menu.style.display = 'flex'; menu.style.left = event.pageX + 'px'; menu.style.top = event.pageY + 'px';
+            // Fixed positioning with client coordinates: the file table scrolls inside its own container, so
+            // page coordinates drift as soon as the list moves.
+            menu.style.display = 'flex';
+            menu.style.left = '0px';
+            menu.style.top = '0px';
+            menu.scrollTop = 0;
+            const margin = 8;
+            const width = menu.offsetWidth;
+            const height = menu.offsetHeight;
+            let left = event.clientX;
+            let top = event.clientY;
+            // Flip above the cursor when there is no room below, then clamp so nothing is cut off. The menu
+            // used to be placed at the cursor unconditionally, which pushed Trash and Delete off-screen on the
+            // last rows of the list.
+            if (top + height + margin > window.innerHeight) top = event.clientY - height;
+            if (top < margin) top = margin;
+            if (top + height + margin > window.innerHeight) top = Math.max(margin, window.innerHeight - height - margin);
+            if (left + width + margin > window.innerWidth) left = Math.max(margin, event.clientX - width);
+            menu.style.left = left + 'px';
+            menu.style.top = top + 'px';
         }
-        document.addEventListener('click', () => document.getElementById('ctx-menu').style.display = 'none');
+
+        function hideCtx() {
+            const menu = document.getElementById('ctx-menu');
+            if (menu) menu.style.display = 'none';
+        }
+        document.addEventListener('click', hideCtx);
+        // A fixed menu no longer follows the page, so anything scrolling underneath it closes it. Capture is
+        // needed because scroll events do not bubble; the menu's own scrollbar is exempt.
+        window.addEventListener('scroll', event => {
+            const menu = document.getElementById('ctx-menu');
+            if (!menu || menu.style.display === 'none') return;
+            if (event.target instanceof Node && menu.contains(event.target)) return;
+            hideCtx();
+        }, true);
+        window.addEventListener('resize', hideCtx);
 
         async function ctxAction(action) {
             const path = ctxTarget.path;
