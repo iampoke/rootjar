@@ -395,7 +395,12 @@ public final class ChecksMain {
         check(html.contains("<span class=\"arrow\">\u2190</span>"), "the back button arrow is styled");
         // The right-click menu: every entry carries an icon, and permanent delete sits apart from Trash.
         check(count(html, "class=\"ctx-item") == count(html, "class=\"ctx-ico\""), "every context-menu item carries an icon");
-        check(count(html, "class=\"ctx-item") == 7, "the context menu has seven entries");
+        check(count(html, "class=\"ctx-item") == 8, "the context menu has eight entries");
+        check(html.contains("ctxAction('move')"), "the context menu offers Move");
+        check(html.contains("id=\"ctx-head\""), "the context menu can show how many items it will act on");
+        check(html.contains("fileSelection.has(path)"), "right-clicking a selected row acts on the whole selection");
+        check(html.contains("function runOnTargets("), "bulk context actions report per-file failures");
+        check(html.contains("Download works on one file at a time"), "download explains itself on a multi-selection");
         check(html.contains("ctxAction('delete')"), "the context menu offers a permanent delete");
         check(html.contains("ctxAction('trash')"), "the context menu keeps the trash action");
         check(html.contains(">Trash</div>"), "the trash entry is labelled Trash");
