@@ -68,6 +68,8 @@ public final class CommandLineBuilder {
         // With xms_equal_xmx the heap is fixed-size: predictable memory use, simpler GC behaviour.
         if (c.xmsEqualXmx()) cmd.add("-Xms" + c.heap());
         cmd.add("-Xmx" + c.heap());
+        // Opt-in: an exhausted heap otherwise leaves a half-dead server that the panel still reports as RUNNING.
+        if (c.exitOnOom()) cmd.add("-XX:+ExitOnOutOfMemoryError");
         if (c.useAikarFlags()) cmd.addAll(gcFlagsFor(c.heap()));
         for (String entry : c.extraFlags()) {
             // One list entry may hold several space-separated flags; the JVM needs them as separate arguments.

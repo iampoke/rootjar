@@ -649,30 +649,8 @@ public class WebServer {
         }
     }
 
-    /**
-     * Total RAM the panel may use, in MB. Inside a container - Pterodactyl, Docker - the cgroup limit is the
-     * real ceiling and is usually far smaller than host RAM, so it wins; cgroup v2 and v1 keep it in different
-     * files, and only v2 used to be read. Outside a container this is physical memory. The previous code fell
-     * back to a hardcoded 3072 MB, so a cgroup v1 host reported 3 GB whatever it actually had.
-     */
-    static long availableRamMb() {
-        for (String path : new String[]{"/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"}) {
-            try {
-                String value = Files.readString(Paths.get(path)).trim();
-                if (value.isEmpty() || value.equals("max")) continue;
-                long bytes = Long.parseLong(value);
-                // cgroup v1 writes a page-aligned Long.MAX_VALUE sentinel when there is no limit.
-                if (bytes > 0 && bytes < Long.MAX_VALUE / 2) return bytes / (1024 * 1024);
-            } catch (Exception ignored) {}
-        }
-        try {
-            com.sun.management.OperatingSystemMXBean os = (com.sun.management.OperatingSystemMXBean)
-                    java.lang.management.ManagementFactory.getOperatingSystemMXBean();
-            long total = os.getTotalMemorySize();
-            if (total > 0) return total / (1024 * 1024);
-        } catch (Exception ignored) {}
-        return 3072;
-    }
+    /** Total RAM the panel may use, in MB; the cgroup limit inside a container, else physical memory. */
+    static long availableRamMb() { return rootjar.supervisor.MemoryInfo.availableMb(); }
 
     private void handleStatus(HttpExchange ex) throws IOException {
         if (!isAuthed(ex)) { send(ex, 401, "Unauthorized"); return; }
@@ -780,6 +758,7 @@ public class WebServer {
               .append("\",\"jar\":\"").append(jsonEscape(k.jar())).append("\",\"heap\":\"").append(jsonEscape(k.heap()))
               .append("\",\"useAikarFlags\":").append(k.useAikarFlags()).append(",\"extraFlags\":\"")
               .append(jsonEscape(String.join(" ", k.extraFlags()))).append("\",\"xmsEqualXmx\":").append(k.xmsEqualXmx())
+              .append(",\"exitOnOom\":").append(k.exitOnOom())
               // The Startup tab renders this rather than rebuilding the command line in JavaScript, which had
               // already drifted: the old preview always showed -Xms and never showed nogui.
               .append(",\"commandLine\":\"").append(jsonEscape(String.join(" ",
@@ -1225,7 +1204,7 @@ public class WebServer {
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(), old.startOrder(),
                 old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(), old.extraFlags(),
                 old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), displayHost, idleSeconds(body, old.idleShutdownSeconds()),
-                extraPortsFromBody(body, port) == null ? old.extraPorts() : extraPortsFromBody(body, port));
+                extraPortsFromBody(body, port) == null ? old.extraPorts() : extraPortsFromBody(body, port), old.exitOnOom());
             List<ChildConfig> children = supervisor.children().stream()
                 .map(c -> c.id().equals(id) ? updated : c.config()).toList();
             try { ConfigValidator.validate(new RootConfig(config.server(), children, config.baseDir())); }
@@ -1377,7 +1356,15 @@ public class WebServer {
         String action = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         activity(id, ex, "server." + action, "");
         if (action.equals("kill")) supervisor.child(id).ifPresent(ChildProcess::kill);
-        else supervisor.requestLifecycle(id, action);
+        else {
+            // Refuse before committing anything: an over-allocated heap thrashes the whole machine rather
+            // than failing cleanly, and on Windows there is no OOM killer to stop it.
+            if (action.equals("start") || action.equals("restart")) {
+                String refusal = supervisor.ramRefusal(supervisor.child(id).orElse(null));
+                if (refusal != null) { send(ex, 409, refusal); return; }
+            }
+            supervisor.requestLifecycle(id, action);
+        }
         if (Set.of("start", "stop", "restart", "kill").contains(action)) {
             if (action.equals("start") || action.equals("restart")) configRestartRequired.remove(id);
             boolean shouldRun = action.equals("start") || action.equals("restart");
@@ -1655,6 +1642,7 @@ public class WebServer {
         if (hasJsonKey(body, "extraFlags")) flags = splitFlags(extractJson(body, "extraFlags"));
         boolean useAikar = hasJsonKey(body, "useAikarFlags") ? "true".equals(extractJson(body, "useAikarFlags")) : old.useAikarFlags();
         boolean xmsEqual = hasJsonKey(body, "xmsEqualXmx") ? "true".equals(extractJson(body, "xmsEqualXmx")) : old.xmsEqualXmx();
+        boolean exitOnOom = hasJsonKey(body, "exitOnOom") ? "true".equals(extractJson(body, "exitOnOom")) : old.exitOnOom();
         StopStrategy strategy = old.stopStrategy();
         if (hasJsonKey(body, "stopStrategy")) {
             try { strategy = StopStrategy.valueOf(extractJson(body, "stopStrategy").trim().toUpperCase(Locale.ROOT)); }
@@ -1678,7 +1666,7 @@ public class WebServer {
         ChildConfig updated = new ChildConfig(current.id(), current.type(), current.dir(), jar, current.heap(), xmsEqual,
                 current.port(), current.bind(), strategy, stopCommand, stopTimeout, current.startOrder(), current.stopOrder(),
                 current.restartOnCrash(), current.restartBackoffSeconds(), flags, current.consoleEnabled(), useAikar,
-                current.silent(), javaPath, autoStart, current.displayHost(), idle, current.extraPorts());
+                current.silent(), javaPath, autoStart, current.displayHost(), idle, current.extraPorts(), exitOnOom);
         supervisor.setChildConfig(serverId, updated);
         persistConfig();
         audit(ex, serverId + ".startup.save", "jar " + jar + (javaPath.isBlank() ? ", panel Java" : ", " + javaPath));
@@ -1730,7 +1718,7 @@ public class WebServer {
             ChildConfig newCfg = new ChildConfig(old.id(), old.type(), old.dir(), jar, heap, old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(),
                 old.startOrder(), old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(),
-                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), old.displayHost(), old.idleShutdownSeconds(), old.extraPorts());
+                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), old.displayHost(), old.idleShutdownSeconds(), old.extraPorts(), old.exitOnOom());
             supervisor.updateChildConfig(id, newCfg);
             saveConfig(new RootConfig(config.server(),
                     supervisor.children().stream().map(ChildProcess::config).toList(), config.baseDir()));
@@ -4352,7 +4340,7 @@ public class WebServer {
                         liveCfg.stopStrategy(), liveCfg.stopCommand(), liveCfg.stopTimeoutSeconds(),
                         liveCfg.startOrder(), liveCfg.stopOrder(), liveCfg.restartOnCrash(),
                         liveCfg.restartBackoffSeconds(), liveCfg.extraFlags(), liveCfg.consoleEnabled(),
-                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath(), liveCfg.autoStart(), liveCfg.displayHost(), liveCfg.idleShutdownSeconds(), liveCfg.extraPorts());
+                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath(), liveCfg.autoStart(), liveCfg.displayHost(), liveCfg.idleShutdownSeconds(), liveCfg.extraPorts(), liveCfg.exitOnOom());
                 supervisor.updateChildConfig(serverId, newCfg);
                 owner[0] = supervisor.child(serverId).orElse(null); // updateChildConfig installs a new instance
                 persistConfig();

@@ -91,7 +91,8 @@ public final class ConfigLoader {
                 bool(m, "auto_start", true, w),
                 str(m, "display_host", "", w),
                 Math.max(0, num(m, "idle_shutdown_seconds", 0, w)),
-                extraPorts
+                extraPorts,
+                bool(m, "exit_on_oom", false, w)
         );
     }
 

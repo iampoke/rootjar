@@ -81,6 +81,7 @@ public class ConfigSaver {
             if (c.extraPorts() != null && !c.extraPorts().isEmpty()) {
                 sb.append("    extra_ports: [").append(c.extraPorts().stream().map(String::valueOf).reduce((a, b) -> a + ", " + b).orElse("")).append("]\n");
             }
+            if (c.exitOnOom()) sb.append("    exit_on_oom: true\n"); // only written when enabled
         }
         Files.writeString(file, sb.toString());
     }

@@ -1284,6 +1284,8 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
                                 <div class="version-note">Recommended, and what Aikar's flags assume: a fixed-size heap avoids G1 resizing pauses. Turn it off to let the JVM grow the heap from its own default. The heap size itself is set per server in Manage Server.</div>
                                 <label class="settings-check"><input id="startup-aikar" type="checkbox" onchange="updateStartupPreview()"> Apply Aikar's G1GC flags</label>
                                 <div class="version-note">Added ahead of whatever is in the flags box, so the two do not need to repeat each other. Aikar's large-heap variant is used automatically above 12 GB.</div>
+                                <label class="settings-check"><input id="startup-exit-oom" type="checkbox" onchange="updateStartupPreview()"> Exit when the heap is exhausted</label>
+                                <div class="version-note">Adds -XX:+ExitOnOutOfMemoryError. Without it, a server that runs out of heap usually does not die: it keeps running half-broken while the panel still reports it as running. With it, the process exits and restart-on-crash brings it back cleanly.</div>
                             </div>
 
                             <div class="version-section">
@@ -2612,7 +2614,9 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
 
         async function powerAction(action) {
             if (!currentServer) return;
-            await fetch('/api/action/' + currentServer.id, { method: 'POST', body: action });
+            const response = await fetch('/api/action/' + currentServer.id, { method: 'POST', body: action });
+            // The server refuses a start it cannot fit in RAM; that message is the whole point, so show it.
+            if (!response.ok) showToast((await response.text()) || 'Could not ' + action + ' server', 'error');
             refresh();
         }
 
@@ -3859,6 +3863,7 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             document.getElementById('startup-flags').value = flags;
             document.getElementById('startup-xms-equal').checked = s.xmsEqualXmx !== false;
             document.getElementById('startup-aikar').checked = !!s.useAikarFlags;
+            document.getElementById('startup-exit-oom').checked = !!s.exitOnOom;
             const preset = Object.keys(JVM_PRESETS).find(name => JVM_PRESETS[name] === flags.trim());
             document.getElementById('startup-preset').value = preset || 'custom';
             showPresetWarning(preset || 'custom');
@@ -3925,6 +3930,7 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
                 // off and silently leave only whatever text happened to be in the box.
                 useAikarFlags: document.getElementById('startup-aikar').checked,
                 xmsEqualXmx: document.getElementById('startup-xms-equal').checked,
+                exitOnOom: document.getElementById('startup-exit-oom').checked,
                 stopStrategy: document.getElementById('startup-stop-strategy').value,
                 stopCommand: document.getElementById('startup-stop-command').value,
                 stopTimeoutSeconds: document.getElementById('startup-stop-timeout').value,

@@ -177,12 +177,47 @@ public final class Supervisor implements ChildProcess.ExitListener {
 
     private void startNow(ChildProcess c, boolean resetBackoff) {
         if (shuttingDown.get()) return;
+        String refusal = ramRefusal(c);
+        if (refusal != null) {
+            ConsoleOutput.root(refusal);
+            return;
+        }
         cancelPendingRestart(c.id());
         if (resetBackoff) {
             BackoffPolicy backoff = backoffs.get(c.id());
             if (backoff != null) backoff.reset();
         }
         if (!c.start() && c.state() == ChildState.CRASHED) handleCrash(c, -1, 0);
+    }
+
+    /**
+     * RAM held back for the panel, the OS and everything else in the container. {@code -Xmx} caps only the Java
+     * heap; a Minecraft server's real footprint is heap plus metaspace, thread stacks, JIT code cache and
+     * Netty's direct buffers, roughly 1.2-1.5x, so this reserve absorbs that margin too.
+     */
+    private static final long RAM_RESERVE_MB = 1024;
+
+    /**
+     * Why {@code candidate} cannot start without over-committing RAM, or null when it fits. Only children that
+     * are already running count, so a stopped server's heap is not reserved against anyone. The guard is
+     * skipped when the machine has less than the reserve, because refusing every start there would be worse
+     * than letting the operator try.
+     */
+    public String ramRefusal(ChildProcess candidate) {
+        if (candidate == null) return null;
+        ChildConfig cfg = candidate.config();
+        long need = MemoryInfo.heapMb(cfg.heap());
+        if (need <= 0) return null;
+        long allocated = need;
+        for (ChildProcess other : children()) {
+            if (other.id().equals(cfg.id()) || !other.isAlive()) continue;
+            allocated += MemoryInfo.heapMb(other.config().heap());
+        }
+        long available = MemoryInfo.availableMb() - RAM_RESERVE_MB;
+        if (available <= 0 || allocated <= available) return null;
+        return "Cannot start " + cfg.id() + ": that would commit " + allocated + " MB of heap, but only "
+                + available + " MB is left after keeping " + RAM_RESERVE_MB + " MB back for the panel and the OS. "
+                + "Stop another server or lower a heap first.";
     }
 
     public void requestLifecycle(String id, String verb) {

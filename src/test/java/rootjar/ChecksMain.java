@@ -148,6 +148,23 @@ public final class ChecksMain {
         check(CommandLineBuilder.build(forge, "java").get(0).equals("java")
                         && CommandLineBuilder.build(forge, "java").stream().anyMatch(a -> a.startsWith("@libraries/net/minecraftforge/forge/")),
                 "a forge child uses the forge library root");
+
+        // exit_on_oom is off unless the operator turns it on, and it has to survive both a with* copy and a
+        // config round-trip, because every save path rewrites config.yml.
+        check(!CommandLineBuilder.build(neo, "java").contains("-XX:+ExitOnOutOfMemoryError"), "exit_on_oom is off by default");
+        ChildConfig oom = neo.withExitOnOom(true);
+        check(CommandLineBuilder.build(oom, "java").contains("-XX:+ExitOnOutOfMemoryError"), "exit_on_oom adds the flag");
+        check(CommandLineBuilder.build(oom, "java").contains("-Xmx4096M"), "the oom flag sits beside the heap flags");
+        check(oom.withSilent(true).exitOnOom() && oom.withXmsEqualXmx(false).exitOnOom()
+                        && oom.withUseAikarFlags(false).exitOnOom() && oom.withExtraPorts(List.of()).exitOnOom(),
+                "exit_on_oom survives the other with* copies");
+        Path cfgDir = Files.createTempDirectory("oom-cfg");
+        RootConfig base = loadConfig(cfgDir, "placeholder", 25568, "127.0.0.1", 25566, 25565, true);
+        check(!base.children().get(0).exitOnOom(), "a config without the key defaults to off");
+        Path saved = cfgDir.resolve("saved.yml");
+        ConfigSaver.save(saved, new RootConfig(base.server(), List.of(base.children().get(0).withExitOnOom(true)), base.baseDir()));
+        check(Files.readString(saved).contains("exit_on_oom: true"), "exit_on_oom is written to config.yml");
+        check(ConfigLoader.load(saved).children().get(0).exitOnOom(), "exit_on_oom survives a config round-trip");
     }
 
     private static void playerTracking() {
@@ -528,6 +545,10 @@ public final class ChecksMain {
         check(html.contains("xmsEqualXmx: document.getElementById('startup-xms-equal').checked"), "saving startup sends the xms toggle");
         check(html.contains("s.commandLine"), "the preview renders the command line the backend built");
         check(!html.contains("JVM_PRESETS['aikar-medium']"), "the managed flags are no longer copied into the flags box");
+        check(html.contains("id=\"startup-exit-oom\""), "the startup tab exposes the exit-on-oom toggle");
+        check(html.contains("exitOnOom: document.getElementById('startup-exit-oom').checked"), "saving startup sends the oom toggle");
+        check(html.contains("ExitOnOutOfMemoryError"), "the toggle names the flag it adds");
+        check(html.contains("if (!response.ok) showToast((await response.text())"), "a refused start shows the reason");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */
