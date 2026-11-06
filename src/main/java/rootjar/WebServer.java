@@ -758,7 +758,12 @@ public class WebServer {
               .append(",\"type\":\"").append(jsonEscape(k.type()))
               .append("\",\"jar\":\"").append(jsonEscape(k.jar())).append("\",\"heap\":\"").append(jsonEscape(k.heap()))
               .append("\",\"useAikarFlags\":").append(k.useAikarFlags()).append(",\"extraFlags\":\"")
-              .append(jsonEscape(String.join(" ", k.extraFlags()))).append("\",\"status\":\"").append(c.state().name())
+              .append(jsonEscape(String.join(" ", k.extraFlags()))).append("\",\"xmsEqualXmx\":").append(k.xmsEqualXmx())
+              // The Startup tab renders this rather than rebuilding the command line in JavaScript, which had
+              // already drifted: the old preview always showed -Xms and never showed nogui.
+              .append(",\"commandLine\":\"").append(jsonEscape(String.join(" ",
+                      rootjar.supervisor.CommandLineBuilder.build(k, ChildProcess.javaFor(k)))))
+              .append("\",\"status\":\"").append(c.state().name())
               .append("\",\"silent\":").append(k.silent()).append(",")
               .append("\"stopStrategy\":\"").append(k.stopStrategy().name()).append("\",")
               .append("\"stopCommand\":\"").append(jsonEscape(k.stopCommand())).append("\",")
@@ -1628,6 +1633,7 @@ public class WebServer {
         List<String> flags = old.extraFlags();
         if (hasJsonKey(body, "extraFlags")) flags = splitFlags(extractJson(body, "extraFlags"));
         boolean useAikar = hasJsonKey(body, "useAikarFlags") ? "true".equals(extractJson(body, "useAikarFlags")) : old.useAikarFlags();
+        boolean xmsEqual = hasJsonKey(body, "xmsEqualXmx") ? "true".equals(extractJson(body, "xmsEqualXmx")) : old.xmsEqualXmx();
         StopStrategy strategy = old.stopStrategy();
         if (hasJsonKey(body, "stopStrategy")) {
             try { strategy = StopStrategy.valueOf(extractJson(body, "stopStrategy").trim().toUpperCase(Locale.ROOT)); }
@@ -1648,7 +1654,7 @@ public class WebServer {
         ChildProcess live = supervisor.child(serverId).orElse(null);
         if (live == null) { send(ex, 409, "The server was reconfigured; reload and try again"); return; }
         ChildConfig current = live.config();
-        ChildConfig updated = new ChildConfig(current.id(), current.type(), current.dir(), jar, current.heap(), current.xmsEqualXmx(),
+        ChildConfig updated = new ChildConfig(current.id(), current.type(), current.dir(), jar, current.heap(), xmsEqual,
                 current.port(), current.bind(), strategy, stopCommand, stopTimeout, current.startOrder(), current.stopOrder(),
                 current.restartOnCrash(), current.restartBackoffSeconds(), flags, current.consoleEnabled(), useAikar,
                 current.silent(), javaPath, autoStart, current.displayHost(), idle, current.extraPorts());

@@ -1279,6 +1279,14 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
                             </div>
 
                             <div class="version-section">
+                                <div class="version-section-head"><h3>Memory and JVM</h3></div>
+                                <label class="settings-check"><input id="startup-xms-equal" type="checkbox" onchange="updateStartupPreview()"> Set minimum heap (-Xms) to the same value as maximum (-Xmx)</label>
+                                <div class="version-note">Recommended, and what Aikar's flags assume: a fixed-size heap avoids G1 resizing pauses. Turn it off to let the JVM grow the heap from its own default. The heap size itself is set per server in Manage Server.</div>
+                                <label class="settings-check"><input id="startup-aikar" type="checkbox" onchange="updateStartupPreview()"> Apply Aikar's G1GC flags</label>
+                                <div class="version-note">Added ahead of whatever is in the flags box, so the two do not need to repeat each other. Aikar's large-heap variant is used automatically above 12 GB.</div>
+                            </div>
+
+                            <div class="version-section">
                                 <div class="version-section-head"><h3>Automation</h3></div>
                                 <label class="settings-check"><input id="startup-auto-start" type="checkbox"> Start this server when Rootjar starts</label>
                                 <div class="java-row">
@@ -3845,9 +3853,12 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             const idle = idleEditorValue(s.idleShutdownSeconds || 0);
             document.getElementById('startup-idle-amount').value = idle.amount;
             document.getElementById('startup-idle-unit').value = idle.unit;
-            let flags = s.extraFlags || '';
-            if (!flags && s.useAikarFlags) flags = JVM_PRESETS['aikar-medium'];
+            // The managed Aikar set is applied by the backend and shown in the preview, so it must not also be
+            // written into this box: that put the same twenty flags on the command line twice.
+            const flags = s.extraFlags || '';
             document.getElementById('startup-flags').value = flags;
+            document.getElementById('startup-xms-equal').checked = s.xmsEqualXmx !== false;
+            document.getElementById('startup-aikar').checked = !!s.useAikarFlags;
             const preset = Object.keys(JVM_PRESETS).find(name => JVM_PRESETS[name] === flags.trim());
             document.getElementById('startup-preset').value = preset || 'custom';
             showPresetWarning(preset || 'custom');
@@ -3889,18 +3900,31 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
         function updateStartupPreview() {
             const s = startupServer();
             if (!s) return;
+            const el = document.getElementById('startup-command-preview');
             const flags = document.getElementById('startup-flags').value.trim();
             const jar = document.getElementById('startup-jar').value.trim() || 'server.jar';
             const heap = s.heap || '1024M';
-            const parts = ['java', '-Xms' + heap, '-Xmx' + heap, flags, '-jar', jar].filter(Boolean);
-            document.getElementById('startup-command-preview').textContent = parts.join(' ');
+            const xmsEqual = document.getElementById('startup-xms-equal').checked;
+            const aikar = document.getElementById('startup-aikar').checked;
+            const dirty = flags !== (s.extraFlags || '').trim() || jar !== (s.jar || 'server.jar')
+                || xmsEqual !== (s.xmsEqualXmx !== false) || aikar !== !!s.useAikarFlags;
+            // Nothing edited: show the command line the backend actually built, so this preview cannot drift
+            // from what runs. While a field is being edited it has to be rebuilt here, and the managed Aikar
+            // set is shown as a placeholder rather than copied into JavaScript to fall out of step again.
+            if (!dirty && s.commandLine) { el.textContent = s.commandLine; return; }
+            const parts = ['java', xmsEqual ? '-Xms' + heap : '', '-Xmx' + heap,
+                aikar ? "[Aikar's G1GC flags]" : '', flags, '-jar', jar, 'nogui'].filter(Boolean);
+            el.textContent = parts.join(' ');
         }
         async function saveStartup() {
             if (!currentServer) return;
             const payload = {
                 jar: document.getElementById('startup-jar').value.trim(),
                 extraFlags: document.getElementById('startup-flags').value,
-                useAikarFlags: false,
+                // The real state, not a hardcoded false: saving this tab used to switch the managed Aikar set
+                // off and silently leave only whatever text happened to be in the box.
+                useAikarFlags: document.getElementById('startup-aikar').checked,
+                xmsEqualXmx: document.getElementById('startup-xms-equal').checked,
                 stopStrategy: document.getElementById('startup-stop-strategy').value,
                 stopCommand: document.getElementById('startup-stop-command').value,
                 stopTimeoutSeconds: document.getElementById('startup-stop-timeout').value,

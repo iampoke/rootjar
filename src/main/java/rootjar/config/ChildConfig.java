@@ -45,6 +45,16 @@ public record ChildConfig(
         return new ChildConfig(id, type, dir, jar, heap, xmsEqualXmx, port, bind, stopStrategy, stopCommand, stopTimeoutSeconds, startOrder, stopOrder, restartOnCrash, restartBackoffSeconds, extraFlags, consoleEnabled, useAikarFlags, isSilent, javaPath, autoStart, displayHost, idleShutdownSeconds, extraPorts);
     }
 
+    /** Whether -Xms is pinned to -Xmx. Off lets the JVM grow the heap from its own default. */
+    public ChildConfig withXmsEqualXmx(boolean equal) {
+        return new ChildConfig(id, type, dir, jar, heap, equal, port, bind, stopStrategy, stopCommand, stopTimeoutSeconds, startOrder, stopOrder, restartOnCrash, restartBackoffSeconds, extraFlags, consoleEnabled, useAikarFlags, silent, javaPath, autoStart, displayHost, idleShutdownSeconds, extraPorts);
+    }
+
+    /** Whether the managed Aikar G1 set is appended ahead of {@code extraFlags}. */
+    public ChildConfig withUseAikarFlags(boolean enabled) {
+        return new ChildConfig(id, type, dir, jar, heap, xmsEqualXmx, port, bind, stopStrategy, stopCommand, stopTimeoutSeconds, startOrder, stopOrder, restartOnCrash, restartBackoffSeconds, extraFlags, consoleEnabled, enabled, silent, javaPath, autoStart, displayHost, idleShutdownSeconds, extraPorts);
+    }
+
     public ChildConfig withJavaPath(String path) {
         return new ChildConfig(id, type, dir, jar, heap, xmsEqualXmx, port, bind, stopStrategy, stopCommand, stopTimeoutSeconds, startOrder, stopOrder, restartOnCrash, restartBackoffSeconds, extraFlags, consoleEnabled, useAikarFlags, silent, path == null ? "" : path, autoStart, displayHost, idleShutdownSeconds, extraPorts);
     }

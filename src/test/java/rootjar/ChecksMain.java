@@ -471,6 +471,13 @@ public final class ChecksMain {
         // The browser keeps 1,000 lines, which is what the console backfills on connect; if either number
         // moves the other should move with it.
         check(html.contains("consoleLines.length > 1000"), "the browser keeps as many lines as the console backfills");
+        // The Startup tab exposes both JVM switches and renders the command line the backend really built.
+        check(html.contains("id=\"startup-xms-equal\""), "the startup tab exposes the xms toggle");
+        check(html.contains("id=\"startup-aikar\""), "the startup tab exposes the aikar toggle");
+        check(html.contains("useAikarFlags: document.getElementById('startup-aikar').checked"), "saving startup keeps the real aikar state");
+        check(html.contains("xmsEqualXmx: document.getElementById('startup-xms-equal').checked"), "saving startup sends the xms toggle");
+        check(html.contains("s.commandLine"), "the preview renders the command line the backend built");
+        check(!html.contains("JVM_PRESETS['aikar-medium']"), "the managed flags are no longer copied into the flags box");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */
@@ -772,6 +779,30 @@ public final class ChecksMain {
         int n = cmd.size();
         check(cmd.get(n - 3).equals("-jar") && cmd.get(n - 2).equals("NanoLimbo.jar") && cmd.get(n - 1).equals("nogui"), "-jar jar nogui last");
         check(cfg.children().get(0).stopStrategy() == StopStrategy.BOTH, "strategy parsed");
+        // Aikar's published set. AlwaysPreTouch pre-faults the heap, which is what makes an equal Xms and Xmx
+        // pay off, and the two markers identify the tuning in a thread dump.
+        check(cmd.contains("-XX:+AlwaysPreTouch"), "the managed set pre-touches the heap");
+        check(cmd.contains("-Dusing.aikars.flags=https://mcflags.emc.gs") && cmd.contains("-Daikars.new.flags=true"), "the managed set carries aikar's markers");
+        check(cmd.indexOf("-XX:+UnlockExperimentalVMOptions") < cmd.indexOf("-XX:+AlwaysPreTouch"), "unlock still precedes the flags that need it");
+        check(CommandLineBuilder.GC_FLAGS.size() == CommandLineBuilder.GC_FLAGS_LARGE.size(), "both heap variants carry the same number of flags");
+        // xms_equal_xmx off drops -Xms and leaves the JVM to grow the heap from its own default.
+        var loose = CommandLineBuilder.build(cfg.children().get(0).withXmsEqualXmx(false), "java");
+        check(!loose.contains("-Xms256M") && loose.contains("-Xmx256M"), "xms_equal_xmx false emits only -Xmx");
+        check(loose.get(loose.size() - 1).equals("nogui"), "turning off xms leaves the rest of the line intact");
+        // use_aikar_flags off drops the whole managed set, leaving only what the operator typed.
+        var plain = CommandLineBuilder.build(cfg.children().get(0).withUseAikarFlags(false), "java");
+        check(!plain.contains("-XX:+UseG1GC") && !plain.contains("-XX:MaxTenuringThreshold=1"), "use_aikar_flags false drops the managed gc set");
+        check(plain.contains("-Xms256M") && plain.contains("-Xmx256M"), "turning off aikar leaves the heap flags alone");
+        // Aikar publishes two variants; above 12 GB the young generation widens and the regions grow.
+        check(CommandLineBuilder.gcFlagsFor("1024M").contains("-XX:G1NewSizePercent=30"), "a small heap gets the small-heap variant");
+        check(CommandLineBuilder.gcFlagsFor("12287M").contains("-XX:G1NewSizePercent=30"), "just under 12 GB stays on the small variant");
+        check(CommandLineBuilder.gcFlagsFor("12288M").contains("-XX:G1NewSizePercent=40"), "the switch happens at exactly 12 GB");
+        check(CommandLineBuilder.gcFlagsFor("16G").contains("-XX:G1HeapRegionSize=16M"), "a large heap gets 16M regions");
+        check(CommandLineBuilder.gcFlagsFor("16G").contains("-XX:InitiatingHeapOccupancyPercent=20"), "a large heap gets the higher occupancy target");
+        check(CommandLineBuilder.gcFlagsFor("nonsense").contains("-XX:G1NewSizePercent=30"), "an unparseable heap falls back to the small variant");
+        check(CommandLineBuilder.heapMegabytes("1024M") == 1024 && CommandLineBuilder.heapMegabytes("12G") == 12288, "heap sizes are parsed to megabytes");
+        check(CommandLineBuilder.heapMegabytes("1073741824") == 1024, "a bare byte count is parsed");
+        check(CommandLineBuilder.heapMegabytes(null) == 0 && CommandLineBuilder.heapMegabytes("") == 0, "a missing heap parses as zero");
     }
 
     // ---- Phase 3: per-server java path in config.yml -----------------------------------------
