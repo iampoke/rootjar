@@ -25,6 +25,14 @@ public final class Supervisor implements ChildProcess.ExitListener {
     private final Map<String, Long> restartEpoch = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(r -> daemon(r, "restart-scheduler"));
+    /**
+     * Refreshes player counts by asking each server directly. Kept off {@link #scheduler} on purpose: a ping
+     * that hangs until its timeout must never delay a scheduled restart.
+     */
+    private final ScheduledExecutorService pinger =
+            Executors.newSingleThreadScheduledExecutor(r -> daemon(r, "player-pinger"));
+    private static final long PLAYER_PING_DELAY_SECONDS = 15;
+    private static final long PLAYER_PING_INTERVAL_SECONDS = 30;
 
     private final AtomicBoolean shuttingDown = new AtomicBoolean();
     private final CountDownLatch shutdownSignal = new CountDownLatch(1);
@@ -37,6 +45,20 @@ public final class Supervisor implements ChildProcess.ExitListener {
         this.panelPort = config.server().port();
         for (ChildConfig c : config.children()) {
             addChildInternal(c);
+        }
+        // Fixed delay rather than fixed rate, so a slow sweep can never overlap the next one.
+        pinger.scheduleWithFixedDelay(this::pingPlayers, PLAYER_PING_DELAY_SECONDS, PLAYER_PING_INTERVAL_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Asks every running child how many players it has. Console join and leave lines are not enough on their
+     * own: a plugin, a proxy, or custom join text changes the wording and the count stops moving.
+     */
+    private void pingPlayers() {
+        for (ChildProcess child : children()) {
+            if (shuttingDown.get()) return;
+            try { child.refreshPlayersByPing(); }
+            catch (Exception ignored) {}
         }
     }
 
@@ -288,6 +310,7 @@ public final class Supervisor implements ChildProcess.ExitListener {
             for (ChildProcess c : children()) c.disableStart();
             pendingRestarts.values().forEach(f -> f.cancel(false));
             scheduler.shutdownNow();
+            pinger.shutdownNow();
             List<ExecutorService> executors;
             synchronized (this) {
                 executors = List.copyOf(lifecycle.values());

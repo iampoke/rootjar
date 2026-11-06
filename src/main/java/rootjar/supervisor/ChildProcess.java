@@ -25,6 +25,15 @@ public final class ChildProcess {
     private static final long RUNNING_AFTER_MS = 5_000;
     private static final long REAP_WAIT_MS = 5_000;
     private static final int MAX_READ_LINE = 8192;
+    /** Connect and read budget for one status ping; it runs on a background thread against localhost. */
+    private static final int PING_TIMEOUT_MS = 1500;
+    /** Compiled once rather than per console line, which the player tracking used to do twice per line. */
+    private static final java.util.regex.Pattern JOINED =
+            java.util.regex.Pattern.compile("^([A-Za-z0-9_]{1,16}) joined the game");
+    private static final java.util.regex.Pattern LEFT =
+            java.util.regex.Pattern.compile("^([A-Za-z0-9_]{1,16}) left the game");
+    private static final java.util.regex.Pattern LIST_REPLY =
+            java.util.regex.Pattern.compile("There are (\\d+) of a max of (\\d+) players online(?::\\s*(.*))?");
 
     private ChildConfig cfg;
     private final ExitListener listener;
@@ -42,6 +51,8 @@ public final class ChildProcess {
      */
     private final java.util.concurrent.atomic.AtomicInteger internalListPending = new java.util.concurrent.atomic.AtomicInteger(0);
     private final java.util.Set<String> onlinePlayers = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** When the last {@code list} reply was parsed, so a caller can wait for the one it just asked for. */
+    private volatile long lastListReplyAtMillis;
     private volatile long idleSinceMillis = System.currentTimeMillis();
     /** Java executable the live process was started with; used to tell whether a restart is needed. */
     private volatile String runningJava;
@@ -70,6 +81,87 @@ public final class ChildProcess {
     public void requestPlayerList() {
         internalListPending.incrementAndGet();
         sendLine("list");
+    }
+
+    /**
+     * Sends {@code list} and waits briefly for the reply. The handler used to fire the poll and immediately
+     * return the stale count, so opening the Players tab showed the numbers from the request before it.
+     * Returns true when a reply arrived inside the budget; false is not an error, just a slow or dead server.
+     */
+    public boolean requestPlayerListAndWait(long timeoutMs) {
+        long before = lastListReplyAtMillis;
+        requestPlayerList();
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (lastListReplyAtMillis > before) return true;
+            try { Thread.sleep(25); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
+        }
+        return false;
+    }
+
+    /**
+     * Asks the server itself how many players are on, using the multiplayer menu's status ping. Console
+     * parsing can only see join and leave lines, so anything that rewrites them - a plugin, a proxy, custom
+     * join text - left the count stuck at whatever it last was.
+     */
+    public void refreshPlayersByPing() {
+        ChildConfig c = config();
+        if (!isAlive() || c.port() <= 0 || "website".equals(c.type())) return;
+        ServerPing.Status status = ServerPing.ping(pingHost(c), c.port(), PING_TIMEOUT_MS);
+        if (status != null) applyPing(status);
+    }
+
+    /** A child bound to one interface has to be pinged on it; a wildcard bind answers on loopback. */
+    private static String pingHost(ChildConfig c) {
+        String bind = c.bind();
+        if (bind == null || bind.isBlank() || bind.equals("0.0.0.0") || bind.equals("::") || bind.equals("*")) return "127.0.0.1";
+        return bind;
+    }
+
+    /**
+     * Applies a status ping. The count is authoritative. The name list is only replaced when the sample
+     * accounts for every player, because Paper caps its sample and a short one would throw away names the
+     * console already knew about.
+     */
+    public void applyPing(ServerPing.Status status) {
+        int previous = playerCount;
+        playerCount = status.online();
+        if (status.completeSample()) {
+            onlinePlayers.clear();
+            onlinePlayers.addAll(status.sample());
+        }
+        if (previous > 0 && playerCount == 0) idleSinceMillis = System.currentTimeMillis();
+    }
+
+    /**
+     * Strips the timestamp, thread and level prefix a Minecraft server puts in front of every console line.
+     * Paper prints {@code [12:34:56 INFO]: Steve joined the game} and vanilla prints
+     * {@code [12:34:56] [Server thread/INFO]: Steve joined the game}. The old code removed one bracket group
+     * and left {@code ": "} or a second {@code "["} in front of a pattern anchored at the start, so join and
+     * leave detection never fired and the count stayed 0 until someone ran {@code list} by hand.
+     */
+    public static String stripConsolePrefix(String line) {
+        String out = line;
+        for (int i = 0; i < 3; i++) {
+            String next = out.replaceFirst("^\\[[^\\]]*]\\s*", "");
+            if (next.equals(out)) break;
+            out = next;
+        }
+        return out.replaceFirst("^:\\s*", "");
+    }
+
+    /**
+     * The player a console line says joined or left, as {@code +Name} or {@code -Name}, or null when the line
+     * is neither. Kept static and prefix-stripped so it can be tested without a running child.
+     */
+    public static String playerEvent(String line) {
+        String text = stripConsolePrefix(line);
+        java.util.regex.Matcher joined = JOINED.matcher(text);
+        if (joined.find()) return "+" + joined.group(1);
+        java.util.regex.Matcher left = LEFT.matcher(text);
+        if (left.find()) return "-" + left.group(1);
+        return null;
     }
     public java.util.List<String> onlinePlayers() { return onlinePlayers.stream().sorted(String.CASE_INSENSITIVE_ORDER).toList(); }
 
@@ -337,16 +429,19 @@ public final class ChildProcess {
         
         // Track players
         int previousPlayers = playerCount;
-        java.util.regex.Matcher joined = java.util.regex.Pattern.compile("^([A-Za-z0-9_]{1,16}) joined the game").matcher(line.replaceFirst("^\\[[^\\]]*]\\s*", ""));
-        java.util.regex.Matcher left = java.util.regex.Pattern.compile("^([A-Za-z0-9_]{1,16}) left the game").matcher(line.replaceFirst("^\\[[^\\]]*]\\s*", ""));
-        if (joined.find()) { playerCount++; onlinePlayers.add(joined.group(1)); }
-        if (left.find()) { playerCount = Math.max(0, playerCount - 1); onlinePlayers.remove(left.group(1)); }
-        java.util.regex.Matcher listed = java.util.regex.Pattern.compile("There are (\\d+) of a max of (\\d+) players online(?::\\s*(.*))?").matcher(line);
+        String event = playerEvent(line);
+        if (event != null) {
+            String name = event.substring(1);
+            if (event.charAt(0) == '+') { playerCount++; onlinePlayers.add(name); }
+            else { playerCount = Math.max(0, playerCount - 1); onlinePlayers.remove(name); }
+        }
+        java.util.regex.Matcher listed = LIST_REPLY.matcher(line);
         boolean listReply = listed.find();
         if (listReply) {
             playerCount = Integer.parseInt(listed.group(1));
             onlinePlayers.clear();
             if (listed.group(3) != null) java.util.Arrays.stream(listed.group(3).split(",")).map(String::trim).filter(name -> name.matches("[A-Za-z0-9_]{1,16}")).forEach(onlinePlayers::add);
+            lastListReplyAtMillis = System.currentTimeMillis();
         }
         // A reply to Rootjar's own poll is parsed but never shown; a list the operator typed still is.
         boolean hideReply = listReply && internalListPending.getAndUpdate(value -> value > 0 ? value - 1 : 0) > 0;

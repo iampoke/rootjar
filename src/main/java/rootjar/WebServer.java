@@ -2410,7 +2410,7 @@ public class WebServer {
             if (!requireServer(ex, server)) return;
             ChildProcess child = supervisor.child(server).orElse(null);
             if (child == null) { send(ex, 404, "Not found"); return; }
-            if (child.isAlive()) child.requestPlayerList();
+            if (child.isAlive()) child.requestPlayerListAndWait(700);
             String names = child.onlinePlayers().stream().map(name -> "\"" + jsonEscape(name) + "\"").collect(java.util.stream.Collectors.joining(","));
             send(ex, 200, "{\"count\":" + child.playerCount() + ",\"players\":[" + names + "]}");
             return;

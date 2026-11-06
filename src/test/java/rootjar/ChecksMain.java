@@ -80,6 +80,7 @@ public final class ChecksMain {
         frontendSync();
         frontendEncoding();
         eulaAgreement();
+        playerTracking();
         activityFeed();
         geyserAndMultiPort();
         addonSources();
@@ -96,6 +97,40 @@ public final class ChecksMain {
         check(WebServer.declaredLength("") == -1L, "a blank content length is unknown");
         check(WebServer.declaredLength("nope") == -1L, "an unparseable content length is unknown");
         check(WebServer.declaredLength("-9") == -1L, "a negative content length is unknown");
+    }
+
+    /** Console prefix stripping, join/leave detection, and the status-ping JSON reader. */
+    private static void playerTracking() {
+        check(rootjar.supervisor.ChildProcess.stripConsolePrefix("[12:34:56 INFO]: Steve joined the game").equals("Steve joined the game"), "a Paper console prefix is stripped");
+        check(rootjar.supervisor.ChildProcess.stripConsolePrefix("[12:34:56] [Server thread/INFO]: Steve joined the game").equals("Steve joined the game"), "a vanilla two-bracket prefix is stripped");
+        check(rootjar.supervisor.ChildProcess.stripConsolePrefix("Steve joined the game").equals("Steve joined the game"), "an unprefixed line is left alone");
+        check(rootjar.supervisor.ChildProcess.playerEvent("[12:34:56 INFO]: Steve joined the game").equals("+Steve"), "a Paper join line is recognised");
+        check(rootjar.supervisor.ChildProcess.playerEvent("[12:34:56] [Server thread/INFO]: Steve left the game").equals("-Steve"), "a vanilla leave line is recognised");
+        check(rootjar.supervisor.ChildProcess.playerEvent("[12:34:56 INFO]: There are 3 of a max of 20 players online:") == null, "a list reply is not a join or a leave");
+        check(rootjar.supervisor.ChildProcess.playerEvent("[12:34:56 INFO]: [Steve] joined the game") == null, "chat mentioning joining is not counted as a join");
+
+        String status = "{\"version\":{\"name\":\"1.21.4\",\"protocol\":769},\"players\":{\"max\":20,\"online\":2,"
+                + "\"sample\":[{\"name\":\"Steve\",\"id\":\"a\"},{\"name\":\"Alex\",\"id\":\"b\"}]},\"description\":\"hi\"}";
+        rootjar.supervisor.ServerPing.Status ping = rootjar.supervisor.ServerPing.parse(status);
+        check(ping != null && ping.online() == 2 && ping.max() == 20, "a status ping reports the count and the cap");
+        check(ping != null && ping.version().equals("1.21.4"), "a status ping reports the version name");
+        check(ping != null && ping.sample().equals(List.of("Steve", "Alex")), "a status ping lists the sampled names");
+        check(ping != null && ping.completeSample(), "a sample covering every player is complete");
+
+        // Paper caps its sample, so a short one must not replace names the console already knew.
+        check(!rootjar.supervisor.ServerPing.parse("{\"players\":{\"max\":100,\"online\":50,\"sample\":[{\"name\":\"Steve\",\"id\":\"a\"}]}}").completeSample(), "a capped sample is not complete");
+        check(rootjar.supervisor.ServerPing.parse("{\"players\":{\"max\":20,\"online\":7}}").online() == 7, "a server hiding its players still reports a count");
+        check(rootjar.supervisor.ServerPing.parse("{\"players\":{\"max\":20,\"online\":7}}").sample().isEmpty(), "a hidden player list yields no names");
+        check(rootjar.supervisor.ServerPing.parse("{\"players\":{\"max\":20,\"online\":0,\"sample\":[]}}").completeSample(), "an empty server has a complete sample");
+        check(rootjar.supervisor.ServerPing.parse("{\"players\":{\"max\":20,\"online\":1,\"sample\":[{\"name\":\"<script>\",\"id\":\"a\"}]}}").sample().isEmpty(), "a malformed sampled name is dropped");
+
+        check(rootjar.supervisor.ServerPing.parse("{\"description\":\"no players key\"}") == null, "a reply without a players object is not a status");
+        check(rootjar.supervisor.ServerPing.parse("{\"players\":{\"max\":20,\"online\":-4}}") == null, "a negative count is rejected");
+        check(rootjar.supervisor.ServerPing.parse("{\"players\":{\"max\":20,\"online\":99999999}}") == null, "an implausible count is rejected");
+        check(rootjar.supervisor.ServerPing.parse("not json at all") == null, "junk is not a status");
+        check(rootjar.supervisor.ServerPing.ping("127.0.0.1", 1, 250) == null, "pinging a closed port returns null instead of throwing");
+        check(rootjar.supervisor.ServerPing.ping("", 25565, 250) == null, "an empty host returns null");
+        check(rootjar.supervisor.ServerPing.ping("127.0.0.1", 0, 250) == null, "a zero port returns null");
     }
 
     private static void portAlignment() {
