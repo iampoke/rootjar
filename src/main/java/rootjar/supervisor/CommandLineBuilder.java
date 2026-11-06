@@ -2,8 +2,11 @@ package rootjar.supervisor;
 
 import rootjar.config.ChildConfig;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /** Builds a child's JVM command line from its config. Flags mirror Aikar's G1 tuning, per the spec. */
 public final class CommandLineBuilder {
@@ -70,9 +73,66 @@ public final class CommandLineBuilder {
             // One list entry may hold several space-separated flags; the JVM needs them as separate arguments.
             for (String flag : entry.trim().split("\\s+")) if (!flag.isEmpty()) cmd.add(flag);
         }
-        cmd.add("-jar");
-        cmd.add(c.jar());
-        cmd.add("nogui");
+        String argsFile = modLoaderArgsFile(c);
+        if (argsFile != null) {
+            // Forge 1.17+ and every NeoForge version launch from an arguments file the installer generates,
+            // not from a jar, so "-jar server.jar nogui" cannot start them. The file already carries the
+            // program arguments, nogui included, so nothing is appended.
+            cmd.add("@" + argsFile);
+        } else {
+            cmd.add("-jar");
+            cmd.add(c.jar());
+            cmd.add("nogui");
+        }
         return cmd;
+    }
+
+    /** Loader library roots to check, NeoForge first: a server has one or the other, never both. */
+    private static final List<String> MOD_LOADER_LIBRARIES =
+            List.of("libraries/net/neoforged/neoforge", "libraries/net/minecraftforge/forge");
+
+    /**
+     * The {@code @arguments} file a Forge or NeoForge child must be launched with, relative to the server
+     * directory, or null when the child is neither type or has no loader installed. Gated on the configured
+     * type rather than on the directory's contents, so a stray {@code libraries} folder left behind by a
+     * previous install cannot change how a Paper server starts. The installer writes one directory per
+     * version, so the most recently written one is the version in use.
+     */
+    static String modLoaderArgsFile(ChildConfig c) {
+        if (c == null || c.dir() == null) return null;
+        String type = c.type() == null ? "" : c.type().toLowerCase(Locale.ROOT);
+        if (!type.equals("forge") && !type.equals("neoforge")) return null;
+        String name = isWindows() ? "win_args.txt" : "unix_args.txt";
+        for (String library : MOD_LOADER_LIBRARIES) {
+            Path root = c.dir().resolve(library);
+            if (!Files.isDirectory(root)) continue;
+            for (Path version : newestFirst(root)) {
+                if (Files.isRegularFile(version.resolve(name))) {
+                    return library + "/" + version.getFileName() + "/" + name;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Sub-directories of {@code root}, most recently modified first. */
+    private static List<Path> newestFirst(Path root) {
+        List<Path> versions = new ArrayList<>();
+        try (java.util.stream.Stream<Path> stream = Files.list(root)) {
+            stream.filter(Files::isDirectory).forEach(versions::add);
+        } catch (Exception e) {
+            return List.of();
+        }
+        versions.sort((a, b) -> Long.compare(lastModified(b), lastModified(a)));
+        return versions;
+    }
+
+    private static long lastModified(Path path) {
+        try { return Files.getLastModifiedTime(path).toMillis(); }
+        catch (Exception e) { return 0; }
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     }
 }

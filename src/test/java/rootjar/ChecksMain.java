@@ -80,6 +80,7 @@ public final class ChecksMain {
         frontendSync();
         frontendEncoding();
         eulaAgreement();
+        memoryAndLaunchers();
         playerTracking();
         activityFeed();
         geyserAndMultiPort();
@@ -100,6 +101,55 @@ public final class ChecksMain {
     }
 
     /** Console prefix stripping, join/leave detection, and the status-ping JSON reader. */
+    /** Forge/NeoForge launch from a generated arguments file, and total RAM must not be a hardcoded fallback. */
+    private static void memoryAndLaunchers() throws Exception {
+        long reported = WebServer.availableRamMb();
+        long physical = ((com.sun.management.OperatingSystemMXBean) java.lang.management.ManagementFactory
+                .getOperatingSystemMXBean()).getTotalMemorySize() / (1024 * 1024);
+        boolean cgroup = Files.exists(Path.of("/sys/fs/cgroup/memory.max"))
+                || Files.exists(Path.of("/sys/fs/cgroup/memory/memory.limit_in_bytes"));
+        check(reported > 0, "available ram is reported");
+        check(cgroup || reported == physical, "outside a container the reported ram is physical memory, not a hardcoded 3072");
+
+        Path dir = Files.createTempDirectory("loader");
+        ChildConfig neo = new ChildConfig("neo1", "neoforge", dir, "server.jar", "4096M", true, 25565, "0.0.0.0",
+                StopStrategy.STDIN, "stop", 30, 1, 1, true, List.of(5), List.of(), true, true, false, "", true, "", 0);
+        // No loader installed yet: fall back to the jar form so the child can still start.
+        var before = CommandLineBuilder.build(neo, "java");
+        check(before.contains("-jar") && before.get(before.size() - 1).equals("nogui"), "a loader child with no libraries still launches from its jar");
+
+        String loader = "libraries/net/neoforged/neoforge";
+        String version = "21.4.1";
+        Path versionDir = dir.resolve(loader).resolve(version);
+        Files.createDirectories(versionDir);
+        Files.writeString(versionDir.resolve("unix_args.txt"), "nogui\n");
+        Files.writeString(versionDir.resolve("win_args.txt"), "nogui\n");
+
+        boolean windows = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+        var cmd = CommandLineBuilder.build(neo, "java");
+        check(cmd.get(cmd.size() - 1).equals("@" + loader + "/" + version + "/" + (windows ? "win_args.txt" : "unix_args.txt")),
+                "a neoforge child launches from its arguments file");
+        check(!cmd.contains("-jar") && !cmd.contains("nogui"), "the arguments-file form does not also pass -jar or nogui");
+        check(cmd.contains("-Xmx4096M") && cmd.contains("-XX:+UseG1GC"), "the heap and gc flags survive the arguments-file form");
+
+        // A stray libraries folder must not change how a Paper server starts.
+        ChildConfig paper = new ChildConfig("paper1", "paper", dir, "server.jar", "1024M", true, 25566, "0.0.0.0",
+                StopStrategy.STDIN, "stop", 30, 1, 1, true, List.of(5), List.of(), true, true, false, "", true, "", 0);
+        var paperCmd = CommandLineBuilder.build(paper, "java");
+        check(paperCmd.contains("-jar") && !paperCmd.get(paperCmd.size() - 1).startsWith("@"), "a paper server ignores a stray loader directory");
+
+        Path forgeDir = Files.createTempDirectory("forge");
+        Path forgeVersion = forgeDir.resolve("libraries/net/minecraftforge/forge/1.20.1-47.1.3");
+        Files.createDirectories(forgeVersion);
+        Files.writeString(forgeVersion.resolve("unix_args.txt"), "nogui\n");
+        Files.writeString(forgeVersion.resolve("win_args.txt"), "nogui\n");
+        ChildConfig forge = new ChildConfig("forge1", "forge", forgeDir, "forge.jar", "4096M", true, 25567, "0.0.0.0",
+                StopStrategy.STDIN, "stop", 30, 1, 1, true, List.of(5), List.of(), true, true, false, "", true, "", 0);
+        check(CommandLineBuilder.build(forge, "java").get(0).equals("java")
+                        && CommandLineBuilder.build(forge, "java").stream().anyMatch(a -> a.startsWith("@libraries/net/minecraftforge/forge/")),
+                "a forge child uses the forge library root");
+    }
+
     private static void playerTracking() {
         check(rootjar.supervisor.ChildProcess.stripConsolePrefix("[12:34:56 INFO]: Steve joined the game").equals("Steve joined the game"), "a Paper console prefix is stripped");
         check(rootjar.supervisor.ChildProcess.stripConsolePrefix("[12:34:56] [Server thread/INFO]: Steve joined the game").equals("Steve joined the game"), "a vanilla two-bracket prefix is stripped");
