@@ -236,7 +236,13 @@
         .player-row { width:100%; justify-content:space-between; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-panel); }
         .access-columns { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:18px; }
         .status-text { font-size: 11px; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); display: inline-block; margin-right: 6px; box-shadow: 0 0 8px var(--success); }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); display: inline-block; margin-right: 6px; }
+        /* The dot reports the server's real state. It used to be permanently green, next to a hardcoded
+           "CONNECTED" word that no code ever updated. */
+        .status-dot.state-running { background: var(--success); box-shadow: 0 0 8px var(--success); }
+        .status-dot.state-starting { background: var(--warning); box-shadow: 0 0 8px var(--warning); }
+        .status-dot.state-stopped { background: var(--text-muted); box-shadow: none; }
+        .status-dot.state-crashed { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
 
         .content-center { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
         .tab-container { display: none; flex: 1; flex-direction: column; overflow: hidden; }
@@ -977,8 +983,7 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
                             <button class="status-btn kill" onclick="powerAction('kill')">Kill</button>
                         </div>
                         <div class="status-text">
-                            <span><span class="status-dot"></span>CONNECTED</span>
-                            <span id="sidebar-status">-</span>
+                            <span id="sidebar-state"><span class="status-dot" id="sidebar-state-dot"></span><span id="sidebar-state-text">UNKNOWN</span></span>
                         </div>
                     </div>
 
@@ -1370,7 +1375,7 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
                     <div class="info-card">
                         <div class="resource-header">
                             <span>RESOURCES</span>
-                            <span class="live-badge"><span class="status-dot"></span> Live</span>
+                            <span class="live-badge" id="live-badge"><span class="status-dot" id="live-badge-dot"></span> <span id="live-badge-text">Idle</span></span>
                         </div>
                         
                         <div class="resource-row">
@@ -2234,7 +2239,7 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             if (document.getElementById('view-console').classList.contains('active') && currentServer) {
                 const s = data.servers.find(x => x.id === currentServer.id);
                 if (s) {
-                    document.getElementById('sidebar-status').innerText = s.status;
+                    setStateIndicators(s.status);
                     document.getElementById('sidebar-status-2').innerText = s.status;
                     document.getElementById('sidebar-uptime').innerText = s.uptime;
                     document.getElementById('sidebar-idle').innerText = idleShutdownText(s);
@@ -5728,6 +5733,31 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             const modal = document.getElementById('version-picker-modal');
             if (modal) modal.classList.remove('active');
             setPickerStage('');
+        }
+
+        /**
+         * Drives the sidebar state dot and the RESOURCES badge from the server's real state. Both used to be
+         * permanently green decoration - a hardcoded "CONNECTED" word and a "Live" badge that no code ever
+         * touched - so they claimed everything was fine for a stopped, crashed or killed server. Resources
+         * only tick while the server runs, so the badge says Idle otherwise rather than implying live data.
+         */
+        function setStateIndicators(state) {
+            const name = String(state || 'UNKNOWN').toUpperCase();
+            const cls = name === 'RUNNING' ? 'state-running'
+                : (name === 'STARTING' || name === 'STOPPING') ? 'state-starting'
+                : (name === 'CRASHED' || name === 'KILLED') ? 'state-crashed'
+                : 'state-stopped';
+            for (const id of ['sidebar-state-dot', 'live-badge-dot']) {
+                const dot = document.getElementById(id);
+                if (dot) dot.className = 'status-dot ' + cls;
+            }
+            const text = document.getElementById('sidebar-state-text');
+            if (text) text.textContent = name;
+            const running = name === 'RUNNING';
+            const badge = document.getElementById('live-badge');
+            if (badge) badge.style.color = running ? 'var(--success)' : 'var(--text-muted)';
+            const badgeText = document.getElementById('live-badge-text');
+            if (badgeText) badgeText.textContent = running ? 'Live' : 'Idle';
         }
 
         function reconnectConsole() {

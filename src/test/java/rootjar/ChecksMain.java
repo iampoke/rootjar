@@ -549,6 +549,17 @@ public final class ChecksMain {
         check(html.contains("exitOnOom: document.getElementById('startup-exit-oom').checked"), "saving startup sends the oom toggle");
         check(html.contains("ExitOnOutOfMemoryError"), "the toggle names the flag it adds");
         check(html.contains("if (!response.ok) showToast((await response.text())"), "a refused start shows the reason");
+        // The sidebar carried a hardcoded "CONNECTED" label and a permanently green dot beside the real state
+        // text, so it claimed everything was fine for a stopped, crashed or killed server.
+        check(html.contains("function setStateIndicators("), "server state drives the indicators");
+        check(html.contains("id=\"sidebar-state-dot\"") && html.contains("id=\"sidebar-state-text\""), "the sidebar indicator has a dot and label the code can update");
+        check(!html.contains("id=\"sidebar-status\""), "the duplicated status text beside the indicator is gone");
+        check(html.contains("setStateIndicators(s.status)"), "the status poll feeds the indicators");
+        check(html.contains(".status-dot.state-running") && html.contains(".status-dot.state-crashed")
+                && html.contains(".status-dot.state-stopped") && html.contains(".status-dot.state-starting"), "the dot has a colour per state");
+        check(html.contains("border-radius: 50%; background: var(--text-muted); display: inline-block"), "the dot is neutral until a state is known");
+        check(html.contains("id=\"live-badge-text\""), "the resources badge is driven rather than hardcoded");
+        check(html.contains("'Live' : 'Idle'"), "the resources badge stops claiming Live for a server that is not running");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */
