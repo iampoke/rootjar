@@ -80,6 +80,7 @@ public final class ChecksMain {
         frontendSync();
         frontendEncoding();
         eulaAgreement();
+        releaseVersion();
         memoryAndLaunchers();
         playerTracking();
         activityFeed();
@@ -101,6 +102,18 @@ public final class ChecksMain {
     }
 
     /** Console prefix stripping, join/leave detection, and the status-ping JSON reader. */
+    /** The version has to agree in the code, the jar manifest recipe and the release notes. */
+    private static void releaseVersion() throws Exception {
+        String version = rootjar.Main.VERSION;
+        check(version.matches("[0-9]+\\.[0-9]+\\.[0-9]+"), "the version is a three-part number");
+        String readme = Files.readString(Path.of("README.md"));
+        String newest = readme.lines().filter(line -> line.matches("## [0-9]+\\.[0-9]+\\.[0-9]+")).findFirst().orElse("");
+        check(newest.equals("## " + version), "README.md leads with the version in Main.VERSION, got '" + newest + "'");
+        check(Files.readString(Path.of("build.sh")).contains("Implementation-Version: " + version),
+                "build.sh stamps the same version into the jar manifest");
+        check(readme.contains("Everything below ships in the " + version + " build"), "the newest section says what ships in it");
+    }
+
     /** Forge/NeoForge launch from a generated arguments file, and total RAM must not be a hardcoded fallback. */
     private static void memoryAndLaunchers() throws Exception {
         long reported = WebServer.availableRamMb();

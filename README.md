@@ -162,6 +162,68 @@ The panel can show two optional links:
 
 An admin pastes each destination into Settings and enables its checkbox. Clicking a button opens that saved `http` or `https` address. These are navigation links only. Their settings are stored in `node-buttons.properties` beside `config.yml`.
 
+## 1.1.0
+
+Everything below ships in the 1.1.0 build. It is 24 commits of work on top of 1.0.2. No config key was removed and every new one defaults to the previous behaviour, so an existing `config.yml` works unchanged.
+
+### Addons and installs
+
+- Plugins and mods install correctly from all three registries. Every search result now carries its own registry, which is what the version picker and the install route both route on. Before this, an install from any registry failed with "Unknown source".
+- A version picker opens for Modrinth, Hangar and SpigotMC. It used to exist for Modrinth only.
+- Dependencies are listed under the version picker as "Install dependencies?", each marked required or optional and individually tickable, and they install after the plugin itself. A Modrinth dependency is named by its project title rather than by an opaque id.
+- SpigotMC searches containing a space work again. Two-word queries returned a 404.
+- A registry that redirects to a web page instead of a jar is refused, with the redirect offered as a clickable link. This is what SpigotMC does for externally hosted plugins such as EssentialsX, which previously had a 240 KB HTML page written into `plugins/` and reported as a successful install.
+- Hangar downloads are verified against the SHA-256 its API publishes, and the Paper file is chosen explicitly rather than by whichever platform the response happened to list first.
+- A search failure names the registry that actually failed, instead of blaming Modrinth for every host.
+- Modpacks install straight from a Modrinth project, using the same version picker.
+- Premium SpigotMC resources are filtered out of results rather than offered and then refused.
+
+### Server startup and JVM
+
+- The Startup tab has checkboxes for pinning `-Xms` to `-Xmx` and for applying Aikar's G1GC flags. Both were previously editable only by hand in `config.yml`.
+- Aikar's set is now complete. `-XX:+AlwaysPreTouch` and Aikar's two marker properties were missing, and the large-heap variant is selected automatically above 12 GB instead of every server getting the small-heap tuning.
+- A new per-server switch adds `-XX:+ExitOnOutOfMemoryError`, so a server that exhausts its heap exits and is restarted rather than running half broken while the panel reports it as running.
+- The command preview shows the command line the panel actually builds, so it can no longer drift from what runs. It previously always showed `-Xms` and never showed `nogui`.
+- Saving the Startup tab no longer silently turns the managed Aikar flags off, and no longer puts the same flags on the command line twice.
+- `eula.txt` is agreed to on start, so a freshly created server does not exit on its first run.
+- Forge and NeoForge launch from the arguments file their installer generates. They were started with `-jar`, which cannot work for either.
+- A start that would not fit in the available RAM is refused, with the numbers in the message. Inside a container the available figure comes from the cgroup limit, and both cgroup v2 and v1 are read.
+
+### Console
+
+- Opening a server shows the last 1,000 console lines instead of about 50.
+- Opening a server no longer freezes the panel for several seconds. Those lines are inserted as one batch per frame rather than one at a time, and the view no longer forces a layout after every line.
+- URLs in console output are clickable.
+- The console background matches the rest of the panel.
+
+### Player count and server state
+
+- The player count is read from the server itself every 30 seconds, using the same status ping the multiplayer menu performs. It no longer depends on join and leave lines surviving whatever a plugin or proxy did to them, and it no longer stays at 0 until someone runs `list`.
+- The console parsing of join and leave lines is fixed as well, so the count still moves immediately between pings.
+- The sidebar state indicator reports the real state, with a colour per state. It used to read `CONNECTED` beside a permanently green dot for every server, including stopped, crashed and killed ones.
+- The power buttons merge Start and Stop into one, show the action that applies, and grey out Restart and Kill when nothing is running. Greyed buttons stay clickable. An icon mode reuses the dashboard's icons and is remembered per browser.
+- The RESOURCES badge reads Live only while the server is running, and Idle otherwise.
+- A forced kill is reported as killed rather than as a crash.
+
+### File manager
+
+- Uploads are queued and shown inline in the toolbar, with a progress bar, a cancel button and per-file errors, and they are written atomically so a failed upload cannot leave a partial file behind.
+- The right-click menu has icons, sends files to Trash, and offers a separate permanent Delete.
+- Move is in the right-click menu, and its destination is picked by browsing folders. Move and the other actions apply to the whole selection.
+- The right-click menu stays inside the window.
+- An upload refused by a reverse proxy says so, instead of reporting a generic failure that looks like the panel's own size limit.
+
+### Text and encoding
+
+- The panel is served as UTF-8 and every request body is decoded as UTF-8, which fixed text that appeared as mojibake.
+- The pixel font is self-hosted inside `index.html` rather than hotlinked to a third-party CDN, and it now includes the arrow glyphs the panel uses.
+
+### Known limits
+
+- Per-server "actual RAM usage" is read from `/proc`, so it is correct on Linux and reads 0 on Windows. Total RAM is correct on both.
+- SpiGet publishes no dependency data, so SpigotMC addons cannot list dependencies. Hangar dependencies are resolved by name search, so an ambiguous name could match the wrong project.
+- The `hilltty`, `etil` and `benchmarked` flag presets contain options removed from modern JVMs and will not start on JDK 17 and newer. The panel warns about each of them.
+
 ## 1.0.2
 
 Everything below ships in the 1.0.2 build. It includes the work that was previously published as replacement `1.0.1` jars.
