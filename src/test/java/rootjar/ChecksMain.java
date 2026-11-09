@@ -111,7 +111,12 @@ public final class ChecksMain {
         check(newest.equals("## " + version), "README.md leads with the version in Main.VERSION, got '" + newest + "'");
         check(Files.readString(Path.of("build.sh")).contains("Implementation-Version: " + version),
                 "build.sh stamps the same version into the jar manifest");
-        check(readme.contains("Everything below ships in the " + version + " build"), "the newest section says what ships in it");
+        // The newest section has to actually describe the release, not just carry the heading. Asserting a
+        // specific sentence here was too rigid: a patch release says "a fix release", not "everything below".
+        String afterHeading = readme.substring(readme.indexOf(newest) + newest.length());
+        int nextSection = afterHeading.indexOf("\n## ");
+        String section = nextSection < 0 ? afterHeading : afterHeading.substring(0, nextSection);
+        check(section.contains("- "), "the newest README section lists what changed");
     }
 
     /** Forge/NeoForge launch from a generated arguments file, and total RAM must not be a hardcoded fallback. */
@@ -180,7 +185,7 @@ public final class ChecksMain {
         check(ConfigLoader.load(saved).children().get(0).exitOnOom(), "exit_on_oom survives a config round-trip");
     }
 
-    private static void playerTracking() {
+    private static void playerTracking() throws Exception {
         check(rootjar.supervisor.ChildProcess.stripConsolePrefix("[12:34:56 INFO]: Steve joined the game").equals("Steve joined the game"), "a Paper console prefix is stripped");
         check(rootjar.supervisor.ChildProcess.stripConsolePrefix("[12:34:56] [Server thread/INFO]: Steve joined the game").equals("Steve joined the game"), "a vanilla two-bracket prefix is stripped");
         check(rootjar.supervisor.ChildProcess.stripConsolePrefix("Steve joined the game").equals("Steve joined the game"), "an unprefixed line is left alone");
@@ -211,6 +216,46 @@ public final class ChecksMain {
         check(rootjar.supervisor.ServerPing.ping("127.0.0.1", 1, 250) == null, "pinging a closed port returns null instead of throwing");
         check(rootjar.supervisor.ServerPing.ping("", 25565, 250) == null, "an empty host returns null");
         check(rootjar.supervisor.ServerPing.ping("127.0.0.1", 0, 250) == null, "a zero port returns null");
+
+        // VarInt is base 128. Encoding it by shifting five bits instead of seven wrote -1 as six bytes
+        // (FF FF FF FF FF 7F) rather than five, which every server rejects as a bad VarInt. That is what made
+        // Limbo log "Cannot decode packet PacketHandshake" every 30 seconds, and it meant the ping never
+        // once succeeded on any server, because ping() swallows every failure and returns null.
+        check(java.util.Arrays.equals(rootjar.supervisor.ServerPing.encodeVarInt(0), new byte[]{0x00}), "varint 0");
+        check(java.util.Arrays.equals(rootjar.supervisor.ServerPing.encodeVarInt(127), new byte[]{0x7F}), "varint 127 is one byte");
+        check(java.util.Arrays.equals(rootjar.supervisor.ServerPing.encodeVarInt(128), new byte[]{(byte) 0x80, 0x01}), "varint 128 is two bytes");
+        check(java.util.Arrays.equals(rootjar.supervisor.ServerPing.encodeVarInt(25565), new byte[]{(byte) 0xDD, (byte) 0xC7, 0x01}), "varint 25565, an ordinary port");
+        check(java.util.Arrays.equals(rootjar.supervisor.ServerPing.encodeVarInt(-1),
+                new byte[]{(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0x0F}), "varint -1 is five bytes, not six");
+        check(java.util.Arrays.equals(rootjar.supervisor.ServerPing.encodeVarInt(Integer.MAX_VALUE),
+                new byte[]{(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0x07}), "varint max int");
+        check(java.util.Arrays.equals(rootjar.supervisor.ServerPing.encodeVarInt(Integer.MIN_VALUE),
+                new byte[]{(byte) 0x80, (byte) 0x80, (byte) 0x80, (byte) 0x80, 0x08}), "varint min int");
+        for (int value : new int[]{0, 1, 63, 127, 128, 255, 25565, 16383, 16384, 2097151, -1, -2, Integer.MAX_VALUE, Integer.MIN_VALUE}) {
+            byte[] encoded = rootjar.supervisor.ServerPing.encodeVarInt(value);
+            check(encoded.length <= 5, "varint " + value + " fits in five bytes");
+            check(rootjar.supervisor.ServerPing.decodeVarInt(encoded, new int[]{0}) == value, "varint " + value + " round-trips");
+        }
+        // The reader has to cope with a multi-byte length too: a real status reply's JSON is always longer
+        // than 127 bytes, so its length prefix spans several bytes.
+        check(rootjar.supervisor.ServerPing.decodeVarInt(new byte[]{(byte) 0xAC, 0x02}, new int[]{0}) == 300, "a multi-byte length is read back");
+
+        // The exact handshake the panel opens with: packet length, id 0x00, protocol -1, address, port,
+        // next state 1. Asserted byte for byte against the documented wire format.
+        String handshakeHex = bytesHex(rootjar.supervisor.ServerPing.handshakePacket("127.0.0.1", 25565));
+        check(handshakeHex.equals("1300ffffffff0f093132372e302e302e3163dd01"),
+                "the handshake matches the documented wire format, got " + handshakeHex);
+        // 0b = 11 bytes of body: id, protocol, address length, one address byte, two port bytes, next state.
+        check(bytesHex(rootjar.supervisor.ServerPing.handshakePacket("h", 25566)).equals("0b00ffffffff0f016863de01"),
+                "a one-character host produces a shorter handshake, got "
+                        + bytesHex(rootjar.supervisor.ServerPing.handshakePacket("h", 25566)));
+    }
+
+    /** Lower-case hex of raw bytes, for asserting an exact wire format. */
+    private static String bytesHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) sb.append(String.format("%02x", b));
+        return sb.toString();
     }
 
     private static void portAlignment() {

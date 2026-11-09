@@ -112,7 +112,9 @@ public final class ServerPing {
         while (true) {
             if ((value & ~0x7F) == 0) { out.write(value); return; }
             out.write((value & 0x7F) | 0x80);
-            value >>>= 5;
+            // Base 128, so seven bits per byte. Shifting by five wrote -1 as six bytes instead of five,
+            // which every server rejects as a bad VarInt.
+            value >>>= 7;
         }
     }
 
@@ -122,7 +124,7 @@ public final class ServerPing {
             int b = in.readUnsignedByte();
             value |= (b & 0x7F) << shift;
             if ((b & 0x80) == 0) return value;
-            shift += 5;
+            shift += 7;
             if (shift > 28) throw new IOException("varint too long");
         }
     }
@@ -134,8 +136,25 @@ public final class ServerPing {
             int b = bytes[at[0]++] & 0xFF;
             value |= (b & 0x7F) << shift;
             if ((b & 0x80) == 0) return value;
-            shift += 5;
+            shift += 7;
             if (shift > 28) throw new IOException("varint too long");
         }
+    }
+
+    /** VarInt as it goes on the wire. Public so the encoding is testable without opening a socket. */
+    public static byte[] encodeVarInt(int value) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        writeVarInt(out, value);
+        return out.toByteArray();
+    }
+
+    /** Reads one VarInt from {@code bytes}, advancing {@code at} past it. */
+    public static int decodeVarInt(byte[] bytes, int[] at) throws IOException {
+        return readVarInt(bytes, at);
+    }
+
+    /** The exact bytes a status ping opens with, length prefix included, for a given address and port. */
+    public static byte[] handshakePacket(String host, int port) throws IOException {
+        return framed(handshake(host, port));
     }
 }

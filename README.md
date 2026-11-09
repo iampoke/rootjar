@@ -162,6 +162,14 @@ The panel can show two optional links:
 
 An admin pastes each destination into Settings and enables its checkbox. Clicking a button opens that saved `http` or `https` address. These are navigation links only. Their settings are stored in `node-buttons.properties` beside `config.yml`.
 
+## 1.1.1
+
+A fix release for one bug that shipped in 1.1.0.
+
+- The player-count ping works now. It encoded VarInts by shifting five bits per byte instead of seven, so the protocol version went out as six bytes rather than five and every server rejected the handshake. Because the ping swallows its own failures and returns null, this was invisible in the panel: the count quietly fell back to console parsing, while strict servers such as NanoLimbo logged `Cannot decode packet PacketHandshake(0x0)` caused by `Bad VarInt`, once per child every 30 seconds.
+- The reply reader had the same wrong shift, which would also have broken parsing of any status JSON longer than 127 bytes, meaning every real reply.
+- VarInt encoding and decoding are now covered by known wire-format vectors, including `-1`, both integer extremes, a real port, and the exact handshake bytes the panel sends. Verified end to end against a live public server, which returned a player count, a maximum and a version string.
+
 ## 1.1.0
 
 Everything below ships in the 1.1.0 build. It is 24 commits of work on top of 1.0.2. No config key was removed and every new one defaults to the previous behaviour, so an existing `config.yml` works unchanged.
