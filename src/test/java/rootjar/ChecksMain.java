@@ -560,6 +560,16 @@ public final class ChecksMain {
         check(html.contains("border-radius: 50%; background: var(--text-muted); display: inline-block"), "the dot is neutral until a state is known");
         check(html.contains("id=\"live-badge-text\""), "the resources badge is driven rather than hardcoded");
         check(html.contains("'Live' : 'Idle'"), "the resources badge stops claiming Live for a server that is not running");
+        // Opening a server backfills 1,000 console lines. Appending them one at a time cost one HTML parse and
+        // two scrollHeight reads each, and every read forces a synchronous layout - that was the multi-second
+        // freeze on Manage.
+        check(html.contains("function flushConsole(") && html.contains("function scheduleConsoleFlush("), "console lines are buffered and flushed once per frame");
+        check(html.contains("requestAnimationFrame("), "the flush runs on an animation frame");
+        check(html.contains("out.insertAdjacentHTML('beforeend', pending.map(consoleLineHtml).join(''))"), "a burst is inserted as one html string");
+        check(!html.contains("out.scrollTop = out.scrollHeight"), "the console no longer measures scrollHeight after appending");
+        check(html.contains("out.scrollTop = 1e9"), "staying pinned to the bottom avoids a forced layout");
+        check(html.contains("if (consolePending.length > 1000) consolePending.shift()"), "the buffer is capped for a hidden tab, which runs no frames");
+        check(html.contains("Anything still buffered belongs to the server being left behind"), "switching servers drops the previous server's buffered lines");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */

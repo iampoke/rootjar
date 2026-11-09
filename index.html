@@ -1836,12 +1836,44 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             }).join('');
         }
 
+        function consoleLineHtml(entry) {
+            return `<div class="console-line" data-level="${entry.level}"><span class="console-time">[${entry.time}]</span><span class="console-msg">${entry.html}</span></div>`;
+        }
+
         function appendConsoleEntry(entry) {
             const out = document.getElementById('console-output');
-            const holder = document.createElement('div');
-            holder.innerHTML = `<div class="console-line" data-level="${entry.level}"><span class="console-time">[${entry.time}]</span><span class="console-msg">${entry.html}</span></div>`;
-            out.appendChild(holder.firstChild);
+            out.insertAdjacentHTML('beforeend', consoleLineHtml(entry));
             while (out.children.length > 1000) out.removeChild(out.firstChild);
+        }
+
+        /**
+         * Lines arrive in bursts - above all the 1,000-line backfill when a server is opened. Appending them one
+         * at a time meant one HTML parse and two scrollHeight reads per line, and reading scrollHeight forces a
+         * synchronous layout, so opening a server laid the growing list out ~2,000 times and froze for seconds.
+         * Buffering one frame's worth and inserting it as a single HTML string makes that one parse and one
+         * layout instead.
+         */
+        let consolePending = [];
+        let consoleFlushScheduled = false;
+
+        function scheduleConsoleFlush() {
+            if (consoleFlushScheduled) return;
+            consoleFlushScheduled = true;
+            requestAnimationFrame(() => { consoleFlushScheduled = false; flushConsole(); });
+        }
+
+        function flushConsole() {
+            if (!consolePending.length) return;
+            const pending = consolePending;
+            consolePending = [];
+            const out = document.getElementById('console-output');
+            if (!out) return;
+            const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 24;
+            out.insertAdjacentHTML('beforeend', pending.map(consoleLineHtml).join(''));
+            while (out.children.length > 1000) out.removeChild(out.firstChild);
+            // A value past the end is clamped to the real maximum, so staying pinned to the bottom needs no
+            // scrollHeight read and therefore no forced layout.
+            if (atBottom) out.scrollTop = 1e9;
         }
 
         function pushConsoleLine(raw) {
@@ -1859,17 +1891,19 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             consoleLines.push(entry);
             if (consoleLines.length > 1000) consoleLines.shift();
             if (!consolePasses(entry)) return;
-            const out = document.getElementById('console-output');
-            const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 24;
-            appendConsoleEntry(entry);
-            if (atBottom) out.scrollTop = out.scrollHeight;
+            consolePending.push(entry);
+            // The list is capped at 1000 anyway, and a hidden tab does not run animation frames, so bound the
+            // buffer rather than letting it grow while nobody is looking.
+            if (consolePending.length > 1000) consolePending.shift();
+            scheduleConsoleFlush();
         }
 
         function renderConsole() {
+            // A rebuild supersedes anything still buffered; consoleLines already holds those entries.
+            consolePending = [];
             const out = document.getElementById('console-output');
-            out.innerHTML = '';
-            for (const entry of consoleLines) if (consolePasses(entry)) appendConsoleEntry(entry);
-            out.scrollTop = out.scrollHeight;
+            out.innerHTML = consoleLines.filter(consolePasses).map(consoleLineHtml).join('');
+            out.scrollTop = 1e9;
         }
 
         function downloadConsoleLog() {
@@ -2644,6 +2678,8 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             configFiles = [];
             configEntries = [];
             consoleLines = [];
+            // Anything still buffered belongs to the server being left behind.
+            consolePending = [];
             consoleHistory = [];
             consoleHistoryIndex = -1;
             consoleFilter = { level: 'ALL', text: '' };
