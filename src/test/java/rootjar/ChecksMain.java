@@ -570,6 +570,18 @@ public final class ChecksMain {
         check(html.contains("out.scrollTop = 1e9"), "staying pinned to the bottom avoids a forced layout");
         check(html.contains("if (consolePending.length > 1000) consolePending.shift()"), "the buffer is capped for a hidden tab, which runs no frames");
         check(html.contains("Anything still buffered belongs to the server being left behind"), "switching servers drops the previous server's buffered lines");
+        // Sidebar power buttons: Start and Stop merged into one, greyed when an action does not apply, and an
+        // icon mode that reuses the dashboard's icons. Greyed buttons stay clickable by design.
+        check(html.contains("function renderPowerButtons(") && html.contains("function powerAvailability("), "the power buttons are rendered from state, with one place deciding what applies");
+        check(html.contains("function togglePowerIconMode(") && html.contains("rootjar.powerIconMode"), "icon mode is a per-browser preference");
+        check(html.contains("id=\"power-mode-toggle\""), "the status box carries the mode switch");
+        check(html.contains("id=\"sidebar-actions\""), "the button row is rendered rather than hardcoded");
+        check(html.contains("POWER_ICONS"), "icon mode has its own icon set");
+        check(html.contains(".status-btn.dim, .status-btn.dim:hover"), "the greyed style is declared after the hover rules so it wins");
+        check(html.contains("dim(a.restart)") && html.contains("dim(a.kill)"), "restart and kill are greyed by state");
+        check(html.contains("toggleAction: (running || state === 'STOPPING') ? 'stop' : 'start'"), "a stopping server still offers stop, greyed, rather than flipping to start");
+        check(html.contains("if (key === powerButtonsKey) return"), "repeat status polls do not rewrite the buttons");
+        check(!html.contains("onclick=\"powerAction('stop')\"") && !html.contains(">Start</button>"), "the four static buttons are gone");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */
