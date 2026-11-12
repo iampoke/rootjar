@@ -3562,7 +3562,9 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
 
         async function fmImportZip(file) {
             if (!file) return;
-            const destination = currentPath === '.' ? 'public' : currentPath;
+            // At the server root this used to send everything to public/, which is a website concept. Importing a
+            // Minecraft server that way buries it in a subfolder instead of replacing the server's own files.
+            const destination = (currentPath === '.' && currentServer && currentServer.type === 'website') ? 'public' : currentPath;
             await fetch(`/api/files/import/${currentServer.id}?path=${encodeURIComponent(destination)}`, {method:'POST', body:file});
             showToast('Archive imported', 'success');
             loadFileList(currentPath);

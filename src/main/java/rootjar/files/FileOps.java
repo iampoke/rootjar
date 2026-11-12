@@ -105,6 +105,16 @@ public final class FileOps {
                 if (!target.startsWith(root)) throw new IOException("Unsafe archive entry");
                 if (entry.isDirectory()) { Files.createDirectories(target); continue; }
                 Files.createDirectories(target.getParent());
+                // Delete before writing. Files.newOutputStream reuses an existing file's inode, so an imported
+                // tree could keep a stale owner or a read-only mode and the server would then fail to save
+                // beside it. A read-only file cannot always be deleted, so clear that first and retry once.
+                if (Files.exists(target)) {
+                    try { Files.delete(target); }
+                    catch (IOException e) {
+                        if (!target.toFile().setWritable(true)) throw e;
+                        Files.delete(target);
+                    }
+                }
                 bytes += copyBounded(in, target, MAX_EXTRACTED_BYTES - bytes);
                 if (bytes > MAX_EXTRACTED_BYTES) throw new IOException("Archive expands beyond the size limit");
             }

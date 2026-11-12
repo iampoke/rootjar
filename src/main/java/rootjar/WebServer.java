@@ -2609,7 +2609,7 @@ public class WebServer {
         Path temp = Files.createTempFile(child.config().dir(), ".import-", ".zip");
         try {
             try (InputStream in = ex.getRequestBody()) { Files.copy(in, temp, StandardCopyOption.REPLACE_EXISTING); }
-            String dest = param(ex, "path", "public");
+            String dest = param(ex, "path", ".");
             if (storageBlocked(ex, child, zipUncompressedBytes(temp))) return;
             FileOps.extract(temp, FileOps.resolve(child.config().dir(), dest));
             audit(ex, child.id() + ".file.import", dest);

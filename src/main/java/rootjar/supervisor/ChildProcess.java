@@ -245,6 +245,26 @@ public final class ChildProcess {
         }
     }
 
+    /**
+     * Says plainly when the server folder is not writable by this process, naming its owner. That is the usual
+     * cause of the AccessDenied a game logs when it saves a config, and it is invisible from inside that game's
+     * own console. A folder extracted by a hosting panel often ends up owned by root while the server runs as
+     * another user, and retrying the game never fixes it.
+     */
+    private void warnIfUnwritable() {
+        try {
+            if (Files.isWritable(cfg.dir())) return;
+            String owner = "unknown";
+            try {
+                Object value = Files.getAttribute(cfg.dir(), "owner");
+                if (value != null) owner = value.toString();
+            } catch (Exception ignored) {}
+            ConsoleOutput.root("WARNING: " + id() + " cannot write to " + cfg.dir() + " (owned by " + owner
+                    + "). The server will fail to save its configuration. Re-upload or re-extract the files as the"
+                    + " user that runs the server, or ask the host to give that folder to it.");
+        } catch (Exception ignored) {}
+    }
+
     public synchronized boolean start() {
         if (startDisabled) return false;
         if (process != null && process.isAlive()) return false;
@@ -265,6 +285,7 @@ public final class ChildProcess {
         ensureBukkitDatapack();
         ensureEula();
         if (PermissionRepair.repairOnce(cfg.dir(), id())) ConsoleOutput.root("repaired copied file permissions in " + id());
+        warnIfUnwritable();
         Process p;
         try {
             p = new ProcessBuilder(cmd)

@@ -162,6 +162,12 @@ The panel can show two optional links:
 
 An admin pastes each destination into Settings and enables its checkbox. Clicking a button opens that saved `http` or `https` address. These are navigation links only. Their settings are stored in `node-buttons.properties` beside `config.yml`.
 
+## 1.2.2
+
+- Extracting an archive now replaces a file instead of writing through the existing one. Writing through it kept the old inode, and with it the old owner and mode, so importing over a tree that came from another machine could leave the server unable to save its own configs. A read-only file is cleared and replaced too.
+- Importing at the server root no longer sends everything to `public/`, which is a website concept. A Minecraft server imported that way ended up buried in a subfolder instead of replacing its own files.
+- The root console now warns when a server folder is not writable by the panel, naming the folder and its owner. That is the usual cause of the `AccessDenied` a game logs when it saves a config, and it cannot be seen from inside the game's own console. Hosting panels often extract archives as root, which leaves files the game user cannot write; re-extracting through Rootjar or asking the host to give the folder to the game user fixes it.
+
 ## 1.2.1
 
 - A write refused by the storage limit now says why. The upload row showed the raw 409 JSON, and saving a file in the editor showed nothing at all, because that path ignored failures entirely. Both now show the reason the panel sent.
