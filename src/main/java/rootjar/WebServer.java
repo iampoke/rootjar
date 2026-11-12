@@ -2071,9 +2071,9 @@ public class WebServer {
             String dest = param(ex, "dest", "");
             if (dest.isBlank()) dest = param(ex, "path", "").replaceAll("(?i)\\.zip$", "");
             if (storageBlocked(ex, child, zipUncompressedBytes(zip))) return;
-            FileOps.extract(zip, FileOps.resolve(child.config().dir(), dest));
+            FileOps.Extracted result = FileOps.extract(zip, FileOps.resolve(child.config().dir(), dest));
             audit(ex, child.id() + ".file.extract", param(ex, "path", "") + " -> " + dest);
-            send(ex, 200, "Extracted");
+            send(ex, 200, "{\"extracted\":" + result.entries() + ",\"bytes\":" + result.bytes() + "}");
         } catch (Exception e) { send(ex, 403, e.getMessage()); }
     }
 
@@ -2611,9 +2611,9 @@ public class WebServer {
             try (InputStream in = ex.getRequestBody()) { Files.copy(in, temp, StandardCopyOption.REPLACE_EXISTING); }
             String dest = param(ex, "path", ".");
             if (storageBlocked(ex, child, zipUncompressedBytes(temp))) return;
-            FileOps.extract(temp, FileOps.resolve(child.config().dir(), dest));
+            FileOps.Extracted result = FileOps.extract(temp, FileOps.resolve(child.config().dir(), dest));
             audit(ex, child.id() + ".file.import", dest);
-            send(ex, 200, "Imported");
+            send(ex, 200, "{\"extracted\":" + result.entries() + ",\"bytes\":" + result.bytes() + "}");
         } catch (Exception e) {
             send(ex, 403, e.getMessage());
         } finally { Files.deleteIfExists(temp); }

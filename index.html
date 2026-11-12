@@ -3565,8 +3565,12 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             // At the server root this used to send everything to public/, which is a website concept. Importing a
             // Minecraft server that way buries it in a subfolder instead of replacing the server's own files.
             const destination = (currentPath === '.' && currentServer && currentServer.type === 'website') ? 'public' : currentPath;
-            await fetch(`/api/files/import/${currentServer.id}?path=${encodeURIComponent(destination)}`, {method:'POST', body:file});
-            showToast('Archive imported', 'success');
+            const response = await fetch(`/api/files/import/${currentServer.id}?path=${encodeURIComponent(destination)}`, {method:'POST', body:file});
+            if (!response.ok) return showToast(refusalMessage(await response.text(), 'Import failed'), 'error');
+            const data = await response.json().catch(() => ({}));
+            // Report what actually landed. This used to show success even when extraction aborted part way,
+            // which is how an entry limit or a hidden folder could silently drop most of an import.
+            showToast('Imported ' + (data.extracted || 0) + ' entries (' + fmtBytes(data.bytes || 0) + ')', 'success');
             loadFileList(currentPath);
         }
 

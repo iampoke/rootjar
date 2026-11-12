@@ -16,10 +16,16 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
+import rootjar.supervisor.PermissionRepair;
+
 /** Path-safe file operations for one child server directory. No HTTP or third-party dependencies. */
 public final class FileOps {
     public static final int MAX_SEARCH_DEPTH = 8;
-    public static final int MAX_ZIP_ENTRIES = 10_000;
+    /**
+     * Upper bound on entries in one archive. A large modded server ships tens of thousands of files in
+     * {@code libraries/}, so the old 10,000 truncated a real 650 MB server part way through.
+     */
+    public static final int MAX_ZIP_ENTRIES = 200_000;
     public static final long MAX_EXTRACTED_BYTES = 4L * 1024 * 1024 * 1024;
 
     private FileOps() {}
@@ -85,7 +91,10 @@ public final class FileOps {
         }
     }
 
-    public static void extract(Path zipFile, Path destination) throws IOException {
+    /** What an extraction produced, so the caller can report it instead of guessing. */
+    public record Extracted(int entries, long bytes) {}
+
+    public static Extracted extract(Path zipFile, Path destination) throws IOException {
         Files.createDirectories(destination);
         Path root = destination.toAbsolutePath().normalize();
         int entries = 0;
@@ -93,16 +102,25 @@ public final class FileOps {
         try (ZipInputStream in = new ZipInputStream(Files.newInputStream(zipFile))) {
             ZipEntry entry;
             while ((entry = in.getNextEntry()) != null) {
-                if (++entries > MAX_ZIP_ENTRIES) throw new IOException("Archive has too many entries");
+                if (++entries > MAX_ZIP_ENTRIES) {
+                    throw new IOException("Archive has more than " + MAX_ZIP_ENTRIES + " entries; split it");
+                }
                 String name = entry.getName().replace('\\', '/');
-                if (name.startsWith("/") || name.contains(":") || name.contains("\0")) throw new IOException("Unsafe archive entry");
+                if (name.startsWith("/") || name.contains(":") || name.contains("\0")) {
+                    throw new IOException("Unsafe archive entry: " + name);
+                }
                 Path target = root;
                 for (String part : name.split("/")) {
                     if (part.isEmpty() || part.equals(".")) continue;
-                    if (part.equals("..") || part.startsWith(".")) throw new IOException("Unsafe archive entry");
+                    // ".." is the traversal risk. A leading dot is just a hidden file, and every real server has
+                    // them (.paper-remapped, .gitignore), so rejecting those silently cut every import short.
+                    if (part.equals("..")) throw new IOException("Unsafe archive entry: " + name);
                     target = target.resolve(part).normalize();
                 }
-                if (!target.startsWith(root)) throw new IOException("Unsafe archive entry");
+                if (!target.startsWith(root)) throw new IOException("Unsafe archive entry: " + name);
+                // An archive must not be able to fake Rootjar's own repair markers.
+                String leaf = target.getFileName() == null ? "" : target.getFileName().toString();
+                if (leaf.equals(PermissionRepair.SUCCESS_MARKER) || leaf.equals(PermissionRepair.FAILURE_MARKER)) continue;
                 if (entry.isDirectory()) { Files.createDirectories(target); continue; }
                 Files.createDirectories(target.getParent());
                 // Delete before writing. Files.newOutputStream reuses an existing file's inode, so an imported
@@ -119,6 +137,7 @@ public final class FileOps {
                 if (bytes > MAX_EXTRACTED_BYTES) throw new IOException("Archive expands beyond the size limit");
             }
         }
+        return new Extracted(entries, bytes);
     }
 
     public static List<Path> searchNames(Path root, String query, int limit) throws IOException {

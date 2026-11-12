@@ -162,6 +162,13 @@ The panel can show two optional links:
 
 An admin pastes each destination into Settings and enables its checkbox. Clicking a button opens that saved `http` or `https` address. These are navigation links only. Their settings are stored in `node-buttons.properties` beside `config.yml`.
 
+## 1.2.3
+
+- Importing a large server no longer stops part way. The extractor rejected any path component beginning with a dot, and every real Paper server ships `plugins/.paper-remapped/`, so the import aborted at the first hidden folder and everything after it was silently dropped. Hidden files and folders are extracted now; only `..` is still refused, since that is the actual traversal risk.
+- An archive can no longer fake Rootjar's own permission-repair markers, which is the reason the dot rule existed.
+- The entry limit for one archive went from 10,000 to 200,000. A modded server with a full `libraries/` folder can exceed 10,000 files, and the old cap aborted the import when it was reached.
+- A refused or aborted import now says so, and a successful one reports how many entries and how much data landed. It used to report success even when extraction had stopped part way.
+
 ## 1.2.2
 
 - Extracting an archive now replaces a file instead of writing through the existing one. Writing through it kept the old inode, and with it the old owner and mode, so importing over a tree that came from another machine could leave the server unable to save its own configs. A read-only file is cleared and replaced too.

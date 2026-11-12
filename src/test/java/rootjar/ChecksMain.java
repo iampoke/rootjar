@@ -859,6 +859,22 @@ public final class ChecksMain {
         FileOps.extract(replaceZip, target);
         check(Files.readString(existing).equals("new"), "extract replaces an existing read-only file");
         check(Files.isWritable(existing), "the replaced file is writable again");
+
+        // Hidden files are normal in a server, and rejecting them used to abort the whole import part way.
+        Path hiddenZip = root.resolve("hidden.zip");
+        try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(hiddenZip))) {
+            out.putNextEntry(new ZipEntry("plugins/.paper-remapped/a.txt"));
+            out.write("x".getBytes(StandardCharsets.UTF_8));
+            out.closeEntry();
+            out.putNextEntry(new ZipEntry(".rootjar-permissions-repaired"));
+            out.write("fake".getBytes(StandardCharsets.UTF_8));
+            out.closeEntry();
+        }
+        FileOps.Extracted hidden = FileOps.extract(hiddenZip, root.resolve("hidden"));
+        check(Files.readString(root.resolve("hidden/plugins/.paper-remapped/a.txt")).equals("x"), "extract keeps hidden files");
+        check(Files.notExists(root.resolve("hidden/.rootjar-permissions-repaired")), "extract cannot fake a repair marker");
+        check(hidden.entries() == 2 && hidden.bytes() > 0, "extract reports what it produced");
+        check(FileOps.MAX_ZIP_ENTRIES >= 100_000, "the entry limit fits a real server");
     }
 
     private static void backups() throws Exception {
