@@ -82,6 +82,7 @@ public final class ChecksMain {
         eulaAgreement();
         releaseVersion();
         memoryAndLaunchers();
+        storageAndPaging();
         playerTracking();
         activityFeed();
         geyserAndMultiPort();
@@ -183,6 +184,83 @@ public final class ChecksMain {
         ConfigSaver.save(saved, new RootConfig(base.server(), List.of(base.children().get(0).withExitOnOom(true)), base.baseDir()));
         check(Files.readString(saved).contains("exit_on_oom: true"), "exit_on_oom is written to config.yml");
         check(ConfigLoader.load(saved).children().get(0).exitOnOom(), "exit_on_oom survives a config round-trip");
+    }
+
+    /** Per-server storage limits, the quota walk, and activity paging. */
+    private static void storageAndPaging() throws Exception {
+        check(WebServer.parseStorageLimit(null) == 0, "an absent storage limit is unlimited");
+        check(WebServer.parseStorageLimit("  ") == 0, "a blank storage limit is unlimited");
+        check(WebServer.parseStorageLimit("0") == 0, "zero means unlimited");
+        check(WebServer.parseStorageLimit("5") == 5, "a whole number of GB is accepted");
+        check(WebServer.parseStorageLimit("-1") == -1, "a negative limit is rejected");
+        check(WebServer.parseStorageLimit("2.5") == -1, "a fractional limit is rejected");
+        check(WebServer.parseStorageLimit("lots") == -1, "a non-numeric limit is rejected");
+        check(WebServer.parseStorageLimit("1048577") == -1, "an absurd limit is rejected");
+        check(WebServer.storageLimitBytes(null) == 0, "no config means no limit");
+        check(WebServer.storageLimitBytes(new ChildConfig("s", "paper", Path.of("."), "server.jar", "1G", true, 25565,
+                "0.0.0.0", StopStrategy.STDIN, "stop", 30, 1, 1, true, List.of(5), List.of(), true, true, false, "",
+                true, "", 0, List.of(), false, 5)) == 5L * 1024 * 1024 * 1024, "5 GB is five binary gigabytes");
+        check(new ChildConfig("s", "paper", Path.of("."), "server.jar", "1G", true, 25565, "0.0.0.0",
+                StopStrategy.STDIN, "stop", 30, 1, 1, true, List.of(5), List.of(), true, true, false, "",
+                true, "", 0, List.of(), true, 7).withSilent(true).storageMaxGb() == 7,
+                "the storage limit survives another with* copy");
+
+        // Backups are excluded from the quota, so a full disk can never block a safety backup.
+        Path dir = Files.createTempDirectory("quota");
+        Files.createDirectories(dir.resolve("plugins"));
+        Files.writeString(dir.resolve("plugins/plugin.jar"), "x".repeat(1000));
+        Files.createDirectories(dir.resolve("backups"));
+        Files.writeString(dir.resolve("backups/big.zip"), "y".repeat(5000));
+        check(WebServer.quotaUsedBytes(dir) == 1000, "backups are not counted against the quota");
+        check(WebServer.quotaUsedBytes(Files.createTempDirectory("empty-quota")) == 0, "an empty folder uses nothing");
+
+        Path zip = Files.createTempDirectory("quota-zip").resolve("a.zip");
+        try (var out = new java.util.zip.ZipOutputStream(Files.newOutputStream(zip))) {
+            out.putNextEntry(new java.util.zip.ZipEntry("one.txt"));
+            out.write("a".repeat(300).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            out.closeEntry();
+            out.putNextEntry(new java.util.zip.ZipEntry("nested/two.txt"));
+            out.write("b".repeat(700).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            out.closeEntry();
+        }
+        check(WebServer.zipUncompressedBytes(zip) == 1000, "a zip's uncompressed size is summed before extracting");
+
+        // Storage limits round-trip through config.yml, and an unlimited server writes no key at all.
+        Path cfgDir = Files.createTempDirectory("storage-cfg");
+        RootConfig base = loadConfig(cfgDir, "placeholder", 25568, "127.0.0.1", 25566, 25565, true);
+        check(base.children().get(0).storageMaxGb() == 0, "a config without the key is unlimited");
+        Path unlimited = cfgDir.resolve("unlimited.yml");
+        ConfigSaver.save(unlimited, new RootConfig(base.server(), base.children(), base.baseDir()));
+        check(!Files.readString(unlimited).contains("storage_max_gb"), "an unlimited server writes no storage key");
+        Path limited = cfgDir.resolve("limited.yml");
+        ConfigSaver.save(limited, new RootConfig(base.server(),
+                List.of(base.children().get(0).withStorageMaxGb(12)), base.baseDir()));
+        check(Files.readString(limited).contains("storage_max_gb: 12"), "a storage limit is written to config.yml");
+        check(ConfigLoader.load(limited).children().get(0).storageMaxGb() == 12, "a storage limit survives a reload");
+
+        // Activity paging: newest first, offset from the end, plus dedupe that survives a second boundary.
+        Path act = Files.createTempDirectory("activity-page");
+        StringBuilder log = new StringBuilder();
+        for (int i = 0; i < 120; i++) {
+            log.append("{\"time\":\"2026-11-10T02:00:").append(String.format("%02d", i % 60)).append(".000Z\",")
+               .append("\"user\":\"ada\",\"action\":\"file.write\",\"details\":\"f").append(i).append(".yml\"}\n");
+        }
+        Files.writeString(act.resolve("activity.log"), log.toString());
+        String first = ActivityLog.recentForServerPage(act, null, "s", 50, 0, "");
+        check(first.contains("\"total\":120"), "the activity page reports the total");
+        check((first.split("\\{\"time\"", -1).length - 1) == 50, "the first activity page holds the page size");
+        check(first.contains("f119.yml") && !first.contains("f0.yml"), "the first page is the newest events");
+        String last = ActivityLog.recentForServerPage(act, null, "s", 50, 100, "");
+        check(last.contains("f0.yml") && (last.split("\\{\"time\"", -1).length - 1) == 20, "the last page holds the remainder");
+        check(ActivityLog.recentForServerPage(act, null, "s", 50, 500, "").contains("\"items\":[]"), "an offset past the end is empty");
+
+        Path twoLog = Files.createTempDirectory("activity-dedupe");
+        Files.writeString(twoLog.resolve("activity.log"),
+                "{\"time\":\"2026-11-10T03:00:59.900Z\",\"user\":\"ada\",\"action\":\"file.write\",\"details\":\"a.yml\"}\n"
+                + "{\"time\":\"2026-11-10T03:01:00.100Z\",\"user\":\"ada\",\"action\":\"file.write\",\"details\":\"a.yml\"}\n"
+                + "{\"time\":\"2026-11-10T03:05:00.000Z\",\"user\":\"ada\",\"action\":\"file.write\",\"details\":\"a.yml\"}\n");
+        String deduped = ActivityLog.recentForServerPage(twoLog, null, "s", 50, 0, "");
+        check(deduped.contains("\"total\":2"), "the same event across a second boundary collapses, a later one does not");
     }
 
     private static void playerTracking() throws Exception {
@@ -640,6 +718,16 @@ public final class ChecksMain {
         check(html.contains("toggleAction: (running || state === 'STOPPING') ? 'stop' : 'start'"), "a stopping server still offers stop, greyed, rather than flipping to start");
         check(html.contains("if (key === powerButtonsKey) return"), "repeat status polls do not rewrite the buttons");
         check(!html.contains("onclick=\"powerAction('stop')\"") && !html.contains(">Start</button>"), "the four static buttons are gone");
+        // Per-server storage limits and the confirm-and-retry on RAM.
+        check(html.contains("id=\"wizard-storage\"") && html.contains("id=\"edit-server-storage\""), "the storage limit is settable at creation and in Edit Server");
+        check(html.contains("storageMaxGb: storageMaxGb"), "the create payload carries the storage limit");
+        check(html.contains("storageMaxGb, jar, type, displayHost"), "the edit payload carries the storage limit");
+        check(html.contains("storageLimitBytes > 0"), "the storage bar uses the per-server limit when there is one");
+        check(html.contains("detail.code === 'ram_limit'") && html.contains("powerAction(action, true)"), "an over-committed start asks first and retries with force");
+        check(html.contains("dashboardPower(id, action, true)"), "the dashboard start asks the same way");
+        // Activity paging.
+        check(html.contains("function renderActivityPager(") && html.contains("id=\"activity-pager\"") && html.contains("id=\"audit-pager\""), "both activity lists have a pager");
+        check(html.contains("&limit=' + ACTIVITY_PAGE_SIZE + '&offset='"), "activity requests a page with a limit and an offset");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */

@@ -162,6 +162,16 @@ The panel can show two optional links:
 
 An admin pastes each destination into Settings and enables its checkbox. Clicking a button opens that saved `http` or `https` address. These are navigation links only. Their settings are stored in `node-buttons.properties` beside `config.yml`.
 
+## 1.2.0
+
+- Each server can have its own storage limit, in GB, set when it is created or in Edit Server. `0` means unlimited, and an existing `config.yml` with no `storage_max_gb` key stays unlimited.
+- The limit is enforced as a hard cap on the operations that add bytes: file upload, saving a file, copying, extracting a zip, and importing a zip. A refused write answers 409 with the numbers, and the panel shows the reason. Deleting, moving and trashing are never blocked, so an over-quota server can always be brought back under it.
+- Backups are excluded from the count on purpose. A full disk must not prevent a safety backup.
+- The storage meter on the server card and in the sidebar now shows `used / limit` when a limit is set, and scales the bar to that limit instead of to the largest server on the box.
+- A start that would exceed available RAM no longer refuses outright. The panel asks "Start server anyway?" with the numbers, and retries with `force=1` if you agree. Auto-start and crash-restart start anyway and log a warning, so a panel restart never leaves a server unexpectedly down.
+- The Activity tab and the Audit Log now page through history instead of showing a fixed window, with Newer and Older buttons and a page count.
+- Fixed a flaky duplicate in the server activity feed. Two writes of one action that straddled a second boundary were shown twice, because dedupe compared only the whole second.
+
 ## 1.1.1
 
 A fix release for one bug that shipped in 1.1.0.

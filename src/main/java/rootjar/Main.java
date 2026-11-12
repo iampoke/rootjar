@@ -31,7 +31,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 
 public final class Main {
-    public static final String VERSION = "1.1.1";
+    public static final String VERSION = "1.2.0";
 
     private Main() {}
 
@@ -250,10 +250,14 @@ public final class Main {
 
             if (childChanged) {
                 changed = true;
+                // Every field is passed through explicitly. The short constructor defaults extraPorts,
+                // exitOnOom and storageMaxGb, so using it here silently reset a renamed server's ports,
+                // OOM switch and storage limit.
                 c = new ChildConfig(newId, c.type(), newDir, c.jar(), c.heap(), c.xmsEqualXmx(),
                     newPort, c.bind(), c.stopStrategy(), c.stopCommand(), c.stopTimeoutSeconds(),
                     newStart, newStop, c.restartOnCrash(), c.restartBackoffSeconds(),
-                    c.extraFlags(), c.consoleEnabled(), c.useAikarFlags(), c.silent(), c.javaPath(), c.autoStart(), c.displayHost(), c.idleShutdownSeconds());
+                    c.extraFlags(), c.consoleEnabled(), c.useAikarFlags(), c.silent(), c.javaPath(), c.autoStart(),
+                    c.displayHost(), c.idleShutdownSeconds(), c.extraPorts(), c.exitOnOom(), c.storageMaxGb());
             }
             fixedChildren.add(c);
         }

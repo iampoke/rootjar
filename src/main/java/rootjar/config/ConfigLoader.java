@@ -92,7 +92,8 @@ public final class ConfigLoader {
                 str(m, "display_host", "", w),
                 Math.max(0, num(m, "idle_shutdown_seconds", 0, w)),
                 extraPorts,
-                bool(m, "exit_on_oom", false, w)
+                bool(m, "exit_on_oom", false, w),
+                Math.max(0, num(m, "storage_max_gb", 0, w))
         );
     }
 

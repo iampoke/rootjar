@@ -82,6 +82,7 @@ public class ConfigSaver {
                 sb.append("    extra_ports: [").append(c.extraPorts().stream().map(String::valueOf).reduce((a, b) -> a + ", " + b).orElse("")).append("]\n");
             }
             if (c.exitOnOom()) sb.append("    exit_on_oom: true\n"); // only written when enabled
+            if (c.storageMaxGb() > 0) sb.append("    storage_max_gb: ").append(c.storageMaxGb()).append("\n"); // 0 = unlimited, so omit it
         }
         Files.writeString(file, sb.toString());
     }

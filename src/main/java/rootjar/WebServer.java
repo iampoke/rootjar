@@ -777,6 +777,7 @@ public class WebServer {
               .append("\"idleRemainingMillis\":").append(c.idleShutdownRemainingMillis()).append(",")
               .append("\"ramUsed\":").append(s.ramMb()).append(",\"ramMax\":").append(parseRam(k.heap()))
               .append(",\"diskUsed\":").append(s.diskBytes())
+              .append(",\"storageMaxGb\":").append(k.storageMaxGb())
               .append(",\"restartRequired\":").append(configRestartRequired.contains(c.id()))
               .append(",\"cpuUsed\":").append(s.cpuPct()).append("}");
         }
@@ -1002,6 +1003,22 @@ public class WebServer {
         send(ex, 200, "{\"jar_name\":\"" + jsonEscape(jarName) + "\",\"download_url\":\"" + jsonEscape(downloadUrl) + "\"}");
     }
 
+    /**
+     * A per-server storage limit in GB, or -1 when the value is not a whole number in range. Zero means
+     * unlimited. The field is optional everywhere, so a blank or absent value is unlimited rather than an
+     * error, which is what an older client sending no field should get.
+     */
+    static long parseStorageLimit(String raw) {
+        if (raw == null || raw.isBlank()) return 0;
+        try {
+            long gb = Long.parseLong(raw.trim());
+            if (gb < 0 || gb > 1_048_576) return -1;
+            return gb;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
     private void handleCreateServer(HttpExchange ex) throws IOException {
         if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
         String body = new String(ex.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
@@ -1042,6 +1059,8 @@ public class WebServer {
             if (port != 0 && c.config().port() == port) { send(ex, 400, "Port in use"); return; }
         }
         if (ram < 128 || ram > 1048576) { send(ex, 400, "RAM must be between 128 and 1048576 MB"); return; }
+        long storageMaxGb = parseStorageLimit(extractJson(body, "storageMaxGb"));
+        if (storageMaxGb < 0) { send(ex, 400, "Storage limit must be 0 (unlimited) or a whole number of GB"); return; }
 
         try {
             Path dir = config.baseDir().resolve(name);
@@ -1070,7 +1089,7 @@ public class WebServer {
 
             ChildConfig newChild = new ChildConfig(name, type, dir, jar, ram + "M", true, port, "0.0.0.0",
                 website ? StopStrategy.SIGTERM : StopStrategy.STDIN, "stop", 30, startOrder, stopOrder, true, List.of(5, 10, 30, 60, 300), List.of(), true, !website, false, javaPath, true, "", 0,
-                extraPortsFromBody(body, port) == null ? List.of() : extraPortsFromBody(body, port));
+                extraPortsFromBody(body, port) == null ? List.of() : extraPortsFromBody(body, port), false, storageMaxGb);
             supervisor.addChild(newChild);
 
             saveConfig(new RootConfig(config.server(),
@@ -1192,6 +1211,8 @@ public class WebServer {
                 if (port != 0 && !other.id().equals(id) && other.config().port() == port) { send(ex, 409, "Port is already in use"); return; }
             }
             ChildConfig old = child.config();
+            long storageMaxGb = hasJsonKey(body, "storageMaxGb") ? parseStorageLimit(extractJson(body, "storageMaxGb")) : old.storageMaxGb();
+            if (storageMaxGb < 0) { send(ex, 400, "Storage limit must be 0 (unlimited) or a whole number of GB"); return; }
             Path oldDir = old.dir();
             Path newDir = name.equals(id) ? oldDir : config.baseDir().resolve(name).normalize();
             if (!name.equals(id) && (Files.exists(newDir) || !oldDir.toAbsolutePath().normalize().getParent().equals(newDir.toAbsolutePath().normalize().getParent()))) {
@@ -1204,7 +1225,7 @@ public class WebServer {
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(), old.startOrder(),
                 old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(), old.extraFlags(),
                 old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), displayHost, idleSeconds(body, old.idleShutdownSeconds()),
-                extraPortsFromBody(body, port) == null ? old.extraPorts() : extraPortsFromBody(body, port), old.exitOnOom());
+                extraPortsFromBody(body, port) == null ? old.extraPorts() : extraPortsFromBody(body, port), old.exitOnOom(), storageMaxGb);
             List<ChildConfig> children = supervisor.children().stream()
                 .map(c -> c.id().equals(id) ? updated : c.config()).toList();
             try { ConfigValidator.validate(new RootConfig(config.server(), children, config.baseDir())); }
@@ -1357,11 +1378,20 @@ public class WebServer {
         activity(id, ex, "server." + action, "");
         if (action.equals("kill")) supervisor.child(id).ifPresent(ChildProcess::kill);
         else {
-            // Refuse before committing anything: an over-allocated heap thrashes the whole machine rather
-            // than failing cleanly, and on Windows there is no OOM killer to stop it.
+            // An over-allocated heap thrashes the whole machine rather than failing cleanly, so this is
+            // surfaced before anything commits. It is a warning rather than a refusal: the panel answers 409
+            // with the numbers and the browser asks whether to start anyway, then retries with force=1.
             if (action.equals("start") || action.equals("restart")) {
-                String refusal = supervisor.ramRefusal(supervisor.child(id).orElse(null));
-                if (refusal != null) { send(ex, 409, refusal); return; }
+                var refusal = supervisor.ramCheck(supervisor.child(id).orElse(null));
+                boolean force = "1".equals(param(ex, "force", "")) || "true".equalsIgnoreCase(param(ex, "force", ""));
+                if (refusal != null && !force) {
+                    send(ex, 409, "{\"code\":\"ram_limit\",\"message\":\"" + jsonEscape(refusal.message())
+                            + "\",\"allocatedMb\":" + refusal.allocatedMb()
+                            + ",\"availableMb\":" + refusal.availableMb() + "}");
+                    return;
+                }
+                if (refusal != null) ConsoleOutput.root("starting " + id + " anyway at the operator's request: "
+                        + refusal.message());
             }
             supervisor.requestLifecycle(id, action);
         }
@@ -1666,7 +1696,7 @@ public class WebServer {
         ChildConfig updated = new ChildConfig(current.id(), current.type(), current.dir(), jar, current.heap(), xmsEqual,
                 current.port(), current.bind(), strategy, stopCommand, stopTimeout, current.startOrder(), current.stopOrder(),
                 current.restartOnCrash(), current.restartBackoffSeconds(), flags, current.consoleEnabled(), useAikar,
-                current.silent(), javaPath, autoStart, current.displayHost(), idle, current.extraPorts(), exitOnOom);
+                current.silent(), javaPath, autoStart, current.displayHost(), idle, current.extraPorts(), exitOnOom, current.storageMaxGb());
         supervisor.setChildConfig(serverId, updated);
         persistConfig();
         audit(ex, serverId + ".startup.save", "jar " + jar + (javaPath.isBlank() ? ", panel Java" : ", " + javaPath));
@@ -1718,7 +1748,7 @@ public class WebServer {
             ChildConfig newCfg = new ChildConfig(old.id(), old.type(), old.dir(), jar, heap, old.xmsEqualXmx(),
                 port, old.bind(), old.stopStrategy(), old.stopCommand(), old.stopTimeoutSeconds(),
                 old.startOrder(), old.stopOrder(), old.restartOnCrash(), old.restartBackoffSeconds(),
-                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), old.displayHost(), old.idleShutdownSeconds(), old.extraPorts(), old.exitOnOom());
+                old.extraFlags(), old.consoleEnabled(), old.useAikarFlags(), old.silent(), old.javaPath(), old.autoStart(), old.displayHost(), old.idleShutdownSeconds(), old.extraPorts(), old.exitOnOom(), old.storageMaxGb());
             supervisor.updateChildConfig(id, newCfg);
             saveConfig(new RootConfig(config.server(),
                     supervisor.children().stream().map(ChildProcess::config).toList(), config.baseDir()));
@@ -1783,6 +1813,9 @@ public class WebServer {
         if (child == null || relPath == null || !canAccessServer(ex, id)) { send(ex, 400, "Bad Request"); return; }
         try {
             Path file = safeResolve(child, relPath);
+            long existing = Files.isRegularFile(file) ? Files.size(file) : 0;
+            long incoming = content.getBytes(StandardCharsets.UTF_8).length;
+            if (storageBlocked(ex, child, Math.max(0, incoming - existing))) return;
             Files.writeString(file, content);
             audit(ex, id + ".file.write", relPath);
             send(ex, 200, "Saved");
@@ -1877,6 +1910,15 @@ public class WebServer {
             long limit = 200L * 1024 * 1024;
             long expected = declaredLength(ex.getRequestHeaders().getFirst("Content-Length"));
             if (expected > limit) { sendWithoutBody(ex, 413, "File is larger than the 200 MB per-file limit"); return; }
+            if (expected >= 0) {
+                long existing = Files.isRegularFile(target) ? Files.size(target) : 0;
+                String refusal = storageRefusal(child, Math.max(0, expected - existing));
+                if (refusal != null) {
+                    // The body was never read, so close the connection to let the browser see the status.
+                    sendWithoutBody(ex, 409, "{\"code\":\"storage_limit\",\"message\":\"" + jsonEscape(refusal) + "\"}");
+                    return;
+                }
+            }
             // Write beside the target and move it into place only once the whole body arrived. Writing straight
             // to the final name meant a cancelled upload, or a dropped connection, left a truncated file that
             // looked like a real plugin while the panel reported success.
@@ -2010,6 +2052,10 @@ public class WebServer {
             String fromKey = move ? "old" : "from", toKey = move ? "new" : "to";
             Path source = FileOps.resolve(child.config().dir(), param(ex, fromKey, ""));
             Path target = FileOps.resolve(child.config().dir(), param(ex, toKey, ""));
+            if (!move) {
+                long incoming = Files.isDirectory(source) ? quotaUsedBytes(source) : Files.size(source);
+                if (storageBlocked(ex, child, incoming)) return;
+            }
             if (move) Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
             else FileOps.copyRecursive(source, target);
             audit(ex, child.id() + (move ? ".file.move" : ".file.copy"), param(ex, fromKey, "") + " -> " + param(ex, toKey, ""));
@@ -2024,6 +2070,7 @@ public class WebServer {
             Path zip = FileOps.resolve(child.config().dir(), param(ex, "path", ""));
             String dest = param(ex, "dest", "");
             if (dest.isBlank()) dest = param(ex, "path", "").replaceAll("(?i)\\.zip$", "");
+            if (storageBlocked(ex, child, zipUncompressedBytes(zip))) return;
             FileOps.extract(zip, FileOps.resolve(child.config().dir(), dest));
             audit(ex, child.id() + ".file.extract", param(ex, "path", "") + " -> " + dest);
             send(ex, 200, "Extracted");
@@ -2513,15 +2560,19 @@ public class WebServer {
 
     private void handleActivity(HttpExchange ex) throws IOException {
         String server = param(ex, "server", "");
+        int limit = clampInt(param(ex, "limit", "50"), 50, 1, 200);
+        int offset = clampInt(param(ex, "offset", "0"), 0, 0, 100_000);
         if (server.isBlank()) {
             if (!isAdmin(ex)) { send(ex, 403, "Admin only"); return; }
-            send(ex, 200, ActivityLog.recent(config.baseDir(), 100, param(ex, "q", "")));
+            send(ex, 200, ActivityLog.recentPage(java.util.List.of(config.baseDir().resolve("activity.log")),
+                    limit, offset, param(ex, "q", "")));
             return;
         }
         if (!requireServer(ex, server)) return;
         ChildProcess child = supervisor.child(server).orElse(null);
         if (child == null) { send(ex, 404, "Not found"); return; }
-        send(ex, 200, ActivityLog.recentForServer(child.config().dir(), config.baseDir().resolve("activity.log"), child.id(), 300, param(ex, "q", "")));
+        send(ex, 200, ActivityLog.recentForServerPage(child.config().dir(),
+                config.baseDir().resolve("activity.log"), child.id(), limit, offset, param(ex, "q", "")));
     }
 
     private void handleTasks(HttpExchange ex) throws IOException {
@@ -2559,6 +2610,7 @@ public class WebServer {
         try {
             try (InputStream in = ex.getRequestBody()) { Files.copy(in, temp, StandardCopyOption.REPLACE_EXISTING); }
             String dest = param(ex, "path", "public");
+            if (storageBlocked(ex, child, zipUncompressedBytes(temp))) return;
             FileOps.extract(temp, FileOps.resolve(child.config().dir(), dest));
             audit(ex, child.id() + ".file.import", dest);
             send(ex, 200, "Imported");
@@ -3685,6 +3737,66 @@ public class WebServer {
         send(ex, 200, json.append("]}").toString());
     }
 
+    /**
+     * Bytes a child's folder counts against its own storage limit. Backups are excluded on purpose: a full
+     * disk must never prevent a safety backup, and they were not part of the request.
+     */
+    static long quotaUsedBytes(Path dir) {
+        if (dir == null || !Files.isDirectory(dir)) return 0;
+        long total = 0;
+        try (var walk = Files.walk(dir)) {
+            for (Path path : walk.toList()) {
+                if (!Files.isRegularFile(path)) continue;
+                Path relative = dir.relativize(path);
+                if (relative.getNameCount() > 0 && relative.getName(0).toString().equals("backups")) continue;
+                try { total += Files.size(path); } catch (IOException ignored) {}
+            }
+        } catch (IOException ignored) {}
+        return total;
+    }
+
+    /** The child's own storage limit in bytes, or 0 when unlimited. */
+    static long storageLimitBytes(ChildConfig cfg) {
+        return cfg == null ? 0 : Math.max(0, cfg.storageMaxGb()) * 1024L * 1024L * 1024L;
+    }
+
+    /**
+     * Refuses a write that would push a child past its own storage limit, or returns null when it fits.
+     * A hard refusal with no override: this is a disk cap, not a performance warning. Deletes and moves
+     * within the server are never blocked, so an over-quota server can always be brought back under it.
+     */
+    String storageRefusal(ChildProcess child, long incomingBytes) {
+        long limit = storageLimitBytes(child.config());
+        if (limit <= 0) return null;
+        long used = quotaUsedBytes(child.config().dir());
+        long incoming = Math.max(0, incomingBytes);
+        if (used + incoming <= limit) return null;
+        return "This server's storage limit is " + child.config().storageMaxGb() + " GB. It is using "
+                + (used / (1024 * 1024)) + " MB, so " + (incoming / (1024 * 1024))
+                + " MB more would exceed it. Delete files or raise the limit in Edit Server.";
+    }
+
+    /** Sends the storage refusal as 409 JSON and returns true, or returns false when the write fits. */
+    private boolean storageBlocked(HttpExchange ex, ChildProcess child, long incomingBytes) throws IOException {
+        String refusal = storageRefusal(child, incomingBytes);
+        if (refusal == null) return false;
+        send(ex, 409, "{\"code\":\"storage_limit\",\"message\":\"" + jsonEscape(refusal) + "\"}");
+        return true;
+    }
+
+    /** Total uncompressed size of a zip's entries, for a storage check before extracting it. */
+    static long zipUncompressedBytes(Path zip) {
+        long total = 0;
+        try (java.util.zip.ZipFile file = new java.util.zip.ZipFile(zip.toFile())) {
+            var entries = file.entries();
+            while (entries.hasMoreElements()) {
+                var entry = entries.nextElement();
+                if (!entry.isDirectory() && entry.getSize() > 0) total += entry.getSize();
+            }
+        } catch (Exception ignored) {}
+        return total;
+    }
+
     private static long directorySize(Path root) {
         long total = 0;
         try (var walk = Files.walk(root)) {
@@ -4340,7 +4452,7 @@ public class WebServer {
                         liveCfg.stopStrategy(), liveCfg.stopCommand(), liveCfg.stopTimeoutSeconds(),
                         liveCfg.startOrder(), liveCfg.stopOrder(), liveCfg.restartOnCrash(),
                         liveCfg.restartBackoffSeconds(), liveCfg.extraFlags(), liveCfg.consoleEnabled(),
-                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath(), liveCfg.autoStart(), liveCfg.displayHost(), liveCfg.idleShutdownSeconds(), liveCfg.extraPorts(), liveCfg.exitOnOom());
+                        liveCfg.useAikarFlags(), liveCfg.silent(), liveCfg.javaPath(), liveCfg.autoStart(), liveCfg.displayHost(), liveCfg.idleShutdownSeconds(), liveCfg.extraPorts(), liveCfg.exitOnOom(), liveCfg.storageMaxGb());
                 supervisor.updateChildConfig(serverId, newCfg);
                 owner[0] = supervisor.child(serverId).orElse(null); // updateChildConfig installs a new instance
                 persistConfig();

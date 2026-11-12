@@ -177,11 +177,11 @@ public final class Supervisor implements ChildProcess.ExitListener {
 
     private void startNow(ChildProcess c, boolean resetBackoff) {
         if (shuttingDown.get()) return;
-        String refusal = ramRefusal(c);
-        if (refusal != null) {
-            ConsoleOutput.root(refusal);
-            return;
-        }
+        // The RAM check is an interactive pre-check in handleAction, not a gate here. Auto-start and
+        // crash-restart must not leave a server unexpectedly down, so they start regardless and the
+        // operator gets a warning in the root console instead.
+        String warning = ramRefusal(c);
+        if (warning != null) ConsoleOutput.root("starting over the RAM budget: " + warning);
         cancelPendingRestart(c.id());
         if (resetBackoff) {
             BackoffPolicy backoff = backoffs.get(c.id());
@@ -203,7 +203,20 @@ public final class Supervisor implements ChildProcess.ExitListener {
      * skipped when the machine has less than the reserve, because refusing every start there would be worse
      * than letting the operator try.
      */
+    /** A RAM over-commit: the message to show, and the numbers behind it for the panel's popup. */
+    public record RamRefusal(String message, long allocatedMb, long availableMb) {}
+
     public String ramRefusal(ChildProcess candidate) {
+        RamRefusal refusal = ramCheck(candidate);
+        return refusal == null ? null : refusal.message();
+    }
+
+    /**
+     * Why {@code candidate} would over-commit RAM, or null when it fits. Only children that are already
+     * running count, so a stopped server's heap is not reserved against anyone. Skipped when the machine
+     * has less than the reserve, because warning on every start there would be noise.
+     */
+    public RamRefusal ramCheck(ChildProcess candidate) {
         if (candidate == null) return null;
         ChildConfig cfg = candidate.config();
         long need = MemoryInfo.heapMb(cfg.heap());
@@ -215,9 +228,9 @@ public final class Supervisor implements ChildProcess.ExitListener {
         }
         long available = MemoryInfo.availableMb() - RAM_RESERVE_MB;
         if (available <= 0 || allocated <= available) return null;
-        return "Cannot start " + cfg.id() + ": that would commit " + allocated + " MB of heap, but only "
-                + available + " MB is left after keeping " + RAM_RESERVE_MB + " MB back for the panel and the OS. "
-                + "Stop another server or lower a heap first.";
+        String message = "Starting " + cfg.id() + " would commit " + allocated + " MB of heap, but only "
+                + available + " MB is available after keeping " + RAM_RESERVE_MB + " MB back for the panel and the OS.";
+        return new RamRefusal(message, allocated, available);
     }
 
     public void requestLifecycle(String id, String verb) {
