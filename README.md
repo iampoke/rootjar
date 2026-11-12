@@ -162,6 +162,10 @@ The panel can show two optional links:
 
 An admin pastes each destination into Settings and enables its checkbox. Clicking a button opens that saved `http` or `https` address. These are navigation links only. Their settings are stored in `node-buttons.properties` beside `config.yml`.
 
+## 1.2.1
+
+- A write refused by the storage limit now says why. The upload row showed the raw 409 JSON, and saving a file in the editor showed nothing at all, because that path ignored failures entirely. Both now show the reason the panel sent.
+
 ## 1.2.0
 
 - Each server can have its own storage limit, in GB, set when it is created or in Edit Server. `0` means unlimited, and an existing `config.yml` with no `storage_max_gb` key stays unlimited.

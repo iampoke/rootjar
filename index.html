@@ -3527,6 +3527,21 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
             });
         }
 
+        /**
+         * A refused write answers 409 with {"code":...,"message":...}. Show the message, not the JSON, and fall
+         * back to the raw text for anything that is not that shape.
+         */
+        function refusalMessage(body, fallback) {
+            const text = String(body || '').trim();
+            if (text.startsWith('{')) {
+                try {
+                    const detail = JSON.parse(text);
+                    if (detail && detail.message) return String(detail.message);
+                } catch (_) {}
+            }
+            return text || fallback;
+        }
+
         function uploadFailureMessage(status, body) {
             // A proxy answers with its own HTML page. Dumping that into a toast is noise, and it hides the
             // real cause: the request never reached the panel.
@@ -3535,6 +3550,7 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
                 ? 'HTTP 413 - a reverse proxy in front of the panel rejected the size before it arrived. Raise its limit (client_max_body_size in nginx); the panel itself allows 200 MB per file.'
                 : 'HTTP 413 - too large. Rootjar accepts 200 MB per file. ' + (body || '');
             if (status === 429) return 'HTTP 429 - rate limited. Wait a minute and try again.';
+            if (status === 409) return refusalMessage(body, 'HTTP 409 - the write was refused.');
             if (status === 401) return 'HTTP 401 - your session expired. Reload the panel, sign in again, then retry.';
             if (status === 403) return 'HTTP 403 - rejected. Reload the panel to get a fresh CSRF token, or check that your user may edit this server.';
             if (status === 404) return 'HTTP 404 - the server or folder was not found.' + (fromProxy ? '' : ' ' + (body || ''));
@@ -3894,7 +3910,9 @@ try { document.body.classList.toggle('mc-font', localStorage.getItem('rootjar-mc
         }
         async function saveFile() {
             const res = await fetch(`/api/files/write/${currentServer.id}?path=${encodeURIComponent(currentFile)}`, { method: 'POST', body: document.getElementById('fm-modal-textarea').value });
-            if (res.ok) { showToast('Saved', 'success'); document.getElementById('fm-modal').classList.remove('active'); }
+            if (res.ok) { showToast('Saved', 'success'); document.getElementById('fm-modal').classList.remove('active'); return; }
+            // This used to return silently, so a refused save looked like nothing happened at all.
+            showToast('Save failed: ' + refusalMessage(await res.text(), 'HTTP ' + res.status), 'error');
         }
 
         // ===== Mods / Plugins (Phase 2) =====

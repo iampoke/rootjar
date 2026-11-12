@@ -728,6 +728,9 @@ public final class ChecksMain {
         // Activity paging.
         check(html.contains("function renderActivityPager(") && html.contains("id=\"activity-pager\"") && html.contains("id=\"audit-pager\""), "both activity lists have a pager");
         check(html.contains("&limit=' + ACTIVITY_PAGE_SIZE + '&offset='"), "activity requests a page with a limit and an offset");
+        check(html.contains("function refusalMessage("), "a refused write shows the reason rather than raw JSON");
+        check(!html.contains("if (res.ok) { showToast('Saved', 'success'); document.getElementById('fm-modal').classList.remove('active'); }"),
+                "a failed save is reported instead of silently doing nothing");
     }
 
     /** Counts non-overlapping occurrences; used to keep markup and its decorations in step. */
